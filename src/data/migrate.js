@@ -1,5 +1,5 @@
-import { seedData, DEFAULT_CLIENT_TYPE } from "./seed";
-import { LEGACY_STAGE_MAP } from "../lib/utils";
+import { seedData, DEFAULT_CLIENT_TYPE } from "./seed.js";
+import { LEGACY_STAGE_MAP } from "../lib/utils.js";
 
 // Saved data can predate any field added later, so every read is normalised
 // against a fresh seed before the app touches it.

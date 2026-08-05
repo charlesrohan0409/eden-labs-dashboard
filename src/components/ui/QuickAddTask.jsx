@@ -56,7 +56,7 @@ export default function QuickAddTask({ clients = [], onAdd }) {
         onClick={() => setOpen(true)}
         title="Quick-add task (⌘K)"
         aria-label="Quick-add task"
-        className="fixed bottom-24 right-5 md:bottom-8 md:right-8 z-[80] w-12 h-12 rounded-full bg-emerald-800 text-white shadow-lg flex items-center justify-center hover:bg-emerald-900 active:scale-95 transition-all"
+        className="fixed bottom-24 right-5 lg:bottom-8 lg:right-8 z-[80] w-12 h-12 rounded-full bg-emerald-800 text-white shadow-lg flex items-center justify-center hover:bg-emerald-900 active:scale-95 transition-all"
       >
         <Plus size={22} />
       </button>

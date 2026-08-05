@@ -3,7 +3,7 @@ import Logo from "./Logo";
 
 export default function MobileTopBar({ onPreviewPortal, onLogout }) {
   return (
-    <div className="md:hidden sticky top-0 z-20 bg-night text-white px-4 py-3 flex items-center justify-between gap-3">
+    <div className="lg:hidden sticky top-0 z-20 bg-night text-white px-4 py-3 flex items-center justify-between gap-3">
       <Logo size={30} tone="dark" showBadge={false} />
       <div className="flex items-center gap-2 shrink-0">
         <button

@@ -121,12 +121,12 @@ export default function App() {
 
   return (
     <CurrencyProvider currency={data.settings?.currency}>
-    <div className="flex flex-col md:flex-row min-h-screen bg-canvas">
+    <div className="flex flex-col lg:flex-row min-h-screen bg-canvas">
       <SaveErrorBanner message={saveError} onDismiss={dismissSaveError} />
       <MobileTopBar onPreviewPortal={() => setPortalMode(true)} onLogout={ownerAuth.logout} />
       <Sidebar view={view} setView={setView} onPreviewPortal={() => setPortalMode(true)} onLogout={ownerAuth.logout} />
 
-      <main className="flex-1 min-w-0 p-4 md:p-8 pb-24 md:pb-8 max-w-[1400px]">
+      <main className="flex-1 min-w-0 overflow-x-hidden p-4 lg:p-8 pb-24 lg:pb-8 max-w-[1400px]">
       <Suspense fallback={<PageLoader />}>
         {view === "home" && (
           <HomeDashboard

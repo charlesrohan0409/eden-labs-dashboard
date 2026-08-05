@@ -24,7 +24,7 @@ export const isNavActive = (itemId, view) => view === itemId || PARENT_OF[view] 
 
 export default function Sidebar({ view, setView, onPreviewPortal, onLogout }) {
   return (
-    <div className="hidden md:flex w-60 shrink-0 bg-night text-stone-300 min-h-screen flex-col sticky top-0 h-screen">
+    <div className="hidden lg:flex w-60 shrink-0 bg-night text-stone-300 min-h-screen flex-col sticky top-0 h-screen">
       <div className="px-4 py-6">
         <Logo size={34} tone="dark" />
       </div>

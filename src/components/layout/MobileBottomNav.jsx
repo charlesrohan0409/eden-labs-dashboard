@@ -6,7 +6,7 @@ import { NAV_ITEMS, isNavActive } from "./Sidebar";
 // bar with more destinations than fit.
 export default function MobileBottomNav({ view, setView }) {
   return (
-    <div className="md:hidden fixed bottom-0 inset-x-0 z-20 bg-white border-t border-line flex overflow-x-auto no-scrollbar safe-area-bottom">
+    <div className="lg:hidden fixed bottom-0 inset-x-0 z-20 bg-white border-t border-line flex overflow-x-auto no-scrollbar safe-area-bottom">
       {NAV_ITEMS.map((it) => {
         const Icon = it.icon;
         const active = isNavActive(it.id, view);

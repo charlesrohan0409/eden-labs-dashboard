@@ -144,22 +144,26 @@ export default function FinanceDetail({ data, setView, onAddExpense, onAddInvoic
           <h1 className="text-3xl font-bold tracking-tight text-stone-900">Finance</h1>
           <p className="text-sm text-stone-500 mt-1">Track income, invoices, and where the money goes.</p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
           <PrimaryButton
             variant="ghost"
             icon={FileDown}
+            title="Export invoices as CSV"
             onClick={() => downloadCSV(
               "eden-labs-invoices.csv",
               ["Invoice", "Client", "Amount", "Status", "Date", "Period"],
               data.invoices.map((i) => [invoiceNo(i.id), clientOf(i.clientId)?.name || "—", i.amount, i.status, i.date, i.period || ""])
             )}
           >
-            Export
+            <span className="hidden sm:inline">Export</span>
           </PrimaryButton>
-          <PrimaryButton variant="ghost" icon={Repeat} onClick={handleGenerate} title="Bills every active client for the current month">
-            Bill active clients
+          <PrimaryButton variant="ghost" icon={Repeat} onClick={handleGenerate} title="Bill active clients for this month">
+            <span className="hidden sm:inline">Bill active clients</span>
           </PrimaryButton>
-          <PrimaryButton icon={Plus} onClick={() => setInvoiceModalOpen(true)}>New invoice</PrimaryButton>
+          <PrimaryButton icon={Plus} onClick={() => setInvoiceModalOpen(true)}>
+            <span className="hidden sm:inline">New invoice</span>
+            <span className="sm:hidden">New</span>
+          </PrimaryButton>
         </div>
       </div>
 

@@ -33,6 +33,27 @@ if (!window.__edenLabsCRMInjected) {
     }
   }
 
+  // Finds the profile photo on the current LinkedIn page, if there is one.
+  // Deliberately not tied to a specific class name — LinkedIn's markup is
+  // auto-generated and changes without notice, so a hard-coded selector
+  // would break silently sooner or later. Instead: every profile photo is
+  // served from LinkedIn's media CDN, so among images pointing there, the
+  // largest on-screen one is almost always the profile picture itself (every
+  // other licdn.com image on a profile page — connection avatars, company
+  // logos in the feed — renders considerably smaller). Falls back to no
+  // photo at all if the page isn't LinkedIn or nothing matches; the rest of
+  // the save flow works identically either way.
+  function findLinkedInPhoto() {
+    // Matches linkedin.com and any subdomain (www., mobile., etc.) — but not
+    // some unrelated domain that merely ends in the same letters.
+    if (!/(^|\.)linkedin\.com$/.test(location.hostname)) return null;
+    const candidates = Array.from(document.querySelectorAll('img[src*="media.licdn.com"]'))
+      .filter((img) => img.naturalWidth > 60 && img.naturalHeight > 60); // skip small icons/logos
+    if (!candidates.length) return null;
+    candidates.sort((a, b) => (b.naturalWidth * b.naturalHeight) - (a.naturalWidth * a.naturalHeight));
+    return candidates[0].src;
+  }
+
   function showWidget(lead) {
     removeWidget(); // one at a time — a fresh right-click replaces, never stacks
 
@@ -99,6 +120,15 @@ if (!window.__edenLabsCRMInjected) {
         .close-btn:hover { background: rgba(255,255,255,.22); color: #fff; }
 
         .body { padding: 14px 16px 16px; }
+        .photo-row {
+          display: flex; align-items: center; gap: 10px;
+          margin-bottom: 12px; display: none;
+        }
+        .photo-row img {
+          width: 40px; height: 40px; border-radius: 50%;
+          object-fit: cover; border: 1px solid #e7e5e4; flex-shrink: 0;
+        }
+        .photo-row span { font-size: 11px; color: #78716c; }
         .field { margin-bottom: 10px; }
         label {
           display: block; font-size: 10px; font-weight: 600; color: #78716c;
@@ -157,6 +187,11 @@ if (!window.__edenLabsCRMInjected) {
         </div>
         <div class="body">
           <div id="status"></div>
+
+          <div class="photo-row" id="photo-row">
+            <img id="photo-preview" alt="" />
+            <span>Photo captured from LinkedIn</span>
+          </div>
 
           <div class="field">
             <label>Name *</label>
@@ -226,6 +261,15 @@ if (!window.__edenLabsCRMInjected) {
       $("source-url").title = lead.pageUrl;
     }
 
+    // Auto-detect the profile photo the moment the card opens — no extra
+    // click needed, works purely because the widget happens to be open on a
+    // LinkedIn profile page already.
+    const photoUrl = findLinkedInPhoto();
+    if (photoUrl) {
+      $("photo-preview").src = photoUrl;
+      $("photo-row").style.display = "flex";
+    }
+
     $("close").addEventListener("click", removeWidget);
 
     // Escape key + click-outside close it — but since the widget itself
@@ -259,6 +303,7 @@ if (!window.__edenLabsCRMInjected) {
         notes: $("notes").value.trim(),
         source: sourceUrl ? labelForUrl(sourceUrl) : "Chrome Extension",
         url: sourceUrl,
+        photoUrl: photoUrl || "",
       };
 
       const btn = $("save");

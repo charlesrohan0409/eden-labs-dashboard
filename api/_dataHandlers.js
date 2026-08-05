@@ -93,6 +93,7 @@ export async function handleCRMLead(headers, body) {
     notes:      body.notes     || "",
     email:      body.email     || "",
     phone:      body.phone     || "",
+    photoUrl:   body.photoUrl  || "",
     dealValue:  body.dealValue || null,
     clientId:   null,
     closedDate: null,

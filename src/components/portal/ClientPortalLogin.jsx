@@ -3,16 +3,38 @@ import { Lock, ArrowLeft } from "lucide-react";
 import Card from "../ui/Card";
 import PrimaryButton from "../ui/PrimaryButton";
 
-export default function ClientPortalLogin({ data, onLogin, onExit }) {
+// PIN is verified server-side (/api/auth-client) against a hashed value in
+// Supabase — replaced the old `data.clients.find(c => c.pin === pin)` check,
+// which compared against every client's plaintext PIN sitting in the
+// browser's own copy of the full dashboard blob. A successful login mints a
+// signed, client-scoped session token; onLogin hands that up so the parent
+// can fetch only this client's data through /api/portal-data.
+export default function ClientPortalLogin({ onLogin, onExit }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const submit = () => {
-    const client = data.clients.find((c) => c.pin === pin);
-    if (client) onLogin(client.id);
-    // Never hint at valid PINs here — this screen is public, and the old copy
-    // listed three real clients' working PINs to anyone who guessed wrong.
-    else setError("That PIN didn't match. Check the one Eden Labs sent you.");
+  const submit = async () => {
+    if (!pin.trim() || loading) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/auth-client", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: pin.trim() }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.token) {
+        setError(json.error || "That PIN didn't match.");
+        return;
+      }
+      onLogin({ token: json.token, clientId: json.clientId });
+    } catch (e) {
+      setError(e.message || "Couldn't reach the server — check your connection.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -35,11 +57,9 @@ export default function ClientPortalLogin({ data, onLogin, onExit }) {
           />
           {error && <div className="text-xs text-rose-600 mt-2">{error}</div>}
 
-          <PrimaryButton className="w-full mt-4" onClick={submit}>Enter</PrimaryButton>
-
-          <div className="text-[11px] text-stone-400 mt-5">
-            Placeholder auth — replaced with per-client Supabase sessions in step 4.
-          </div>
+          <PrimaryButton className="w-full mt-4" onClick={submit} disabled={loading}>
+            {loading ? "Checking…" : "Enter"}
+          </PrimaryButton>
         </Card>
 
         <button

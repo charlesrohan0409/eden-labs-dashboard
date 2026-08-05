@@ -5,8 +5,9 @@ import {
 } from "recharts";
 import {
   ArrowLeft, Plus, DollarSign, AlertCircle, Clock, Search,
-  ArrowUpRight, ArrowDownRight, FileDown, Wallet, Receipt, Repeat,
+  ArrowUpRight, ArrowDownRight, FileDown, Wallet, Receipt, Repeat, Mail, Loader2,
 } from "lucide-react";
+import { sendEmail } from "../../lib/email";
 import Card, { CardTitle } from "../ui/Card";
 import Badge from "../ui/Badge";
 import Avatar from "../ui/Avatar";
@@ -35,6 +36,8 @@ export default function FinanceDetail({ data, setView, onAddExpense, onAddInvoic
   const [filterStatus, setFilterStatus] = useState("all");
   const [search, setSearch] = useState("");
   const [genStatus, setGenStatus] = useState("");
+  // { [invoiceId]: "sending" | "sent" | "failed" }
+  const [reminderStatus, setReminderStatus] = useState({});
   const [exp, setExp] = useState({ category: "Software", vendor: "", amount: "" });
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
   const { money } = useCurrency();
@@ -94,6 +97,30 @@ export default function FinanceDetail({ data, setView, onAddExpense, onAddInvoic
   };
 
   const inputCls = "border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
+
+  const sendReminder = async (invoice) => {
+    const client = clientOf(invoice.clientId);
+    if (!client?.email) {
+      setReminderStatus((s) => ({ ...s, [invoice.id]: "no-email" }));
+      return;
+    }
+    setReminderStatus((s) => ({ ...s, [invoice.id]: "sending" }));
+    const inv = invoiceNo(invoice.id);
+    const amount = `$${invoice.amount.toLocaleString()}`;
+    const text = `Hi ${client.name},\n\nThis is a reminder that invoice ${inv} for ${amount} is ${invoice.status}.\n\nPlease let us know if you have any questions.\n\n— Eden Labs`;
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#1c1917;line-height:1.6;max-width:520px">
+  <p>Hi ${client.name},</p>
+  <p>This is a friendly reminder that <strong>invoice ${inv}</strong> for <strong>${amount}</strong> is currently marked as <strong>${invoice.status}</strong>.</p>
+  <p>Please reach out if you have any questions or need anything from our end.</p>
+  <p>— Eden Labs</p>
+</div>`;
+    try {
+      await sendEmail({ to: client.email, subject: `Payment reminder — invoice ${inv}`, text, html });
+      setReminderStatus((s) => ({ ...s, [invoice.id]: "sent" }));
+    } catch {
+      setReminderStatus((s) => ({ ...s, [invoice.id]: "failed" }));
+    }
+  };
 
   const handleGenerate = () => {
     const period = today().slice(0, 7);
@@ -342,13 +369,35 @@ export default function FinanceDetail({ data, setView, onAddExpense, onAddInvoic
                           })}
                         </td>
                         <td className="py-3 px-3 text-right">
-                          <PrimaryButton
-                            size="sm"
-                            variant={i.status === "paid" ? "ghost" : "primary"}
-                            onClick={() => onUpdateInvoiceStatus(i.id, i.status === "paid" ? "pending" : "paid")}
-                          >
-                            {i.status === "paid" ? "Mark unpaid" : "Mark paid"}
-                          </PrimaryButton>
+                          <div className="flex items-center justify-end gap-2">
+                            {(i.status === "pending" || i.status === "overdue") && (
+                              <button
+                                onClick={() => sendReminder(i)}
+                                disabled={reminderStatus[i.id] === "sending"}
+                                title={reminderStatus[i.id] === "no-email" ? "No email on file for this client" : "Send payment reminder email"}
+                                className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-full border border-line text-stone-500 hover:bg-stone-50 disabled:opacity-60 transition-colors"
+                              >
+                                {reminderStatus[i.id] === "sending" ? (
+                                  <><Loader2 size={11} className="animate-spin" /> Sending…</>
+                                ) : reminderStatus[i.id] === "sent" ? (
+                                  "Sent ✓"
+                                ) : reminderStatus[i.id] === "failed" ? (
+                                  "Failed"
+                                ) : reminderStatus[i.id] === "no-email" ? (
+                                  "No email"
+                                ) : (
+                                  <><Mail size={11} /> Remind</>
+                                )}
+                              </button>
+                            )}
+                            <PrimaryButton
+                              size="sm"
+                              variant={i.status === "paid" ? "ghost" : "primary"}
+                              onClick={() => onUpdateInvoiceStatus(i.id, i.status === "paid" ? "pending" : "paid")}
+                            >
+                              {i.status === "paid" ? "Mark unpaid" : "Mark paid"}
+                            </PrimaryButton>
+                          </div>
                         </td>
                       </tr>
                     );

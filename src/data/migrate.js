@@ -11,7 +11,7 @@ export function migrateData(loaded) {
   [
     "clients", "contacts", "tasks", "posts", "dms", "expenses", "invoices",
     "growthLog", "channelPerf", "integrations", "calls", "outreachByChannel",
-    "comments", "swipeFile",
+    "comments", "swipeFile", "activityLog",
   ].forEach((key) => {
     if (!Array.isArray(merged[key])) merged[key] = defaults[key];
   });
@@ -42,7 +42,7 @@ export function migrateData(loaded) {
   // Ensure each client has the newer contract/email fields so nothing downstream reads undefined.
   // Clients saved before service lines existed are all LinkedIn work.
   merged.clients = merged.clients.map((c) => ({
-    email: "", photoUrl: "", logoUrl: "", type: DEFAULT_CLIENT_TYPE,
+    email: "", photoUrl: "", logoUrl: "", type: DEFAULT_CLIENT_TYPE, notes: "",
     ...c,
     contract: { value: 0, status: "active", cycle: "monthly", notes: "", serviceType: "content", startDate: "", renewalDate: "", history: [], bodyText: "", ...(c.contract || {}) },
     delivery: Array.isArray(c.delivery) ? c.delivery : [],

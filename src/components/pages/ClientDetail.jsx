@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 import {
   ArrowLeft, Send, FileDown, TrendingUp, CheckCircle2, DollarSign, Phone, Link2, Copy, Check,
-  AlertTriangle, Ban, Eye, Clock,
+  AlertTriangle, Ban, Eye, Clock, StickyNote, Activity, FileText, MessageSquare, CheckCheck,
 } from "lucide-react";
 import Card, { CardTitle } from "../ui/Card";
 import Badge from "../ui/Badge";
@@ -21,13 +21,77 @@ import { CLIENT_TYPES, DEFAULT_CLIENT_TYPE } from "../../data/seed";
 import { useCurrency } from "../../hooks/useCurrency";
 import { sendEmail } from "../../lib/email";
 
-// Guard on the destructive action. This is a client-side speed bump, not
-// security — it moves behind Supabase auth when real sessions land.
-const OWNER_PASSCODE = import.meta.env.VITE_OWNER_PASSCODE || "eden-labs";
+// ---- Activity log icon / colour per event type ----
+const ACTIVITY_CONFIG = {
+  post_created:       { icon: FileText,     color: "text-emerald-600", label: "Post drafted" },
+  post_status_changed:{ icon: CheckCheck,   color: "text-violet-600",  label: "Post status" },
+  dm_logged:          { icon: MessageSquare,color: "text-sky-600",     label: "DM logged" },
+  contract_ended:     { icon: Ban,          color: "text-rose-500",    label: "Contract ended" },
+  notes_updated:      { icon: StickyNote,   color: "text-amber-500",   label: "Notes updated" },
+};
+
+function ActivityTab({ clientId, activityLog }) {
+  const entries = [...activityLog]
+    .filter((e) => e.clientId === clientId)
+    .sort((a, b) => (b.at > a.at ? 1 : -1));
+
+  if (entries.length === 0) {
+    return (
+      <Card className="p-10 flex flex-col items-center justify-center text-center gap-3">
+        <Activity size={32} className="text-stone-300" />
+        <div>
+          <div className="text-sm font-medium text-stone-600">No activity yet</div>
+          <div className="text-xs text-stone-400 mt-1">
+            Key events — posts, DMs, status changes — will appear here automatically.<br />
+            A full audit trail will be stored in Supabase once connected.
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="p-5">
+      <CardTitle sub={`${entries.length} event${entries.length === 1 ? "" : "s"} recorded`}>
+        <span className="flex items-center gap-2"><Activity size={15} className="text-stone-500" /> Activity log</span>
+      </CardTitle>
+      <div className="relative pl-5 space-y-0">
+        {/* Vertical timeline line */}
+        <div className="absolute left-[7px] top-2 bottom-2 w-px bg-stone-100" />
+        {entries.map((entry) => {
+          const cfg = ACTIVITY_CONFIG[entry.type] || { icon: Activity, color: "text-stone-400", label: entry.type };
+          const Icon = cfg.icon;
+          const ts = new Date(entry.at);
+          const dateLabel = ts.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+          const timeLabel = ts.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+          return (
+            <div key={entry.id} className="flex items-start gap-3 py-3 border-b border-stone-100 last:border-0">
+              {/* Icon bubble on the timeline */}
+              <div className={`w-3.5 h-3.5 rounded-full bg-white border-2 border-stone-200 shrink-0 mt-0.5 -ml-5 flex items-center justify-center`} />
+              <div className="min-w-0 flex-1 -mt-px">
+                <div className="flex items-start gap-2 flex-wrap">
+                  <Icon size={13} className={`${cfg.color} shrink-0 mt-0.5`} />
+                  <span className="text-sm text-stone-700">{entry.description}</span>
+                </div>
+                <div className="text-[11px] text-stone-400 mt-0.5">
+                  {dateLabel} · {timeLabel}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-[11px] text-stone-400 mt-4 pt-3 border-t border-stone-100">
+        Activity is stored locally — a persistent audit trail will land once Supabase is connected.
+      </p>
+    </Card>
+  );
+}
 
 export default function ClientDetail({
   data, clientId, setView, onAddPost, onUpdatePost, onAddDM, onUpdateContract, onUpdateDelivery,
   onUpdatePostStatus, onEndContract, onAddTask, onToggleTask, onDeleteTask,
+  onUpdateClientNotes, onLogActivity,
 }) {
   const [tab, setTab] = useState("overview");
   const [dmForm, setDmForm] = useState({ direction: "sent", content: "" });
@@ -39,9 +103,9 @@ export default function ClientDetail({
   const [reportStatus, setReportStatus] = useState("");
   const [copied, setCopied] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
-  const [endForm, setEndForm] = useState({ passcode: "", reason: "" });
-  const [endError, setEndError] = useState("");
+  const [endForm, setEndForm] = useState({ reason: "" });
   const [viewingPost, setViewingPost] = useState(null);
+  const [notesText, setNotesText] = useState("");
   const { money } = useCurrency();
 
   const client = data.clients.find((c) => c.id === clientId);
@@ -71,6 +135,10 @@ export default function ClientDetail({
     return MONTHS.map((m) => byMonth[m]);
   }, [data.invoices, clientId]);
 
+  // Sync scratchpad when switching between clients
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setNotesText(client?.notes || ""); }, [clientId]);
+
   if (!client) return null;
 
   const clientCalls = data.calls.filter((c) => c.clientId === clientId);
@@ -81,7 +149,7 @@ export default function ClientDetail({
   const openTasks = data.tasks.filter((t) => t.clientId === clientId && !t.done).length;
 
   const clientType = CLIENT_TYPES[client.type] || CLIENT_TYPES[DEFAULT_CLIENT_TYPE];
-  const TAB_LABELS = { overview: "Overview", content: "Content", dms: "DMs", contract: "Contract", report: "Report" };
+  const TAB_LABELS = { overview: "Overview", content: "Content", dms: "DMs", contract: "Contract", activity: "Activity", report: "Report" };
   const visibleTabs = clientType.tabs.map((t) => ({ value: t, label: TAB_LABELS[t] || t }));
   // If the active tab isn't available for this client's type (e.g. you were on
   // Content, then opened a book client), fall back to Overview rather than
@@ -179,14 +247,9 @@ export default function ClientDetail({
   };
 
   const confirmEndContract = () => {
-    if (endForm.passcode !== OWNER_PASSCODE) {
-      setEndError("That password is incorrect.");
-      return;
-    }
     onEndContract(client.id, endForm.reason);
     setEndOpen(false);
-    setEndForm({ passcode: "", reason: "" });
-    setEndError("");
+    setEndForm({ reason: "" });
   };
 
   const inputCls = "border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
@@ -360,6 +423,21 @@ export default function ClientDetail({
               </div>
             </Card>
           </div>
+
+          {/* ── Notes scratchpad ── */}
+          <Card className="p-5">
+            <CardTitle sub="Auto-saved on blur — private, not shown to the client">
+              <span className="flex items-center gap-2"><StickyNote size={15} className="text-amber-500" /> Notes</span>
+            </CardTitle>
+            <textarea
+              rows={4}
+              placeholder={`Quick notes about ${client.name.split(" ")[0]}… (auto-saved when you click away)`}
+              value={notesText}
+              onChange={(e) => setNotesText(e.target.value)}
+              onBlur={() => onUpdateClientNotes?.(client.id, notesText)}
+              className="w-full border border-line rounded-xl px-3.5 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20 resize-none leading-relaxed"
+            />
+          </Card>
         </div>
       )}
 
@@ -616,6 +694,11 @@ export default function ClientDetail({
         </div>
       )}
 
+      {/* ══ Activity ══ */}
+      {activeTab === "activity" && (
+        <ActivityTab clientId={client.id} activityLog={data.activityLog || []} />
+      )}
+
       {/* ══ Report ══ */}
       {activeTab === "report" && (
         <Card className="p-0 overflow-hidden">
@@ -747,8 +830,7 @@ export default function ClientDetail({
             <PrimaryButton variant="ghost" onClick={() => setEndOpen(false)}>Cancel</PrimaryButton>
             <button
               onClick={confirmEndContract}
-              disabled={!endForm.passcode}
-              className="inline-flex items-center gap-1.5 text-sm font-medium rounded-full px-4 py-2 bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="inline-flex items-center gap-1.5 text-sm font-medium rounded-full px-4 py-2 bg-rose-600 text-white hover:bg-rose-700 transition-colors"
             >
               <Ban size={15} /> End contract
             </button>
@@ -770,22 +852,9 @@ export default function ClientDetail({
               placeholder="e.g. pilot finished, not renewing"
               value={endForm.reason}
               onChange={(e) => setEndForm({ ...endForm, reason: e.target.value })}
-              className={`${inputCls} w-full mt-1`}
-            />
-          </div>
-
-          <div>
-            <label className="text-xs text-stone-500 font-medium">Confirm with your password</label>
-            <input
-              type="password"
-              autoComplete="current-password"
-              placeholder="Password"
-              value={endForm.passcode}
-              onChange={(e) => { setEndForm({ ...endForm, passcode: e.target.value }); setEndError(""); }}
               onKeyDown={(e) => e.key === "Enter" && confirmEndContract()}
               className={`${inputCls} w-full mt-1`}
             />
-            {endError && <div className="text-xs text-rose-600 mt-1.5">{endError}</div>}
           </div>
         </div>
       </Modal>

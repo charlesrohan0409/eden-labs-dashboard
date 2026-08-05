@@ -685,3 +685,251 @@ BROWSER-TESTING NOTE FOR FUTURE SESSIONS:
   Reliable approach: open a FRESH tab (tabs_create + navigate) to check for real
   console errors, and use javascript_tool DOM text extraction to verify rendering
   instead of trusting screenshots.
+
+================================================================================
+12. ADDENDUM (2026-08-05, later session) — SUPABASE MIGRATION: REAL AUTH +
+    MULTI-DEVICE DATA. Where this disagrees with §1-§11, THIS WINS.
+================================================================================
+User asked for: multi-device dashboard access, real client-portal auth (not
+client-side PIN comparison), PIN-based owner login (not Google) with PIN
+041998, groundwork for future team access, and "save relevant data of the
+app" — i.e. move off localStorage. All delivered this session.
+
+SUPABASE PROJECT
+  Name "Eden Labs", project_id yjfxzycszlwrhtzxqrtx, region ap-south-1.
+  New project — Charles's two other Supabase projects (personal, "The
+  Combeack") were NOT reused, kept separate on purpose.
+  URL: https://yjfxzycszlwrhtzxqrtx.supabase.co
+
+ARCHITECTURE DECISION — did NOT do a full relational rewrite.
+  The app's data model stayed exactly what it was: one big JSON document
+  (clients, posts, tasks, invoices, etc.) — same shape components already
+  expect. That document now lives in ONE ROW in Supabase (table `app_data`,
+  column `data jsonb`) instead of localStorage. This kept the diff small and
+  low-risk: every page component is UNCHANGED, `useAppData.js`'s `actions`
+  API is UNCHANGED in shape, only the persistence layer underneath moved.
+  Full per-table relational schema + RLS-by-user is a real future upgrade if
+  team access needs row-level granularity later — not needed for "one owner
+  + N clients", which is what exists today.
+
+  Browser NEVER talks to Supabase directly (same rule as Buffer/Resend/
+  Fathom — see §2). Every table has RLS enabled with ZERO policies, so even
+  a leaked anon/publishable key grants nothing. Only the server-side
+  service_role key (in api/_supabaseAdmin.js, read from
+  SUPABASE_SERVICE_ROLE_KEY, never VITE_-prefixed) can touch these tables,
+  and that key only ever runs inside /api/* handlers.
+
+SCHEMA (applied via mcp Supabase `apply_migration`, name "eden_labs_init")
+  app_data            — id=1 singleton, data jsonb (the whole blob), updated_at
+  owner_auth          — id=1 singleton, pin_hash, pin_salt (scrypt, see below)
+  client_credentials  — client_id (text, matches the id inside the blob's
+                         clients[]), pin_hash, pin_salt
+  team_members        — id uuid, email, name, role, pin_hash, pin_salt,
+                         active, created_at. CREATED BUT NOT WIRED to any UI
+                         yet — this is the "future team access" groundwork
+                         Charles asked for. Next session: build an owner-side
+                         "Team" settings page that inserts rows here + a role
+                         check in the session-token payload.
+
+AUTH DESIGN — self-issued signed session tokens, NOT Supabase Auth.
+  PINs are hashed with Node's built-in crypto.scryptSync (salted, 64-byte
+  key) — see api/_crypto.js (hashPin/verifyPin/genSalt). Never compared in
+  plaintext, never sent to the browser.
+  A correct PIN gets a signed token: base64url(JSON payload).base64url(HMAC-
+  SHA256 signature), signed with SESSION_SECRET (server-only env var, 32
+  random bytes hex). Payload is `{ role: "owner" }` or
+  `{ role: "client", clientId }` + iat/exp. 30-day TTL — "log in once, use
+  from any device" was an explicit requirement. verifyToken() checks the
+  HMAC (timing-safe) and expiry; no DB-backed session table, nothing to
+  garbage collect, trivially revocable by rotating SESSION_SECRET (logs
+  everyone out at once — noted in .env.local comment).
+  Chose this over real Supabase Auth sessions because the app has exactly
+  two roles today (owner, per-client) and this reuses the exact "server-only
+  secret, /api/* proxy" pattern already established for Buffer/Resend/
+  Fathom — one mental model for the whole codebase instead of two.
+
+NEW / CHANGED FILES
+  api/_crypto.js          — hashPin/verifyPin/genSalt, signToken/verifyToken,
+                             bearerFrom(headers). Server-only.
+  api/_supabaseAdmin.js   — plain REST calls to PostgREST using the
+                             service_role key (no supabase-js dependency
+                             added — just fetch). getAppData/upsertAppData,
+                             getOwnerAuth/setOwnerAuth,
+                             getAllClientCredentials/setClientCredential.
+                             IMPORTANT GOTCHA: reads process.env LAZILY
+                             inside functions, not in top-level consts —
+                             this file is imported by vite.config.js before
+                             its dev-server plugin has loaded .env.local, so
+                             top-level `const KEY = process.env.X` permanently
+                             captures `undefined`. Cost real debugging time
+                             this session; if a future /api handler mysteriously
+                             can't see an env var that's definitely in
+                             .env.local, check for this exact mistake first.
+  api/_dataHandlers.js    — handleAuthOwner, handleAuthClient,
+                             handleRegisterClientPin, handleDataGet/Put,
+                             handlePortalDataGet, handlePortalAction (the
+                             client-portal action allowlist), + DATA_ROUTES
+                             map (method + handler per route, used by both
+                             vite.config.js dev server and mirrors the
+                             Vercel wrapper files below).
+  api/auth-owner.js, api/auth-client.js, api/register-client-pin.js,
+  api/data.js, api/portal-data.js, api/portal-action.js
+                           — thin Vercel serverless wrappers, same pattern as
+                             api/send-email.js etc. (see §2).
+  vite.config.js           — now imports BOTH _handlers.js's ROUTES (POST-
+                             only third-party proxies, unchanged) AND
+                             _dataHandlers.js's DATA_ROUTES (GET/PUT-aware,
+                             passes req.headers through for the Bearer token)
+                             as two separate middleware loops.
+  src/data/mutations.js    — NEW. Every mutation useAppData.js used to do
+                             inline (addTask, updatePostStatus, endContract,
+                             generateInvoices, etc.) is now a pure function
+                             `(d, ...args) => d` here. Both useAppData.js
+                             (owner, optimistic local UI) and
+                             api/_dataHandlers.js's handlePortalAction
+                             (server, client-portal writes) import and call
+                             the SAME functions — one copy of the mutation
+                             logic, not two. generateInvoices is the one
+                             exception: it returns `{created, skipped}`
+                             instead of `d` (mutates d.invoices in place via
+                             push, same object reference) since callers need
+                             those counts back.
+  src/hooks/useAppData.js  — REWRITTEN. Same public shape (`{data, actions,
+                             saveError, dismissSaveError}`), but the old
+                             `store` object (localStorage/window.storage) is
+                             gone. Now takes `(token, onUnauthorized)`,
+                             fetches GET /api/data on mount, PUTs the full
+                             blob to /api/data after every mutation (same
+                             clone->mutate->persist->setState shape as
+                             before). 401 responses call `onUnauthorized`
+                             (wired to ownerAuth.logout() in App.jsx) instead
+                             of the dashboard spinning forever.
+                             addClient also fires a best-effort POST to
+                             /api/register-client-pin right after, to hash+
+                             store the new client's portal PIN — see "NEW
+                             CLIENT PIN REGISTRATION" below.
+  src/hooks/useOwnerAuth.js — NEW. token state (from localStorage key
+                             "eden-labs-owner-token"), login(pin)/logout().
+  src/hooks/usePortalData.js — NEW. Client-portal equivalent of useAppData —
+                             GET /api/portal-data, actions POST to
+                             /api/portal-action with a small allowlist
+                             (addPost/updatePost/updatePostStatus/
+                             addContact/updateStage/addComment). Token lives
+                             only in React state (App.jsx `portalSession`),
+                             NOT localStorage — portal "sessions" are meant
+                             to be re-entered each visit via PIN, matching
+                             the old "Preview client portal" always going
+                             through the login screen.
+  src/components/OwnerLogin.jsx — NEW. PIN entry screen, gates the entire
+                             owner dashboard. Styled to match
+                             ClientPortalLogin.jsx.
+  src/components/portal/ClientPortalLogin.jsx — REWRITTEN. Calls
+                             /api/auth-client instead of
+                             `data.clients.find(c => c.pin === pin)`
+                             (the old check compared against every client's
+                             PIN sitting in the browser's full copy of the
+                             blob — that's gone now; the portal never
+                             receives other clients' data at all, see below).
+  src/App.jsx              — REWRITTEN. Two independent auth gates:
+                             portalMode (client) checked FIRST and is
+                             entirely separate from ownerAuth — a client
+                             session never implies or requires an owner
+                             session. `!ownerAuth.token` renders OwnerLogin
+                             before the owner dashboard mounts at all.
+                             Sidebar/MobileTopBar got a "Log out" button
+                             (onLogout -> ownerAuth.logout()).
+  src/components/pages/ClientDetail.jsx — the old
+                             `VITE_OWNER_PASSCODE`/"type a password to end a
+                             contract" speed bump was REMOVED (was a
+                             different, weaker secret than the real owner
+                             PIN and was redundant now that the whole
+                             dashboard is behind real auth). Ending a
+                             contract is now just the existing confirm
+                             modal + optional reason, no second password.
+  .env.local / .env.example — VITE_OWNER_PASSCODE removed. Added
+                             SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (Charles
+                             pasted this directly into .env.local himself,
+                             not through chat), SESSION_SECRET (generated via
+                             `openssl rand -hex 32`).
+
+CLIENT PORTAL DATA SCOPING (the actual security fix, not just "add a login
+screen"). /api/portal-data and /api/portal-action build a FILTERED copy of
+the blob server-side before it ever reaches the browser:
+  clients: [just this one client, with `pin` field stripped]
+  posts/dms/calls/outreachByChannel/contacts/comments: filtered to
+  clientId === token's clientId
+  profile/settings: passed through as-is (agency branding, currency)
+This is what ClientPortal.jsx already expected as its `data` prop shape
+(it does `data.clients.find(...)`, `data.posts.filter(...)` etc.) — so
+ClientPortal.jsx itself needed ZERO changes. Before this session, the
+portal received the OWNER'S ENTIRE blob (all clients, all PINs, all
+financials) and filtered client-side — any client could open devtools and
+read every other client's data and PIN. That hole is closed.
+
+NEW CLIENT PIN REGISTRATION. `buildNewClient()` (src/data/seed.js) still
+generates a random 4-digit plaintext PIN client-side, shown to the owner and
+emailed once via sendOnboardingEmail — that part is unchanged. What's new:
+useAppData.js's addClient action also fires
+POST /api/register-client-pin {clientId, pin} (owner-authenticated), which
+hashes it server-side into client_credentials. Best-effort / fire-and-forget
+— if it fails the client row still exists, it just means /api/auth-client
+won't find them yet (no automatic retry built).
+
+SEEDED CREDENTIALS (owner + the 3 seed clients — hashed via a one-off
+scrypt script run through Bash, then inserted via mcp execute_sql):
+  Owner PIN: 041998
+  Chris Alman (c1):        4821
+  Alexandre Chemaly (c2):  1190
+  Merlin Manrold (c3):     7734
+These match the plaintext PINs already sitting in src/data/seed.js's
+seedData() — only owner_auth/client_credentials store the hash+salt: the
+plaintext seed values are just what the owner would see on the Clients page
+same as always.
+
+VERIFIED END-TO-END IN BROWSER PREVIEW THIS SESSION:
+  - Owner login with 041998 -> dashboard loads, real data pulled from
+    Supabase (app_data row auto-seeds itself with seedData() on first-ever
+    GET if the row doesn't exist yet — confirmed this actually fired).
+  - A real mutation (toggling a task done) was confirmed to land in Supabase
+    via a direct `execute_sql` SELECT immediately after — proves this is
+    genuinely server-persisted, not just optimistic local state.
+  - Client portal login with Chris Alman's PIN 4821 -> scoped portal data
+    loads (his delivery metrics, his posts) — confirmed via screenshot.
+  - Wrong PIN on both /api/auth-owner and /api/auth-client -> 401, no hint
+    given about what the right PIN is (same "never hint" rule the old
+    client-side check already had).
+
+KNOWN ENVIRONMENT GOTCHA (cost real time, worth remembering):
+  preview_stop + preview_start via the Claude Browser MCP tools do NOT
+  reliably kill the underlying OS process — twice this session a "restarted"
+  dev server turned out to still be the OLD node process (confirmed via
+  `ps` showing an 8-minute-old PID after two stop/start cycles), so it kept
+  serving with stale env vars. If a server "restart" doesn't seem to pick up
+  a new .env.local value, verify with
+  `ps aux | grep vite` / `lsof -a -p <pid> -d cwd` and `kill -9` the actual
+  PID before calling preview_start again.
+  Separately: this environment's `computer` tool (click by coordinate/ref,
+  type, key) is unreliable for firing React's synthetic event handlers on
+  this app — `computer.type` correctly sets the DOM input value but Enter-
+  key/button clicks routed through `computer` repeatedly failed to trigger
+  the actual onClick/onKeyDown handler (no network request fired, no
+  visible error). Switching to `javascript_tool` with a real
+  `element.click()` call worked every time. Confirms/extends the
+  §11 BROWSER-TESTING NOTE above — prefer javascript_tool clicks over
+  `computer` clicks for this app specifically, not just for screenshots.
+
+STILL OPEN / NEXT SESSION:
+  - Team access UI: team_members table exists, nothing reads/writes it yet.
+    Needs an owner-side "Team" page (invite by email, set role, PIN) and the
+    session-token payload extended to check membership + role for anything
+    beyond the current single-owner assumption.
+  - No "regenerate PIN" flow for an existing client yet (only new clients
+    get registered into client_credentials automatically).
+  - Charles still owes: Fathom API key (still 401, needs regenerating at
+    fathom.video/customize#api-access-header — see earlier addendum),
+    RESEND_API_KEY signup if not already done.
+  - Not yet deployed to Vercel — when that happens, SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY, and SESSION_SECRET all need to be added to
+    the Vercel project's environment variables (same as every other secret
+    in this app), or the deployed site's /api/* routes will 500 exactly the
+    way local dev did before .env.local was fixed this session.

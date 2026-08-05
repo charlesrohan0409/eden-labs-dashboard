@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, Contact, FileText, Plug, Link2, HelpCircle, BarChart3, DollarSign, CalendarDays } from "lucide-react";
+import { LayoutDashboard, Users, Contact, FileText, Plug, Link2, HelpCircle, BarChart3, DollarSign, CalendarDays, LogOut } from "lucide-react";
 import Logo from "./Logo";
 
 export const NAV_ITEMS = [
@@ -22,7 +22,7 @@ const PARENT_OF = {
 
 export const isNavActive = (itemId, view) => view === itemId || PARENT_OF[view] === itemId;
 
-export default function Sidebar({ view, setView, onPreviewPortal }) {
+export default function Sidebar({ view, setView, onPreviewPortal, onLogout }) {
   return (
     <div className="hidden md:flex w-60 shrink-0 bg-night text-stone-300 min-h-screen flex-col sticky top-0 h-screen">
       <div className="px-4 py-6">
@@ -54,6 +54,12 @@ export default function Sidebar({ view, setView, onPreviewPortal }) {
           className="w-full flex items-center justify-center gap-1.5 text-xs text-stone-400 border border-white/10 rounded-xl py-2.5 hover:bg-white/[0.06] hover:text-white transition-colors"
         >
           <Link2 size={13} /> Preview client portal
+        </button>
+        <button
+          onClick={onLogout}
+          className="w-full flex items-center justify-center gap-1.5 text-xs text-stone-400 border border-white/10 rounded-xl py-2.5 hover:bg-white/[0.06] hover:text-white transition-colors"
+        >
+          <LogOut size={13} /> Log out
         </button>
         <div className="flex items-center gap-2 px-3 py-2 text-[11px] text-stone-500 select-none">
           <HelpCircle size={13} /> Eden Labs v1 · Built with Claude

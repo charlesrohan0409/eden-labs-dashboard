@@ -1,7 +1,10 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 import { AlertTriangle, X } from "lucide-react";
 import { useAppData } from "./hooks/useAppData";
+import { useOwnerAuth } from "./hooks/useOwnerAuth";
+import { usePortalData } from "./hooks/usePortalData";
 import { CurrencyProvider } from "./hooks/useCurrency";
+import OwnerLogin from "./components/OwnerLogin";
 import Sidebar from "./components/layout/Sidebar";
 import MobileTopBar from "./components/layout/MobileTopBar";
 import MobileBottomNav from "./components/layout/MobileBottomNav";
@@ -11,6 +14,7 @@ import ClientsList from "./components/pages/ClientsList";
 import ClientDetail from "./components/pages/ClientDetail";
 import ClientPortalLogin from "./components/portal/ClientPortalLogin";
 import ClientPortal from "./components/portal/ClientPortal";
+import QuickAddTask from "./components/ui/QuickAddTask";
 // Chart-heavy pages — lazy-load so recharts isn't in the initial bundle.
 // Each loads in under 1s on a fast connection; the spinner shows on slow ones.
 const GrowthDetail   = lazy(() => import("./components/pages/GrowthDetail"));
@@ -33,6 +37,10 @@ function PageLoader() {
   );
 }
 
+function FullScreenLoader() {
+  return <div className="min-h-screen flex items-center justify-center text-stone-400 text-sm">Loading…</div>;
+}
+
 // Fixed so it's visible no matter which page/portal is showing — a save
 // failure (most likely a full localStorage quota, now that posts can carry
 // base64 images) used to be silent; this is the one thing standing between
@@ -51,48 +59,72 @@ function SaveErrorBanner({ message, onDismiss }) {
 }
 
 export default function App() {
-  const { data, actions, saveError, dismissSaveError } = useAppData();
+  const ownerAuth = useOwnerAuth();
+  const handleOwnerUnauthorized = useCallback(() => ownerAuth.logout(), [ownerAuth]);
+  const { data, actions, saveError, dismissSaveError } = useAppData(ownerAuth.token, handleOwnerUnauthorized);
+
   const [view, setView] = useState("home");
   const [selectedClient, setSelectedClient] = useState(null);
   const [portalMode, setPortalMode] = useState(false);
-  const [portalClient, setPortalClient] = useState(null);
+  const [portalSession, setPortalSession] = useState(null); // { token, clientId }
 
-  const exitPortal = () => { setPortalMode(false); setPortalClient(null); };
+  const handlePortalUnauthorized = useCallback(() => setPortalSession(null), []);
+  const portal = usePortalData(portalSession?.token, handlePortalUnauthorized);
 
-  if (!data) {
-    return <div className="min-h-screen flex items-center justify-center text-stone-400 text-sm">Loading…</div>;
-  }
+  const exitPortal = () => { setPortalMode(false); setPortalSession(null); };
 
-  // ---- Client portal (its own full-screen shell) ----
+  // ---- Client portal (its own full-screen shell, its own auth entirely
+  // separate from the owner's session below) ----
   if (portalMode) {
-    if (!portalClient) {
-      return <ClientPortalLogin data={data} onLogin={setPortalClient} onExit={exitPortal} />;
+    if (!portalSession) {
+      return <ClientPortalLogin onLogin={setPortalSession} onExit={exitPortal} />;
+    }
+    if (!portal.data) {
+      return (
+        <>
+          <SaveErrorBanner message={portal.error} onDismiss={portal.dismissError} />
+          <FullScreenLoader />
+        </>
+      );
     }
     return (
-      <CurrencyProvider currency={data.settings?.currency}>
-        <SaveErrorBanner message={saveError} onDismiss={dismissSaveError} />
+      <CurrencyProvider currency={portal.data.settings?.currency}>
+        <SaveErrorBanner message={portal.error} onDismiss={portal.dismissError} />
         <ClientPortal
-          data={data}
-          clientId={portalClient}
+          data={portal.data}
+          clientId={portalSession.clientId}
           onExit={exitPortal}
-          onAddPost={actions.addPost}
-          onUpdatePost={actions.updatePost}
-          onAddContact={actions.addContact}
-          onUpdateStage={actions.updateStage}
-          onAddComment={actions.addComment}
-          onUpdatePostStatus={actions.updatePostStatus}
+          onAddPost={portal.actions.addPost}
+          onUpdatePost={portal.actions.updatePost}
+          onAddContact={portal.actions.addContact}
+          onUpdateStage={portal.actions.updateStage}
+          onAddComment={portal.actions.addComment}
+          onUpdatePostStatus={portal.actions.updatePostStatus}
         />
       </CurrencyProvider>
     );
   }
 
-  // ---- Owner dashboard ----
+  // ---- Owner dashboard — PIN-gated, session works from any device ----
+  if (!ownerAuth.token) {
+    return <OwnerLogin onLogin={ownerAuth.login} loading={ownerAuth.loading} error={ownerAuth.error} />;
+  }
+
+  if (!data) {
+    return (
+      <>
+        <SaveErrorBanner message={saveError} onDismiss={dismissSaveError} />
+        <FullScreenLoader />
+      </>
+    );
+  }
+
   return (
     <CurrencyProvider currency={data.settings?.currency}>
     <div className="flex flex-col md:flex-row min-h-screen bg-canvas">
       <SaveErrorBanner message={saveError} onDismiss={dismissSaveError} />
-      <MobileTopBar onPreviewPortal={() => setPortalMode(true)} />
-      <Sidebar view={view} setView={setView} onPreviewPortal={() => setPortalMode(true)} />
+      <MobileTopBar onPreviewPortal={() => setPortalMode(true)} onLogout={ownerAuth.logout} />
+      <Sidebar view={view} setView={setView} onPreviewPortal={() => setPortalMode(true)} onLogout={ownerAuth.logout} />
 
       <main className="flex-1 min-w-0 p-4 md:p-8 pb-24 md:pb-8 max-w-[1400px]">
       <Suspense fallback={<PageLoader />}>
@@ -146,6 +178,8 @@ export default function App() {
             onAddTask={actions.addTask}
             onToggleTask={actions.toggleTask}
             onDeleteTask={actions.deleteTask}
+            onUpdateClientNotes={actions.updateClientNotes}
+            onLogActivity={actions.logActivity}
           />
         )}
 
@@ -183,6 +217,9 @@ export default function App() {
       </main>
 
       <MobileBottomNav view={view} setView={setView} />
+
+      {/* Floating quick-add task — visible on every owner page, ⌘K shortcut */}
+      <QuickAddTask clients={data.clients} onAdd={actions.addTask} />
     </div>
     </CurrencyProvider>
   );

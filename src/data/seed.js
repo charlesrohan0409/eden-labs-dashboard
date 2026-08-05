@@ -8,7 +8,7 @@ export const CLIENT_TYPES = {
     label: "LinkedIn growth",
     blurb: "Content, outreach, and pipeline — the original Eden Labs service",
     // Tabs shown on the owner's Client Detail page and in the client portal.
-    tabs: ["overview", "content", "dms", "contract", "report"],
+    tabs: ["overview", "content", "dms", "contract", "activity", "report"],
     portalTabs: ["overview", "content", "outreach", "crm", "transcripts", "dms", "contract"],
     defaultDelivery: [
       { metric: "Posts per week", target: 3, current: 0 },
@@ -19,7 +19,7 @@ export const CLIENT_TYPES = {
     id: "book",
     label: "Book editing",
     blurb: "Manuscript editing — chapters, rounds, and a delivery deadline",
-    tabs: ["overview", "dms", "contract", "report"],
+    tabs: ["overview", "dms", "contract", "activity", "report"],
     portalTabs: ["overview", "transcripts", "dms", "contract"],
     defaultDelivery: [
       { metric: "Chapters edited", target: 12, current: 0 },
@@ -30,7 +30,7 @@ export const CLIENT_TYPES = {
     id: "app",
     label: "App / web build",
     blurb: "Building apps and web apps — milestones and shipped features",
-    tabs: ["overview", "dms", "contract", "report"],
+    tabs: ["overview", "dms", "contract", "activity", "report"],
     portalTabs: ["overview", "transcripts", "dms", "contract"],
     defaultDelivery: [
       { metric: "Milestones shipped", target: 4, current: 0 },
@@ -187,7 +187,7 @@ export const seedData = () => ({
   clients: [
     {
       id: "c1", name: "Chris Alman", company: "Equip CFO", status: "active", type: "linkedin",
-      pin: "4821", link: "elabs.app/c/eq-cfo-9f3", email: "chris@equipcfo.com", photoUrl: "", logoUrl: "",
+      pin: "4821", link: "elabs.app/c/eq-cfo-9f3", email: "chris@equipcfo.com", photoUrl: "", logoUrl: "", notes: "",
       contract: {
         value: 3500, status: "active", cycle: "monthly", notes: "Performance-based, 90-day pilot.",
         serviceType: "full", startDate: "2026-06-01", renewalDate: "2026-09-01", history: [],
@@ -200,7 +200,7 @@ export const seedData = () => ({
     },
     {
       id: "c2", name: "Alexandre Chemaly", company: "Leadbolt", status: "active", type: "linkedin",
-      pin: "1190", link: "elabs.app/c/leadbolt-2c1", email: "alexandre@leadbolt.com", photoUrl: "", logoUrl: "",
+      pin: "1190", link: "elabs.app/c/leadbolt-2c1", email: "alexandre@leadbolt.com", photoUrl: "", logoUrl: "", notes: "",
       contract: {
         value: 2800, status: "active", cycle: "monthly", notes: "Content + inbound systems.",
         serviceType: "content_outreach", startDate: "2026-05-15", renewalDate: "2026-08-15", history: [],
@@ -213,7 +213,7 @@ export const seedData = () => ({
     },
     {
       id: "c3", name: "Merlin Manrold", company: "Independent", status: "at-risk", type: "linkedin",
-      pin: "7734", link: "elabs.app/c/merlin-a01", email: "merlin@example.com", photoUrl: "", logoUrl: "",
+      pin: "7734", link: "elabs.app/c/merlin-a01", email: "merlin@example.com", photoUrl: "", logoUrl: "", notes: "",
       contract: {
         value: 1200, status: "active", cycle: "monthly", notes: "Ghostwriting outreach coaching.",
         serviceType: "content", startDate: "2026-07-01", renewalDate: "2026-10-01", history: [],
@@ -316,6 +316,10 @@ export const seedData = () => ({
     { id: "s1", source: "Justin Welsh", note: "Contrarian opener + 3-point list structure", tag: "hook" },
     { id: "s2", source: "Alex Hormozi", note: "Cost-of-inaction framing before the offer", tag: "structure" },
   ],
+  // Activity log — chronological record of key events per client.
+  // Shape is Supabase-ready: each entry maps cleanly to a row.
+  // clientId === null means an agency-level event (e.g. new expense).
+  activityLog: [],
   integrations: [
     { id: "buffer", name: "Buffer", desc: "Post scheduling & analytics per client", connected: true },
     { id: "apollo", name: "Apollo.io", desc: "Prospect data & outreach sequences", connected: false },

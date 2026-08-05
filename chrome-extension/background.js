@@ -1,6 +1,7 @@
 // Eden Labs CRM — background service worker
-// Creates the right-click context menu and passes the selected text + page
-// info to the popup window when the user invokes "Save to Eden Labs CRM".
+// Creates the right-click context menu and, on click, injects the floating
+// save-lead card (content.js) directly into the current tab — no new window,
+// no navigating away from LinkedIn/wherever the user is.
 
 const API = "https://dashboard.theedenlabs.com";
 
@@ -15,27 +16,28 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
-chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId !== "save-lead") return;
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId !== "save-lead" || !tab?.id) return;
 
-  // Stash the context for the popup to read immediately on open.
-  chrome.storage.session.set({
-    pendingLead: {
-      name:      (info.selectionText || "").trim(),
-      pageUrl:   tab?.url   || "",
-      pageTitle: tab?.title || "",
-    },
-  });
+  const lead = {
+    name:    (info.selectionText || "").trim(),
+    pageUrl: tab.url || "",
+  };
 
-  // Open popup as a standalone window so it doesn't close when focus leaves
-  // the original page.
-  chrome.windows.create({
-    url:     chrome.runtime.getURL("popup/popup.html"),
-    type:    "popup",
-    width:   440,
-    height:  600,
-    focused: true,
-  });
+  // Inject the floating-card content script into the current tab — a plain
+  // classic script guarded against double-injection at the top of the file,
+  // so right-clicking a second name just re-populates the existing card
+  // instead of registering duplicate listeners. This replaces the old
+  // chrome.windows.create() flow, which used to open a whole new OS window
+  // and yank focus off whatever page (LinkedIn, etc.) the user was on.
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
+    chrome.tabs.sendMessage(tab.id, { type: "SHOW_LEAD_WIDGET", lead });
+  } catch (err) {
+    // Fails on pages Chrome doesn't allow script injection into (chrome://,
+    // the Web Store, etc.) — nothing useful to do but log it.
+    console.error("Eden Labs CRM: couldn't inject into this page.", err);
+  }
 });
 
 // ---- Auth helper (called by popup + settings) ----------------------------

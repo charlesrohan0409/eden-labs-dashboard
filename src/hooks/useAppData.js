@@ -110,6 +110,8 @@ export function useAppData(token, onUnauthorized) {
     // ---- contacts / CRM ----
     addContact: (c) => update((d) => M.addContact(d, c)),
     updateStage: (id, stage) => update((d) => M.updateStage(d, id, stage)),
+    updateContact: (id, patch) => update((d) => M.updateContact(d, id, patch)),
+    deleteContact: (id) => update((d) => M.deleteContact(d, id)),
 
     // ---- content ----
     addPost: (p) => update((d) => M.addPost(d, p)),

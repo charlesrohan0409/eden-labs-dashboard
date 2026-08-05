@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Right-click any name on any website to save it as a lead in your Eden Labs CRM.",
 
-  "permissions": ["contextMenus", "storage"],
+  "permissions": ["contextMenus", "storage", "scripting", "activeTab"],
   "host_permissions": ["https://dashboard.theedenlabs.com/*"],
 
   "background": {

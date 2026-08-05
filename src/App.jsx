@@ -184,7 +184,13 @@ export default function App() {
         )}
 
         {view === "crm" && (
-          <CRM data={data} onAddContact={actions.addContact} onUpdateStage={actions.updateStage} />
+          <CRM
+            data={data}
+            onAddContact={actions.addContact}
+            onUpdateStage={actions.updateStage}
+            onUpdateContact={actions.updateContact}
+            onDeleteContact={actions.deleteContact}
+          />
         )}
 
         {view === "content" && (

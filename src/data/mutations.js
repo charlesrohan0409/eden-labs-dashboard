@@ -89,6 +89,18 @@ export function updateStage(d, id, stage) {
   }
   return d;
 }
+// Patches any subset of a contact's fields — the edit modal on the CRM board
+// (and the Chrome extension's "already saved, add more" case) both go
+// through this rather than a dedicated setter per field.
+export function updateContact(d, id, patch) {
+  const c = d.contacts.find((x) => x.id === id);
+  if (c) Object.assign(c, patch);
+  return d;
+}
+export function deleteContact(d, id) {
+  d.contacts = d.contacts.filter((x) => x.id !== id);
+  return d;
+}
 
 // ---- content ----
 export function addPost(d, p) {

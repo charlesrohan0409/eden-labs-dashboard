@@ -4,7 +4,7 @@ import PrimaryButton from "../ui/PrimaryButton";
 import CrmBoard from "../ui/CrmBoard";
 import { downloadCSV } from "../../lib/utils";
 
-export default function CRM({ data, onAddContact, onUpdateStage }) {
+export default function CRM({ data, onAddContact, onUpdateStage, onUpdateContact, onDeleteContact }) {
   // Leads owned by the agency; leads tied to a client live in that client's portal.
   const agencyContacts = data.contacts.filter((c) => !c.clientId);
 
@@ -36,7 +36,13 @@ export default function CRM({ data, onAddContact, onUpdateStage }) {
         </div>
       </div>
 
-      <CrmBoard contacts={agencyContacts} onAddContact={onAddContact} onUpdateStage={onUpdateStage} />
+      <CrmBoard
+        contacts={agencyContacts}
+        onAddContact={onAddContact}
+        onUpdateStage={onUpdateStage}
+        onUpdateContact={onUpdateContact}
+        onDeleteContact={onDeleteContact}
+      />
     </div>
   );
 }

@@ -1,8 +1,9 @@
-import { useMemo, useRef, useState } from "react";
-import { Phone, Mail, MoreVertical, Plus, Search, X, SlidersHorizontal, ArrowRight, GripVertical } from "lucide-react";
+import { useMemo, useRef, useState, useEffect } from "react";
+import { Phone, Mail, MoreVertical, Plus, Search, X, SlidersHorizontal, ArrowRight, GripVertical, Trash2, Link2 } from "lucide-react";
 import Avatar from "./Avatar";
 import Badge from "./Badge";
 import Card from "./Card";
+import Modal from "./Modal";
 import PrimaryButton from "./PrimaryButton";
 import { STAGE_WEIGHTS, today } from "../../lib/utils";
 import { useCurrency } from "../../hooks/useCurrency";
@@ -19,8 +20,148 @@ export const STAGE_META = {
   lost: { label: "Lost", dot: "bg-rose-500", tone: "rose", head: "bg-rose-50/60", ring: "ring-rose-500/30", drop: "bg-rose-50" },
 };
 
+// ---------- Edit lead modal ----------
+// Every field the extension or the manual "Add lead" form can set is
+// editable here — this is the one place to fill in details added later
+// (a call happened, a deal value firmed up, notes from a conversation).
+function EditLeadModal({ contact, onClose, onUpdateContact, onDeleteContact }) {
+  const [form, setForm] = useState(contact);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Re-sync if a different card is opened without unmounting.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setForm(contact), [contact?.id]);
+
+  if (!contact) return null;
+
+  const set = (patch) => setForm((f) => ({ ...f, ...patch }));
+  const inputCls = "w-full border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
+  const labelCls = "text-[11px] font-medium text-stone-400 uppercase tracking-wide";
+
+  const save = () => {
+    onUpdateContact(contact.id, {
+      name: form.name?.trim() || contact.name,
+      company: form.company?.trim() || "",
+      title: form.title?.trim() || "",
+      stage: form.stage,
+      source: form.source?.trim() || "",
+      dealValue: Number(form.dealValue) || 0,
+      phone: form.phone?.trim() || "",
+      email: form.email?.trim() || "",
+      notes: form.notes?.trim() || "",
+    });
+    onClose();
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Edit lead"
+      subtitle={`Added ${contact.addedDate || "—"}`}
+      footer={
+        confirmDelete ? (
+          <div className="flex items-center gap-2 w-full">
+            <span className="text-xs text-stone-500 flex-1">Delete this lead permanently?</span>
+            <PrimaryButton variant="ghost" onClick={() => setConfirmDelete(false)}>Cancel</PrimaryButton>
+            <PrimaryButton
+              variant="danger"
+              onClick={() => { onDeleteContact(contact.id); onClose(); }}
+            >
+              Delete
+            </PrimaryButton>
+          </div>
+        ) : (
+          <>
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="mr-auto flex items-center gap-1.5 text-xs text-rose-500 hover:text-rose-700 px-2"
+            >
+              <Trash2 size={13} /> Delete lead
+            </button>
+            <PrimaryButton variant="ghost" onClick={onClose}>Cancel</PrimaryButton>
+            <PrimaryButton onClick={save}>Save changes</PrimaryButton>
+          </>
+        )
+      }
+    >
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className={labelCls}>Name</label>
+            <input className={`${inputCls} mt-1`} value={form.name || ""} onChange={(e) => set({ name: e.target.value })} />
+          </div>
+          <div>
+            <label className={labelCls}>Stage</label>
+            <select className={`${inputCls} mt-1`} value={form.stage} onChange={(e) => set({ stage: e.target.value })}>
+              {STAGES.map((s) => (
+                <option key={s} value={s}>{STAGE_META[s].label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className={labelCls}>Company</label>
+            <input className={`${inputCls} mt-1`} value={form.company || ""} onChange={(e) => set({ company: e.target.value })} />
+          </div>
+          <div>
+            <label className={labelCls}>Title / role</label>
+            <input className={`${inputCls} mt-1`} value={form.title || ""} onChange={(e) => set({ title: e.target.value })} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className={labelCls}>Email</label>
+            <input type="email" className={`${inputCls} mt-1`} value={form.email || ""} onChange={(e) => set({ email: e.target.value })} />
+          </div>
+          <div>
+            <label className={labelCls}>Phone</label>
+            <input type="tel" className={`${inputCls} mt-1`} value={form.phone || ""} onChange={(e) => set({ phone: e.target.value })} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className={labelCls}>Deal value ($)</label>
+            <input type="number" min="0" className={`${inputCls} mt-1`} value={form.dealValue || ""} onChange={(e) => set({ dealValue: e.target.value })} />
+          </div>
+          <div>
+            <label className={labelCls}>Source</label>
+            <input className={`${inputCls} mt-1`} value={form.source || ""} onChange={(e) => set({ source: e.target.value })} />
+          </div>
+        </div>
+
+        <div>
+          <label className={labelCls}>Notes</label>
+          <textarea
+            rows={4}
+            className={`${inputCls} mt-1 resize-none leading-relaxed`}
+            placeholder="Anything worth remembering about this lead…"
+            value={form.notes || ""}
+            onChange={(e) => set({ notes: e.target.value })}
+          />
+        </div>
+
+        {contact.url && (
+          <a
+            href={contact.url}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1.5 text-xs text-emerald-700 hover:underline"
+          >
+            <Link2 size={12} /> {contact.url}
+          </a>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 // ---------- One lead card ----------
-function LeadCard({ contact, onUpdateStage, onDragStart, onDragEnd, dragging }) {
+function LeadCard({ contact, onUpdateStage, onEdit, onDragStart, onDragEnd, dragging }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const { money } = useCurrency();
   const meta = STAGE_META[contact.stage] || STAGE_META.lead;
@@ -28,6 +169,7 @@ function LeadCard({ contact, onUpdateStage, onDragStart, onDragEnd, dragging }) 
   return (
     <div
       draggable
+      onClick={() => onEdit?.(contact)}
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = "move";
         // Firefox needs data set for the drag to start at all.
@@ -35,7 +177,7 @@ function LeadCard({ contact, onUpdateStage, onDragStart, onDragEnd, dragging }) 
         onDragStart(contact.id);
       }}
       onDragEnd={onDragEnd}
-      className={`group relative bg-white border border-line rounded-xl p-4 cursor-grab active:cursor-grabbing transition-all ${
+      className={`group relative bg-white border border-line rounded-xl p-4 cursor-pointer active:cursor-grabbing transition-all ${
         dragging ? "opacity-40 scale-[0.98]" : "hover:border-stone-300 hover:shadow-sm"
       }`}
     >
@@ -55,7 +197,7 @@ function LeadCard({ contact, onUpdateStage, onDragStart, onDragEnd, dragging }) 
 
         <div className="absolute top-3 right-2.5">
           <button
-            onClick={() => setMenuOpen(!menuOpen)}
+            onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
             aria-label="Move lead to another stage"
             className="text-stone-300 hover:text-stone-600"
           >
@@ -63,13 +205,13 @@ function LeadCard({ contact, onUpdateStage, onDragStart, onDragEnd, dragging }) 
           </button>
           {menuOpen && (
             <>
-              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+              <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); }} />
               <div className="absolute right-0 top-6 z-20 w-44 bg-white border border-line rounded-xl shadow-lg py-1">
                 <div className="text-[10px] uppercase tracking-wide text-stone-400 px-3 py-1.5">Move to</div>
                 {STAGES.filter((s) => s !== contact.stage).map((s) => (
                   <button
                     key={s}
-                    onClick={() => { onUpdateStage(contact.id, s); setMenuOpen(false); }}
+                    onClick={(e) => { e.stopPropagation(); onUpdateStage(contact.id, s); setMenuOpen(false); }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-xs text-stone-600 hover:bg-stone-50 text-left"
                   >
                     <span className={`w-1.5 h-1.5 rounded-full ${STAGE_META[s].dot}`} />
@@ -112,7 +254,7 @@ function LeadCard({ contact, onUpdateStage, onDragStart, onDragEnd, dragging }) 
 }
 
 // ---------- Board ----------
-export default function CrmBoard({ contacts, onAddContact, onUpdateStage, showExtensionHint = true }) {
+export default function CrmBoard({ contacts, onAddContact, onUpdateStage, onUpdateContact, onDeleteContact, showExtensionHint = true }) {
   const { money } = useCurrency();
   const [form, setForm] = useState({ name: "", company: "", title: "", source: "manual", dealValue: "", phone: "", email: "" });
   const [showForm, setShowForm] = useState(false);
@@ -120,6 +262,7 @@ export default function CrmBoard({ contacts, onAddContact, onUpdateStage, showEx
   const [sourceFilter, setSourceFilter] = useState("all");
   const [draggingId, setDraggingId] = useState(null);
   const [dragOverStage, setDragOverStage] = useState(null);
+  const [editingContact, setEditingContact] = useState(null);
   // Drag events fire on children too; count enter/leave so the highlight is stable.
   const enterCount = useRef({});
 
@@ -288,6 +431,7 @@ export default function CrmBoard({ contacts, onAddContact, onUpdateStage, showEx
                       key={c.id}
                       contact={c}
                       onUpdateStage={onUpdateStage}
+                      onEdit={onUpdateContact ? setEditingContact : undefined}
                       onDragStart={setDraggingId}
                       onDragEnd={() => { setDraggingId(null); setDragOverStage(null); }}
                       dragging={draggingId === c.id}
@@ -311,8 +455,17 @@ export default function CrmBoard({ contacts, onAddContact, onUpdateStage, showEx
       </div>
 
       <div className="text-xs text-stone-400">
-        Drag a card between columns to change its stage — or use the ⋮ menu on touch devices.
+        Drag a card between columns to change its stage — or use the ⋮ menu on touch devices. Click a card to edit its details.
       </div>
+
+      {editingContact && (
+        <EditLeadModal
+          contact={editingContact}
+          onClose={() => setEditingContact(null)}
+          onUpdateContact={onUpdateContact}
+          onDeleteContact={onDeleteContact}
+        />
+      )}
     </div>
   );
 }

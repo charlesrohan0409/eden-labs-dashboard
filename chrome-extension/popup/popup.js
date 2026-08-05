@@ -1,39 +1,20 @@
 // Eden Labs CRM — popup script
-// Reads the pending lead context (set by background.js when the user right-
-// clicked), renders it into the form, and sends the final contact to the
-// background service worker which POSTs it to /api/crm-lead.
+// Opens when the toolbar icon is clicked, for adding a lead manually with no
+// text selection involved. (Right-click-a-name saves now happen through the
+// in-page floating card in content.js instead — this popup no longer needs
+// to receive that context.)
 
 const $ = (id) => document.getElementById(id);
 
-// ---- Boot: check auth + pre-fill ------------------------------------------
+// ---- Boot: check auth -------------------------------------------------------
 
 async function init() {
-  // Is the extension connected (has a stored token)?
   const { token } = await chrome.storage.local.get("token");
   if (!token) {
     $("not-connected").style.display = "flex";
     $("save-btn").disabled = true;
   }
-
-  // Read pending lead stashed by background.js (context menu flow).
-  // If opened via toolbar icon there's no pending lead — form stays blank.
-  const { pendingLead } = await chrome.storage.session.get("pendingLead");
-  if (pendingLead) {
-    if (pendingLead.name)    $("name").value = pendingLead.name;
-    if (pendingLead.pageUrl) fillSourceUrl(pendingLead.pageUrl);
-    // Clear so the next right-click doesn't re-use stale data
-    chrome.storage.session.remove("pendingLead");
-  }
-
   $("name").focus();
-  $("name").select();
-}
-
-function fillSourceUrl(url) {
-  if (!url || url === "about:blank") return;
-  $("source-field").style.display = "block";
-  $("source-url-display").textContent = url;
-  $("source-url-display").title = url;
 }
 
 // ---- Actions --------------------------------------------------------------

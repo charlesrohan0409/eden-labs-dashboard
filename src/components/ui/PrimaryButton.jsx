@@ -3,6 +3,7 @@ const VARIANTS = {
   dark: "bg-night text-white hover:bg-nightsoft border border-transparent",
   ghost: "bg-white text-stone-600 border border-line hover:bg-stone-50",
   soft: "bg-emerald-50 text-emerald-800 border border-transparent hover:bg-emerald-100",
+  danger: "bg-rose-600 text-white hover:bg-rose-700 border border-transparent",
 };
 
 const SIZES = {

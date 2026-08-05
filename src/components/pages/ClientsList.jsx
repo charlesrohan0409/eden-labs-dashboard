@@ -5,12 +5,12 @@ import Badge from "../ui/Badge";
 import Avatar from "../ui/Avatar";
 import PrimaryButton from "../ui/PrimaryButton";
 import ImagePicker from "../ui/ImagePicker";
-import { buildNewClient, sendOnboardingEmail, CLIENT_TYPES, DEFAULT_CLIENT_TYPE } from "../../data/seed";
+import { buildNewClient, sendOnboardingEmail, CLIENT_TYPES, DEFAULT_CLIENT_TYPE, INDUSTRIES } from "../../data/seed";
 import { computeHealthScore, healthTone, downloadCSV, relativeDays, isMetricOnTrack } from "../../lib/utils";
 import { useCurrency } from "../../hooks/useCurrency";
 
 const EMPTY_FORM = {
-  name: "", company: "", email: "", value: "", type: DEFAULT_CLIENT_TYPE,
+  name: "", company: "", email: "", value: "", type: DEFAULT_CLIENT_TYPE, industry: "",
   serviceType: "content", startDate: "", photoUrl: "", logoUrl: "",
 };
 
@@ -113,6 +113,14 @@ export default function ClientsList({ data, setView, setSelectedClient, onAddCli
             <input placeholder="Monthly value (USD)" type="number" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} className={`${inputCls} w-full sm:w-44`} />
           </div>
           <div className="flex gap-2 flex-wrap">
+            <select value={form.industry} onChange={(e) => setForm({ ...form, industry: e.target.value })} className={`${inputCls} flex-1 min-w-[11rem]`}>
+              <option value="">Industry (optional)</option>
+              {INDUSTRIES.map((i) => (
+                <option key={i} value={i}>{i}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex gap-2 flex-wrap">
             {/* The LinkedIn service-tier picker only means something for
                 LinkedIn clients — the contract template is built around it. */}
             {form.type === "linkedin" && (
@@ -188,6 +196,9 @@ export default function ClientsList({ data, setView, setSelectedClient, onAddCli
                   <div className="min-w-0">
                     <div className="font-semibold text-stone-800 truncate">{c.name}</div>
                     <div className="text-xs text-stone-400 truncate">{c.company}</div>
+                    {c.industry && (
+                      <div className="text-[11px] text-stone-400 truncate mt-0.5">{c.industry}</div>
+                    )}
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-1 shrink-0">

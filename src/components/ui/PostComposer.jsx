@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import {
   Bold, Italic, Send, Image as ImageIcon, Film, LayoutGrid, BarChart3,
-  Type, X, Plus, Clock, UserCheck, Save, Loader2, Radio, Pencil,
+  Type, X, Plus, Clock, UserCheck, Save, Loader2, Radio, Pencil, Trash2,
 } from "lucide-react";
 import Badge from "./Badge";
 import PrimaryButton from "./PrimaryButton";
@@ -29,7 +29,7 @@ const EMPTY_POLL = { question: "", options: [{ text: "", votes: 0 }, { text: "",
  * client approving their own post makes no sense.
  */
 export default function PostComposer({
-  clientId, posts, onAddPost, onUpdatePost, onPushForApproval,
+  clientId, posts, onAddPost, onUpdatePost, onDeletePost, onPushForApproval,
   author = "Eden Labs", headline = "LinkedIn content & client acquisition", avatarUrl = "",
   bufferConnected = false, bufferChannels = [], bufferChannelId = null, onSetBufferChannel = null,
 }) {
@@ -456,18 +456,30 @@ export default function PostComposer({
         </div>
         <div className="space-y-2">
           {scoped.slice(0, 4).map((p) => (
-            <button
+            <div
               key={p.id}
-              onClick={() => loadForEditing(p)}
-              className={`w-full text-left text-xs border rounded-xl p-2.5 flex justify-between items-start gap-2 transition-colors ${
+              className={`group w-full text-xs border rounded-xl p-2.5 flex justify-between items-start gap-2 transition-colors ${
                 editingId === p.id ? "border-emerald-500 bg-emerald-50/50" : "border-line text-stone-600 hover:border-stone-300"
               }`}
             >
-              <span className="line-clamp-2">{p.content || "(media only)"}</span>
-              <Badge tone={p.status === "published" ? "emerald" : p.status === "scheduled" ? "teal" : p.status === "pending_review" ? "amber" : "stone"}>
-                {p.status === "pending_review" ? "in review" : p.status}
-              </Badge>
-            </button>
+              <button onClick={() => loadForEditing(p)} className="min-w-0 flex-1 text-left">
+                <span className="line-clamp-2 block">{p.content || "(media only)"}</span>
+              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Badge tone={p.status === "published" ? "emerald" : p.status === "scheduled" ? "teal" : p.status === "pending_review" ? "amber" : "stone"}>
+                  {p.status === "pending_review" ? "in review" : p.status}
+                </Badge>
+                {onDeletePost && (
+                  <button
+                    onClick={() => { if (editingId === p.id) reset(); onDeletePost(p.id); }}
+                    aria-label="Delete post"
+                    className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-stone-300 hover:text-rose-500 transition p-0.5"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                )}
+              </div>
+            </div>
           ))}
           {scoped.length === 0 && <div className="text-xs text-stone-300">No posts yet.</div>}
         </div>

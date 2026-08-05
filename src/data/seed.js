@@ -41,6 +41,16 @@ export const CLIENT_TYPES = {
 
 export const DEFAULT_CLIENT_TYPE = "linkedin";
 
+// ---------- Industries ----------
+// A flat list rather than a per-client-type map — the industry a client
+// operates in (finance, healthcare, etc.) is independent of which Eden Labs
+// service line they're on.
+export const INDUSTRIES = [
+  "SaaS / Software", "Finance & Fintech", "Healthcare", "E-commerce & Retail",
+  "Real Estate", "Consulting", "Marketing & Advertising", "Education",
+  "Legal", "Manufacturing", "Media & Entertainment", "Nonprofit", "Other",
+];
+
 // ---------- Contract template ----------
 const SERVICE_LINES = {
   content: "- LinkedIn content strategy, writing, and scheduling (up to 4 posts/week)",
@@ -96,6 +106,7 @@ export function buildNewClient(c) {
     logoUrl: c.logoUrl || "",
     status: "active",
     type,
+    industry: c.industry || "",
     pin: Math.floor(1000 + Math.random() * 9000).toString(),
     contract: {
       value, status: "active", cycle: "monthly", notes: "",

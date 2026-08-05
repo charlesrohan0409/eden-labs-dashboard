@@ -149,6 +149,7 @@ export default function App() {
             onAddTask={actions.addTask}
             onToggleTask={actions.toggleTask}
             onDeleteTask={actions.deleteTask}
+            onUpdateTask={actions.updateTask}
           />
         )}
 
@@ -161,9 +162,12 @@ export default function App() {
             data={data}
             setView={setView}
             onAddExpense={actions.addExpense}
+            onUpdateExpense={actions.updateExpense}
+            onDeleteExpense={actions.deleteExpense}
             onAddInvoice={actions.addInvoice}
             onGenerateInvoices={actions.generateInvoices}
             onUpdateInvoiceStatus={actions.updateInvoiceStatus}
+            onDeleteInvoice={actions.deleteInvoice}
           />
         )}
 
@@ -183,15 +187,21 @@ export default function App() {
             setView={setView}
             onAddPost={actions.addPost}
             onUpdatePost={actions.updatePost}
+            onDeletePost={actions.deletePost}
             onAddDM={actions.addDM}
+            onDeleteDM={actions.deleteDM}
             onUpdateContract={actions.updateContract}
             onUpdateDelivery={actions.updateDelivery}
+            onAddDeliveryMetric={actions.addDeliveryMetric}
+            onUpdateDeliveryMetric={actions.updateDeliveryMetric}
+            onDeleteDeliveryMetric={actions.deleteDeliveryMetric}
             onUpdatePostStatus={actions.updatePostStatus}
             onEndContract={actions.endContract}
             onDeleteClient={actions.deleteClient}
             onAddTask={actions.addTask}
             onToggleTask={actions.toggleTask}
             onDeleteTask={actions.deleteTask}
+            onUpdateTask={actions.updateTask}
             onUpdateClientNotes={actions.updateClientNotes}
             onLogActivity={actions.logActivity}
           />
@@ -212,7 +222,9 @@ export default function App() {
             data={data}
             onAddPost={actions.addPost}
             onUpdatePost={actions.updatePost}
+            onDeletePost={actions.deletePost}
             onAddSwipe={actions.addSwipe}
+            onDeleteSwipe={actions.deleteSwipe}
             onSetAgencyBufferChannel={actions.setAgencyBufferChannel}
           />
         )}

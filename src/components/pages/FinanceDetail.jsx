@@ -6,6 +6,7 @@ import {
 import {
   ArrowLeft, Plus, DollarSign, AlertCircle, Clock, Search,
   ArrowUpRight, ArrowDownRight, FileDown, Wallet, Receipt, Repeat, Mail, Loader2,
+  Pencil, Trash2, X,
 } from "lucide-react";
 import { sendEmail } from "../../lib/email";
 import Card, { CardTitle } from "../ui/Card";
@@ -32,7 +33,7 @@ const TILE_TONE = {
   emerald: { wash: "bg-emerald-50", icon: "text-emerald-600" },
 };
 
-export default function FinanceDetail({ data, setView, onAddExpense, onAddInvoice, onGenerateInvoices, onUpdateInvoiceStatus }) {
+export default function FinanceDetail({ data, setView, onAddExpense, onUpdateExpense, onDeleteExpense, onAddInvoice, onGenerateInvoices, onUpdateInvoiceStatus, onDeleteInvoice }) {
   const [activeTab, setActiveTab] = useState("overview");
   const [filterStatus, setFilterStatus] = useState("all");
   const [search, setSearch] = useState("");
@@ -40,6 +41,8 @@ export default function FinanceDetail({ data, setView, onAddExpense, onAddInvoic
   // { [invoiceId]: "sending" | "sent" | "failed" }
   const [reminderStatus, setReminderStatus] = useState({});
   const [exp, setExp] = useState({ category: "Software", vendor: "", amount: "" });
+  const [editingExpenseId, setEditingExpenseId] = useState(null);
+  const [editExpenseForm, setEditExpenseForm] = useState({ category: "Software", vendor: "", amount: "" });
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
   const { money } = useCurrency();
 
@@ -132,6 +135,16 @@ export default function FinanceDetail({ data, setView, onAddExpense, onAddInvoic
         : `Every active client already has an invoice for ${period}.`
     );
     setActiveTab("invoices");
+  };
+
+  const startEditExpense = (e) => {
+    setEditExpenseForm({ category: e.category, vendor: e.vendor, amount: String(e.amount) });
+    setEditingExpenseId(e.id);
+  };
+  const submitEditExpense = () => {
+    if (!editExpenseForm.vendor || !editExpenseForm.amount) return;
+    onUpdateExpense(editingExpenseId, { ...editExpenseForm, amount: Number(editExpenseForm.amount) });
+    setEditingExpenseId(null);
   };
 
   return (
@@ -405,6 +418,13 @@ export default function FinanceDetail({ data, setView, onAddExpense, onAddInvoic
                             >
                               {i.status === "paid" ? "Mark unpaid" : "Mark paid"}
                             </PrimaryButton>
+                            <button
+                              onClick={() => { if (confirm(`Delete invoice ${invoiceNo(i.id)}? This can't be undone.`)) onDeleteInvoice(i.id); }}
+                              aria-label="Delete invoice"
+                              className="text-stone-300 hover:text-rose-500 p-1.5 shrink-0"
+                            >
+                              <Trash2 size={14} />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -522,20 +542,50 @@ export default function FinanceDetail({ data, setView, onAddExpense, onAddInvoic
               Expenses &amp; subscriptions
             </CardTitle>
             <div className="space-y-1">
-              {data.expenses.slice().reverse().map((e) => (
-                <div key={e.id} className="flex items-center justify-between gap-3 py-2.5 border-b border-stone-100 last:border-0">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-8 h-8 rounded-xl bg-stone-100 flex items-center justify-center shrink-0">
-                      <Receipt size={14} className="text-stone-500" />
+              {data.expenses.slice().reverse().map((e) => {
+                if (editingExpenseId === e.id) {
+                  return (
+                    <div key={e.id} className="flex items-center gap-2 flex-wrap bg-stone-50 rounded-xl p-3 my-1">
+                      <select value={editExpenseForm.category} onChange={(ev) => setEditExpenseForm({ ...editExpenseForm, category: ev.target.value })} className={`${inputCls} w-32`}>
+                        <option>Software</option>
+                        <option>Contractor</option>
+                        <option>Advertising</option>
+                        <option>Other</option>
+                      </select>
+                      <input placeholder="Vendor" value={editExpenseForm.vendor} onChange={(ev) => setEditExpenseForm({ ...editExpenseForm, vendor: ev.target.value })} className={`${inputCls} flex-1 min-w-[8rem]`} />
+                      <input placeholder="Amount" type="number" value={editExpenseForm.amount} onChange={(ev) => setEditExpenseForm({ ...editExpenseForm, amount: ev.target.value })} className={`${inputCls} w-28`} />
+                      <PrimaryButton size="sm" onClick={submitEditExpense}>Save</PrimaryButton>
+                      <button onClick={() => setEditingExpenseId(null)} className="text-stone-400 hover:text-stone-700 p-1.5">
+                        <X size={15} />
+                      </button>
                     </div>
-                    <div className="min-w-0">
-                      <div className="text-sm text-stone-800 truncate">{e.vendor}</div>
-                      <div className="text-[11px] text-stone-400">{e.category} · {e.date}</div>
+                  );
+                }
+                return (
+                  <div key={e.id} className="group flex items-center justify-between gap-3 py-2.5 border-b border-stone-100 last:border-0">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded-xl bg-stone-100 flex items-center justify-center shrink-0">
+                        <Receipt size={14} className="text-stone-500" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm text-stone-800 truncate">{e.vendor}</div>
+                        <div className="text-[11px] text-stone-400">{e.category} · {e.date}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-sm font-semibold text-stone-800 tnum">{money(e.amount)}</span>
+                      <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition">
+                        <button onClick={() => startEditExpense(e)} aria-label="Edit expense" className="text-stone-300 hover:text-stone-600 p-1">
+                          <Pencil size={13} />
+                        </button>
+                        <button onClick={() => onDeleteExpense(e.id)} aria-label="Delete expense" className="text-stone-300 hover:text-rose-500 p-1">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  <span className="text-sm font-semibold text-stone-800 tnum shrink-0">{money(e.amount)}</span>
-                </div>
-              ))}
+                );
+              })}
               {data.expenses.length === 0 && <div className="text-xs text-stone-400 py-6 text-center">No expenses logged.</div>}
             </div>
           </Card>

@@ -51,6 +51,26 @@ export function updateDelivery(d, id, idx, val) {
   if (c && c.delivery[idx]) c.delivery[idx].current = val;
   return d;
 }
+// ---- custom KPIs (delivery metric definitions, not just their progress) ----
+// Every client type ships with defaultDelivery metrics (seed.js), but those
+// are just a starting template — this is what lets the owner add, rename,
+// retarget, or remove KPIs per client so "on track" means whatever actually
+// matters for that specific engagement.
+export function addDeliveryMetric(d, id, metric) {
+  const c = d.clients.find((x) => x.id === id);
+  if (c) c.delivery.push({ metric: metric.metric, target: Number(metric.target) || 0, current: 0, direction: metric.direction || "higher" });
+  return d;
+}
+export function updateDeliveryMetric(d, id, idx, patch) {
+  const c = d.clients.find((x) => x.id === id);
+  if (c && c.delivery[idx]) Object.assign(c.delivery[idx], patch);
+  return d;
+}
+export function deleteDeliveryMetric(d, id, idx) {
+  const c = d.clients.find((x) => x.id === id);
+  if (c) c.delivery = c.delivery.filter((_, i) => i !== idx);
+  return d;
+}
 // Permanently removes a client and everything tied to them — distinct from
 // endContract, which just flips status and keeps all history. Cascades
 // across every collection that carries a clientId so nothing orphaned is
@@ -160,6 +180,10 @@ export function addSwipe(d, s) {
   d.swipeFile.push({ id: uid(), ...s });
   return d;
 }
+export function deleteSwipe(d, id) {
+  d.swipeFile = d.swipeFile.filter((x) => x.id !== id);
+  return d;
+}
 export function addDM(d, dm) {
   d.dms.push({ id: uid(), ...dm });
   if (dm.clientId) {
@@ -176,10 +200,23 @@ export function addComment(d, c) {
   d.comments.push({ id: uid(), ...c });
   return d;
 }
+export function deleteDM(d, id) {
+  d.dms = d.dms.filter((x) => x.id !== id);
+  return d;
+}
 
 // ---- finance ----
 export function addExpense(d, e) {
   d.expenses.push({ id: uid(), ...e });
+  return d;
+}
+export function updateExpense(d, id, patch) {
+  const e = d.expenses.find((x) => x.id === id);
+  if (e) Object.assign(e, patch);
+  return d;
+}
+export function deleteExpense(d, id) {
+  d.expenses = d.expenses.filter((x) => x.id !== id);
   return d;
 }
 export function addInvoice(d, i) {
@@ -189,6 +226,10 @@ export function addInvoice(d, i) {
 export function updateInvoiceStatus(d, id, status) {
   const i = d.invoices.find((x) => x.id === id);
   if (i) i.status = status;
+  return d;
+}
+export function deleteInvoice(d, id) {
+  d.invoices = d.invoices.filter((x) => x.id !== id);
   return d;
 }
 // Bills every active client that has no invoice for `period` yet. Mutates

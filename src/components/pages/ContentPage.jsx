@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Sparkles, Search, Plus, ChevronLeft, ChevronRight } from "lucide-react";
+import { Sparkles, Search, Plus, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import Card, { CardTitle } from "../ui/Card";
 import Badge from "../ui/Badge";
 import PrimaryButton from "../ui/PrimaryButton";
@@ -170,7 +170,7 @@ function ContentCalendar({ posts, clients }) {
   );
 }
 
-export default function ContentPage({ data, onAddPost, onUpdatePost, onAddSwipe, onSetAgencyBufferChannel }) {
+export default function ContentPage({ data, onAddPost, onUpdatePost, onDeletePost, onAddSwipe, onDeleteSwipe, onSetAgencyBufferChannel }) {
   const [view, setView] = useState("composer");
   const [note, setNote] = useState("");
   const [source, setSource] = useState("");
@@ -222,6 +222,7 @@ export default function ContentPage({ data, onAddPost, onUpdatePost, onAddSwipe,
               posts={data.posts}
               onAddPost={onAddPost}
               onUpdatePost={onUpdatePost}
+              onDeletePost={onDeletePost}
               author={data.profile?.name || "Eden Labs"}
               headline={data.profile?.headline || ""}
               avatarUrl={data.profile?.photoUrl || ""}
@@ -270,13 +271,22 @@ export default function ContentPage({ data, onAddPost, onUpdatePost, onAddSwipe,
 
           <div className="space-y-1 mb-4">
             {filtered.map((s) => (
-              <div key={s.id} className="text-sm text-stone-600 border-b border-stone-100 last:border-0 py-2.5 flex items-start justify-between gap-3">
+              <div key={s.id} className="group text-sm text-stone-600 border-b border-stone-100 last:border-0 py-2.5 flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <span className="font-semibold text-stone-800">{s.source}</span>
                   <span className="text-stone-400"> — </span>
                   {s.note}
                 </div>
-                {s.tag && <Badge tone="stone">{s.tag}</Badge>}
+                <div className="flex items-center gap-2 shrink-0">
+                  {s.tag && <Badge tone="stone">{s.tag}</Badge>}
+                  <button
+                    onClick={() => onDeleteSwipe(s.id)}
+                    aria-label="Delete swipe file entry"
+                    className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-stone-300 hover:text-rose-500 transition p-1"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </div>
             ))}
             {filtered.length === 0 && <div className="text-xs text-stone-400 py-6 text-center">No matches.</div>}

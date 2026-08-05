@@ -25,7 +25,7 @@ const greeting = () => {
   return "Good evening";
 };
 
-export default function HomeDashboard({ data, setView, setSelectedClient, onAddTask, onToggleTask, onDeleteTask }) {
+export default function HomeDashboard({ data, setView, setSelectedClient, onAddTask, onToggleTask, onDeleteTask, onUpdateTask }) {
   const { money } = useCurrency();
   const finSeries = useMemo(() => {
     const byMonth = {};
@@ -163,6 +163,7 @@ export default function HomeDashboard({ data, setView, setSelectedClient, onAddT
             onAdd={onAddTask}
             onToggle={onToggleTask}
             onDelete={onDeleteTask}
+            onUpdate={onUpdateTask}
             title="Your tasks"
           />
         </div>

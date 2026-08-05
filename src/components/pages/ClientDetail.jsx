@@ -1,10 +1,11 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 import {
   ArrowLeft, Send, FileDown, TrendingUp, CheckCircle2, DollarSign, Phone, Link2, Copy, Check,
   AlertTriangle, Ban, Eye, Clock, StickyNote, Activity, FileText, MessageSquare, CheckCheck, Trash2,
+  Plus, Pencil, X, Upload,
 } from "lucide-react";
 import Card, { CardTitle } from "../ui/Card";
 import Badge from "../ui/Badge";
@@ -20,6 +21,7 @@ import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { CLIENT_TYPES, DEFAULT_CLIENT_TYPE } from "../../data/seed";
 import { useCurrency } from "../../hooks/useCurrency";
 import { sendEmail } from "../../lib/email";
+import { fileToDocument } from "../../lib/media";
 
 // ---- Activity log icon / colour per event type ----
 const ACTIVITY_CONFIG = {
@@ -89,13 +91,17 @@ function ActivityTab({ clientId, activityLog }) {
 }
 
 export default function ClientDetail({
-  data, clientId, setView, onAddPost, onUpdatePost, onAddDM, onUpdateContract, onUpdateDelivery,
-  onUpdatePostStatus, onEndContract, onDeleteClient, onAddTask, onToggleTask, onDeleteTask,
+  data, clientId, setView, onAddPost, onUpdatePost, onDeletePost, onAddDM, onDeleteDM, onUpdateContract, onUpdateDelivery,
+  onAddDeliveryMetric, onUpdateDeliveryMetric, onDeleteDeliveryMetric,
+  onUpdatePostStatus, onEndContract, onDeleteClient, onAddTask, onToggleTask, onDeleteTask, onUpdateTask,
   onUpdateClientNotes, onLogActivity,
 }) {
   const [tab, setTab] = useState("overview");
   const [dmForm, setDmForm] = useState({ direction: "sent", content: "" });
   const [contractInput, setContractInput] = useState("");
+  const [contractUploading, setContractUploading] = useState(false);
+  const [contractUploadError, setContractUploadError] = useState("");
+  const contractFileInputRef = useRef(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailStatus, setEmailStatus] = useState("");
@@ -108,6 +114,9 @@ export default function ClientDetail({
   const [endForm, setEndForm] = useState({ reason: "" });
   const [viewingPost, setViewingPost] = useState(null);
   const [notesText, setNotesText] = useState("");
+  const [addingKpi, setAddingKpi] = useState(false);
+  const [kpiForm, setKpiForm] = useState({ metric: "", target: "", direction: "higher" });
+  const [editingKpiIdx, setEditingKpiIdx] = useState(null);
   const { money } = useCurrency();
 
   const client = data.clients.find((c) => c.id === clientId);
@@ -158,7 +167,38 @@ export default function ClientDetail({
   // rendering an empty page.
   const activeTab = clientType.tabs.includes(tab) ? tab : "overview";
 
-  const handleDownloadPdf = () => window.print();
+  // A self-uploaded contract (client.contract.fileUrl) always wins over the
+  // auto-generated bodyText — download opens/saves the actual uploaded file
+  // rather than printing the generated text as a PDF.
+  const handleDownloadPdf = () => {
+    if (client.contract.fileUrl) {
+      const a = document.createElement("a");
+      a.href = client.contract.fileUrl;
+      a.download = client.contract.fileName || "contract";
+      a.click();
+      return;
+    }
+    window.print();
+  };
+
+  const handleUploadContract = async (file) => {
+    if (!file) return;
+    setContractUploadError("");
+    setContractUploading(true);
+    try {
+      const doc = await fileToDocument(file);
+      onUpdateContract(client.id, { ...client.contract, fileUrl: doc.url, fileName: doc.name, fileType: file.type });
+    } catch (e) {
+      setContractUploadError(e.message);
+    } finally {
+      setContractUploading(false);
+      if (contractFileInputRef.current) contractFileInputRef.current.value = "";
+    }
+  };
+
+  const handleRemoveContractFile = () => {
+    onUpdateContract(client.id, { ...client.contract, fileUrl: "", fileName: "", fileType: "" });
+  };
 
   // AI contract editing needs its own Anthropic key server-side (a separate
   // integration from anything built so far) — disabled honestly below rather
@@ -177,11 +217,20 @@ export default function ClientDetail({
     setEmailLoading(true);
     setEmailStatus("");
     try {
+      const hasFile = !!client.contract.fileUrl;
+      // Resend wants attachment content as bare base64 — no "data:...;base64,"
+      // prefix — so strip that off the stored data URL.
+      const attachments = hasFile
+        ? [{ filename: client.contract.fileName || "contract", content: client.contract.fileUrl.split(",")[1] }]
+        : undefined;
       await sendEmail({
         to: client.email,
         subject: "Your Eden Labs Service Agreement",
-        text: client.contract.bodyText,
-        html: `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#1c1917;white-space:pre-wrap;line-height:1.6;max-width:640px">${escapeHtml(client.contract.bodyText)}</div>`,
+        text: hasFile ? "Your service agreement is attached." : client.contract.bodyText,
+        html: hasFile
+          ? `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#1c1917">Your service agreement is attached.</div>`
+          : `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#1c1917;white-space:pre-wrap;line-height:1.6;max-width:640px">${escapeHtml(client.contract.bodyText)}</div>`,
+        attachments,
       });
       setEmailStatus(`Sent to ${client.email}.`);
     } catch (e) {
@@ -263,6 +312,28 @@ export default function ClientDetail({
     setView("clients");
   };
 
+  // ---- KPI (delivery metric) management — add / edit / delete ----
+  const submitAddKpi = () => {
+    if (!kpiForm.metric.trim()) return;
+    onAddDeliveryMetric(client.id, kpiForm);
+    setKpiForm({ metric: "", target: "", direction: "higher" });
+    setAddingKpi(false);
+  };
+  const submitEditKpi = (idx) => {
+    if (!kpiForm.metric.trim()) return;
+    onUpdateDeliveryMetric(client.id, idx, {
+      metric: kpiForm.metric.trim(),
+      target: Number(kpiForm.target) || 0,
+      direction: kpiForm.direction,
+    });
+    setEditingKpiIdx(null);
+  };
+  const startEditKpi = (idx, d) => {
+    setKpiForm({ metric: d.metric, target: String(d.target), direction: d.direction || "higher" });
+    setEditingKpiIdx(idx);
+    setAddingKpi(false);
+  };
+
   const inputCls = "border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
   const reviewQueue = data.posts.filter((p) => p.clientId === client.id && (p.status === "draft" || p.status === "pending_review"));
   const contractEnded = client.contract.status === "ended";
@@ -285,6 +356,7 @@ export default function ClientDetail({
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <Badge tone="stone">{clientType.label}</Badge>
+            {client.industry && <Badge tone="stone">{client.industry}</Badge>}
             <Badge tone={healthTone(health)} dot>{health} health</Badge>
             <Badge tone={client.status === "active" ? "emerald" : "amber"} dot>{client.status}</Badge>
           </div>
@@ -324,6 +396,7 @@ export default function ClientDetail({
             onAdd={onAddTask}
             onToggle={onToggleTask}
             onDelete={onDeleteTask}
+            onUpdate={onUpdateTask}
             title={`Tasks for ${client.name.split(" ")[0]}`}
           />
 
@@ -367,14 +440,60 @@ export default function ClientDetail({
           </div>
 
           <Card className="p-5">
-            <CardTitle sub="Edit the current column to update progress">
+            <CardTitle
+              sub="Edit the current column to update progress — set your own KPIs per client"
+              action={
+                !addingKpi && (
+                  <button
+                    onClick={() => { setAddingKpi(true); setEditingKpiIdx(null); setKpiForm({ metric: "", target: "", direction: "higher" }); }}
+                    className="flex items-center gap-1 text-xs font-medium text-emerald-700 hover:text-emerald-800"
+                  >
+                    <Plus size={13} /> Add KPI
+                  </button>
+                )
+              }
+            >
               <span className="flex items-center gap-2"><CheckCircle2 size={15} className="text-teal-700" /> Delivery</span>
             </CardTitle>
             <div className="space-y-3">
               {client.delivery.map((d, idx) => {
                 const onTrack = isMetricOnTrack(d);
+                if (editingKpiIdx === idx) {
+                  return (
+                    <div key={idx} className="flex items-center gap-2 flex-wrap bg-stone-50 rounded-xl p-3">
+                      <input
+                        autoFocus
+                        placeholder="KPI name"
+                        value={kpiForm.metric}
+                        onChange={(e) => setKpiForm({ ...kpiForm, metric: e.target.value })}
+                        onKeyDown={(e) => e.key === "Enter" && submitEditKpi(idx)}
+                        className={`${inputCls} flex-1 min-w-[9rem]`}
+                      />
+                      <input
+                        type="number"
+                        placeholder="Target"
+                        value={kpiForm.target}
+                        onChange={(e) => setKpiForm({ ...kpiForm, target: e.target.value })}
+                        onKeyDown={(e) => e.key === "Enter" && submitEditKpi(idx)}
+                        className={`${inputCls} w-24`}
+                      />
+                      <select
+                        value={kpiForm.direction}
+                        onChange={(e) => setKpiForm({ ...kpiForm, direction: e.target.value })}
+                        className={`${inputCls} w-36`}
+                      >
+                        <option value="higher">Higher is better</option>
+                        <option value="lower">Lower is better</option>
+                      </select>
+                      <PrimaryButton size="sm" onClick={() => submitEditKpi(idx)}>Save</PrimaryButton>
+                      <button onClick={() => setEditingKpiIdx(null)} className="text-stone-400 hover:text-stone-700 p-1.5">
+                        <X size={15} />
+                      </button>
+                    </div>
+                  );
+                }
                 return (
-                  <div key={idx} className="flex items-center gap-3 flex-wrap">
+                  <div key={idx} className="group flex items-center gap-3 flex-wrap">
                     <span className="text-sm text-stone-600 w-full sm:w-48">
                       {d.metric}{d.direction === "lower" && <span className="text-stone-400"> (lower is better)</span>}
                     </span>
@@ -394,9 +513,50 @@ export default function ClientDetail({
                     <Badge tone={onTrack ? "emerald" : "amber"}>
                       {onTrack ? "on track" : "behind"}
                     </Badge>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => startEditKpi(idx, d)} aria-label="Edit KPI" className="text-stone-400 hover:text-stone-700 p-1">
+                        <Pencil size={13} />
+                      </button>
+                      <button onClick={() => onDeleteDeliveryMetric(client.id, idx)} aria-label="Delete KPI" className="text-stone-400 hover:text-rose-600 p-1">
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
                   </div>
                 );
               })}
+
+              {addingKpi && (
+                <div className="flex items-center gap-2 flex-wrap bg-emerald-50/60 rounded-xl p-3">
+                  <input
+                    autoFocus
+                    placeholder="KPI name (e.g. Posts per week)"
+                    value={kpiForm.metric}
+                    onChange={(e) => setKpiForm({ ...kpiForm, metric: e.target.value })}
+                    onKeyDown={(e) => e.key === "Enter" && submitAddKpi()}
+                    className={`${inputCls} flex-1 min-w-[9rem]`}
+                  />
+                  <input
+                    type="number"
+                    placeholder="Target"
+                    value={kpiForm.target}
+                    onChange={(e) => setKpiForm({ ...kpiForm, target: e.target.value })}
+                    onKeyDown={(e) => e.key === "Enter" && submitAddKpi()}
+                    className={`${inputCls} w-24`}
+                  />
+                  <select
+                    value={kpiForm.direction}
+                    onChange={(e) => setKpiForm({ ...kpiForm, direction: e.target.value })}
+                    className={`${inputCls} w-36`}
+                  >
+                    <option value="higher">Higher is better</option>
+                    <option value="lower">Lower is better</option>
+                  </select>
+                  <PrimaryButton size="sm" icon={Plus} onClick={submitAddKpi}>Add</PrimaryButton>
+                  <button onClick={() => setAddingKpi(false)} className="text-stone-400 hover:text-stone-700 p-1.5">
+                    <X size={15} />
+                  </button>
+                </div>
+              )}
               {client.delivery.length === 0 && <div className="text-xs text-stone-400">No delivery metrics set.</div>}
             </div>
           </Card>
@@ -466,6 +626,7 @@ export default function ClientDetail({
               posts={data.posts}
               onAddPost={onAddPost}
               onUpdatePost={onUpdatePost}
+              onDeletePost={onDeletePost}
               onPushForApproval={onAddPost}
               author={client.name}
               headline={client.company}
@@ -522,10 +683,17 @@ export default function ClientDetail({
           <CardTitle sub="Manual log until the LinkedIn integration lands">Message log</CardTitle>
           <div className="space-y-1 mb-4">
             {clientDms.map((d) => (
-              <div key={d.id} className="flex items-start gap-2.5 text-sm py-2.5 border-b border-stone-100 last:border-0">
+              <div key={d.id} className="group flex items-start gap-2.5 text-sm py-2.5 border-b border-stone-100 last:border-0">
                 <Badge tone={d.direction === "sent" ? "teal" : "stone"}>{d.direction}</Badge>
                 <span className="text-stone-600 flex-1">{d.content}</span>
                 <span className="text-xs text-stone-400 shrink-0 tnum">{d.date}</span>
+                <button
+                  onClick={() => onDeleteDM(d.id)}
+                  aria-label="Delete DM"
+                  className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-stone-300 hover:text-rose-500 transition p-0.5 shrink-0"
+                >
+                  <Trash2 size={13} />
+                </button>
               </div>
             ))}
             {clientDms.length === 0 && <div className="text-sm text-stone-400 py-6 text-center">No DMs logged yet.</div>}
@@ -663,16 +831,58 @@ export default function ClientDetail({
             <div className="flex items-center justify-between px-5 py-4 border-b border-stone-100 flex-wrap gap-2">
               <span className="text-[15px] font-semibold text-stone-900 tracking-tight">Contract document</span>
               <div className="flex gap-2">
-                <PrimaryButton size="sm" variant="ghost" icon={FileDown} onClick={handleDownloadPdf}>Download PDF</PrimaryButton>
+                <input
+                  ref={contractFileInputRef}
+                  type="file"
+                  accept=".pdf,.doc,.docx,image/*"
+                  className="hidden"
+                  onChange={(e) => handleUploadContract(e.target.files?.[0])}
+                />
+                {client.contract.fileUrl ? (
+                  <PrimaryButton size="sm" variant="ghost" icon={Trash2} onClick={handleRemoveContractFile}>
+                    Remove upload
+                  </PrimaryButton>
+                ) : null}
+                <PrimaryButton
+                  size="sm"
+                  variant="ghost"
+                  icon={contractUploading ? undefined : Upload}
+                  onClick={() => contractFileInputRef.current?.click()}
+                  disabled={contractUploading}
+                >
+                  {contractUploading ? "Uploading…" : client.contract.fileUrl ? "Replace file" : "Upload contract"}
+                </PrimaryButton>
+                <PrimaryButton size="sm" variant="ghost" icon={FileDown} onClick={handleDownloadPdf}>
+                  {client.contract.fileUrl ? "Download" : "Download PDF"}
+                </PrimaryButton>
                 <PrimaryButton size="sm" icon={Send} onClick={handleSendEmail} disabled={emailLoading}>
                   {emailLoading ? "Sending…" : "Send email"}
                 </PrimaryButton>
               </div>
             </div>
+            {contractUploadError && <div className="px-5 py-2.5 text-xs text-rose-600 bg-rose-50 border-b border-rose-100">{contractUploadError}</div>}
             {emailStatus && <div className="px-5 py-2.5 text-xs text-stone-500 bg-stone-50 border-b border-stone-100">{emailStatus}</div>}
-            <div id="eden-print-area" className="p-6 font-serif text-[15px] text-stone-700 whitespace-pre-wrap leading-relaxed max-h-[420px] overflow-y-auto">
-              {client.contract.bodyText || "No contract text yet."}
-            </div>
+
+            {client.contract.fileUrl ? (
+              <div className="p-4 bg-stone-50">
+                <div className="text-xs text-stone-500 mb-2 flex items-center gap-1.5">
+                  <FileText size={13} /> {client.contract.fileName || "Uploaded contract"} — your own document, replacing the generated text below.
+                </div>
+                {client.contract.fileType === "application/pdf" ? (
+                  <iframe title="Uploaded contract" src={client.contract.fileUrl} className="w-full h-[420px] rounded-xl border border-stone-200 bg-white" />
+                ) : client.contract.fileType?.startsWith("image/") ? (
+                  <img src={client.contract.fileUrl} alt="Uploaded contract" className="max-h-[420px] mx-auto rounded-xl border border-stone-200" />
+                ) : (
+                  <div className="p-6 text-center text-sm text-stone-500 bg-white rounded-xl border border-stone-200">
+                    Preview isn't available for this file type — use Download to view it.
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div id="eden-print-area" className="p-6 font-serif text-[15px] text-stone-700 whitespace-pre-wrap leading-relaxed max-h-[420px] overflow-y-auto">
+                {client.contract.bodyText || "No contract text yet."}
+              </div>
+            )}
           </Card>
 
           <Card className="p-5">

@@ -101,6 +101,9 @@ export function useAppData(token, onUnauthorized) {
     },
     updateContract: (id, contract) => update((d) => M.updateContract(d, id, contract)),
     updateDelivery: (id, idx, val) => update((d) => M.updateDelivery(d, id, idx, val)),
+    addDeliveryMetric: (id, metric) => update((d) => M.addDeliveryMetric(d, id, metric)),
+    updateDeliveryMetric: (id, idx, patch) => update((d) => M.updateDeliveryMetric(d, id, idx, patch)),
+    deleteDeliveryMetric: (id, idx) => update((d) => M.deleteDeliveryMetric(d, id, idx)),
     endContract: (id, reason) => update((d) => M.endContract(d, id, reason)),
     updateClientNotes: (id, text) => update((d) => M.updateClientNotes(d, id, text)),
     deleteClient: (id) => {
@@ -130,13 +133,18 @@ export function useAppData(token, onUnauthorized) {
     updatePostStatus: (id, status) => update((d) => M.updatePostStatus(d, id, status)),
     deletePost: (id) => update((d) => M.deletePost(d, id)),
     addSwipe: (s) => update((d) => M.addSwipe(d, s)),
+    deleteSwipe: (id) => update((d) => M.deleteSwipe(d, id)),
     addDM: (dm) => update((d) => M.addDM(d, dm)),
+    deleteDM: (id) => update((d) => M.deleteDM(d, id)),
     addComment: (c) => update((d) => M.addComment(d, c)),
 
     // ---- finance ----
     addExpense: (e) => update((d) => M.addExpense(d, e)),
+    updateExpense: (id, patch) => update((d) => M.updateExpense(d, id, patch)),
+    deleteExpense: (id) => update((d) => M.deleteExpense(d, id)),
     addInvoice: (i) => update((d) => M.addInvoice(d, i)),
     updateInvoiceStatus: (id, status) => update((d) => M.updateInvoiceStatus(d, id, status)),
+    deleteInvoice: (id) => update((d) => M.deleteInvoice(d, id)),
     // Reads counts back out synchronously — functional setState updaters run
     // synchronously when called, so `result` is populated before update()
     // returns even though the re-render itself is deferred.

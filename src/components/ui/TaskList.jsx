@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, Plus, Trash2, CalendarDays, X } from "lucide-react";
+import { Check, Plus, Trash2, CalendarDays, X, Pencil } from "lucide-react";
 import Card from "./Card";
 import Badge from "./Badge";
 import PillTabs from "./PillTabs";
@@ -19,11 +19,13 @@ const PRIORITY_RANK = { high: 0, medium: 1, low: 2 };
  * client detail page. Pass `clientId` to lock every new task to that client
  * and hide the client picker.
  */
-export default function TaskList({ tasks, clients, onAdd, onToggle, onDelete, clientId = undefined, title = "Tasks" }) {
+export default function TaskList({ tasks, clients, onAdd, onToggle, onDelete, onUpdate, clientId = undefined, title = "Tasks" }) {
   const scoped = clientId === undefined ? tasks : tasks.filter((t) => t.clientId === clientId);
   const [filter, setFilter] = useState("open");
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ title: "", clientId: clientId ?? "", dueDate: "", priority: "medium" });
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({ title: "", clientId: "", dueDate: "", priority: "medium" });
 
   const clientName = (id) => clients.find((c) => c.id === id)?.name;
 
@@ -63,6 +65,22 @@ export default function TaskList({ tasks, clients, onAdd, onToggle, onDelete, cl
     });
     setForm({ title: "", clientId: clientId ?? "", dueDate: "", priority: "medium" });
     setAdding(false);
+  };
+
+  const startEdit = (t) => {
+    setEditForm({ title: t.title, clientId: t.clientId || "", dueDate: t.dueDate || "", priority: t.priority || "medium" });
+    setEditingId(t.id);
+    setAdding(false);
+  };
+  const submitEdit = () => {
+    if (!editForm.title.trim()) return;
+    onUpdate(editingId, {
+      title: editForm.title.trim(),
+      clientId: editForm.clientId || null,
+      dueDate: editForm.dueDate,
+      priority: editForm.priority,
+    });
+    setEditingId(null);
   };
 
   const inputCls = "border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
@@ -145,6 +163,52 @@ export default function TaskList({ tasks, clients, onAdd, onToggle, onDelete, cl
         {visible.map((t) => {
           const due = relativeDays(t.dueDate);
           const p = PRIORITY[t.priority] || PRIORITY.medium;
+
+          if (editingId === t.id) {
+            return (
+              <div key={t.id} className="rounded-xl bg-stone-50 border border-line p-3 mb-1 space-y-2">
+                <input
+                  autoFocus
+                  value={editForm.title}
+                  onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                  onKeyDown={(e) => e.key === "Enter" && submitEdit()}
+                  className={`${inputCls} w-full`}
+                />
+                <div className="flex gap-2 flex-wrap">
+                  {clientId === undefined && (
+                    <select
+                      value={editForm.clientId}
+                      onChange={(e) => setEditForm({ ...editForm, clientId: e.target.value })}
+                      className={`${inputCls} flex-1 min-w-[9rem]`}
+                    >
+                      <option value="">Internal / agency</option>
+                      {clients.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  )}
+                  <input
+                    type="date"
+                    value={editForm.dueDate}
+                    onChange={(e) => setEditForm({ ...editForm, dueDate: e.target.value })}
+                    className={`${inputCls} flex-1 min-w-[9rem]`}
+                  />
+                  <select
+                    value={editForm.priority}
+                    onChange={(e) => setEditForm({ ...editForm, priority: e.target.value })}
+                    className={`${inputCls} w-32`}
+                  >
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                  </select>
+                  <PrimaryButton onClick={submitEdit}>Save</PrimaryButton>
+                  <PrimaryButton variant="ghost" onClick={() => setEditingId(null)}>Cancel</PrimaryButton>
+                </div>
+              </div>
+            );
+          }
+
           return (
             <div
               key={t.id}
@@ -185,13 +249,25 @@ export default function TaskList({ tasks, clients, onAdd, onToggle, onDelete, cl
                 </div>
               </div>
 
-              <button
-                onClick={() => onDelete(t.id)}
-                aria-label="Delete task"
-                className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-stone-300 hover:text-rose-500 transition p-1 shrink-0"
-              >
-                <Trash2 size={14} />
-              </button>
+              {/* Always visible on touch (no hover state exists there) —
+                  opacity-100 by default, only fading in-on-hover at the sm+
+                  breakpoint where a mouse is more likely. */}
+              <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition shrink-0">
+                <button
+                  onClick={() => startEdit(t)}
+                  aria-label="Edit task"
+                  className="text-stone-300 hover:text-stone-600 p-1"
+                >
+                  <Pencil size={14} />
+                </button>
+                <button
+                  onClick={() => onDelete(t.id)}
+                  aria-label="Delete task"
+                  className="text-stone-300 hover:text-rose-500 p-1"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
             </div>
           );
         })}

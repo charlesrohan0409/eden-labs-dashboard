@@ -71,5 +71,18 @@ export async function fileToVideo(file) {
   return { url: await readFileAsDataUrl(file), name: file.name, mime: file.type };
 }
 
+// A signed contract, scanned and uploaded as a PDF/DOCX/image — stored the
+// same way as everything else here (a data URL sitting inside the one JSON
+// blob), so the same size concern applies, just tighter: this row already
+// carries every client's data, not just one photo.
+export const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
+
+export async function fileToDocument(file) {
+  if (file.size > MAX_DOCUMENT_BYTES) {
+    throw new Error(`File is ${humanSize(file.size)} — keep uploaded contracts under 5MB.`);
+  }
+  return { url: await readFileAsDataUrl(file), name: file.name, mime: file.type };
+}
+
 export const humanSize = (bytes) =>
   bytes > 1048576 ? `${(bytes / 1048576).toFixed(1)}MB` : `${Math.round(bytes / 1024)}KB`;

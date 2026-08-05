@@ -117,9 +117,13 @@ export default function ClientPortal({
             <div className="text-xs text-stone-400">Eden Labs · Client Dashboard</div>
           </div>
         </div>
-        <button onClick={onExit} className="text-xs text-stone-300 flex items-center gap-1.5 hover:text-white border border-white/10 rounded-full px-3.5 py-2">
-          <LogOut size={13} /> Exit preview
-        </button>
+        {/* Only present for the owner's own "Preview client portal" — a real
+            client viewing their actual dashboard isn't "previewing" anything. */}
+        {onExit && (
+          <button onClick={onExit} className="text-xs text-stone-300 flex items-center gap-1.5 hover:text-white border border-white/10 rounded-full px-3.5 py-2">
+            <LogOut size={13} /> Exit preview
+          </button>
+        )}
       </div>
 
       {/* The CRM board needs the full width; everything else reads better

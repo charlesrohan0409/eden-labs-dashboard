@@ -62,12 +62,17 @@ export default function ClientPortalLogin({ onLogin, onExit }) {
           </PrimaryButton>
         </Card>
 
-        <button
-          onClick={onExit}
-          className="mt-4 mx-auto flex items-center gap-1 text-xs text-stone-500 hover:text-stone-800"
-        >
-          <ArrowLeft size={13} /> Back to the ops dashboard
-        </button>
+        {/* Only present when the owner opened this via "Preview client
+            portal" from their own session — a real client arriving through
+            their shared link has no ops dashboard to go back to. */}
+        {onExit && (
+          <button
+            onClick={onExit}
+            className="mt-4 mx-auto flex items-center gap-1 text-xs text-stone-500 hover:text-stone-800"
+          >
+            <ArrowLeft size={13} /> Back to the ops dashboard
+          </button>
+        )}
       </div>
     </div>
   );

@@ -107,6 +107,13 @@ export const uid = () => Date.now().toString(36) + Math.random().toString(36).sl
 export const escapeHtml = (s = "") =>
   String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+// The client's real, working portal link — computed from the current origin
+// rather than stored on the client object, so it's automatically correct
+// whatever domain the app happens to be running on (localhost in dev,
+// dashboard.theedenlabs.com in prod) instead of ever going stale. App.jsx's
+// mount-time routing check reads this same "/portal/:id" shape back out.
+export const portalLinkFor = (client) => `${window.location.origin}/portal/${client.id}`;
+
 export function addDays(dateStr, n) {
   const d = new Date(dateStr);
   d.setDate(d.getDate() + n);

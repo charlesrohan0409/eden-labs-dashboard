@@ -97,7 +97,6 @@ export function buildNewClient(c) {
     status: "active",
     type,
     pin: Math.floor(1000 + Math.random() * 9000).toString(),
-    link: `elabs.app/c/${c.name.toLowerCase().replace(/\s+/g, "-")}`,
     contract: {
       value, status: "active", cycle: "monthly", notes: "",
       serviceType: c.serviceType || "content", startDate: c.startDate || "",
@@ -126,11 +125,15 @@ export function buildNewClient(c) {
 export async function sendOnboardingEmail(client) {
   if (!client.email) return { sent: false, error: "No email address on file." };
 
+  // Computed from the current origin (not stored on the client) so it's
+  // always a real, working link — see lib/utils.js's portalLinkFor.
+  const link = `${window.location.origin}/portal/${client.id}`;
+
   const text = `Hi ${client.name},
 
 Welcome aboard! Your Eden Labs client dashboard is ready.
 
-Dashboard link: ${client.link}
+Dashboard link: ${link}
 Your PIN: ${client.pin}
 
 Use these to log in and track your work with us in real time.
@@ -144,7 +147,7 @@ Looking forward to working together.
   <p>Welcome aboard! Your Eden Labs client dashboard is ready.</p>
   <div style="background:#f4f3f0;border:1px solid #e7e4de;border-radius:12px;padding:16px;margin:20px 0">
     <div style="font-size:12px;color:#78716c">Dashboard link</div>
-    <div style="font-weight:600;margin-bottom:10px">${client.link}</div>
+    <div style="font-weight:600;margin-bottom:10px"><a href="${link}" style="color:#166534">${link}</a></div>
     <div style="font-size:12px;color:#78716c">Your PIN</div>
     <div style="font-weight:600;font-size:20px;letter-spacing:2px">${client.pin}</div>
   </div>

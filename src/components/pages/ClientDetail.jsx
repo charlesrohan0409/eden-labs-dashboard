@@ -15,7 +15,7 @@ import PostComposer from "../ui/PostComposer";
 import PostPreview from "../ui/PostPreview";
 import TaskList from "../ui/TaskList";
 import Modal from "../ui/Modal";
-import { MONTHS, computeHealthScore, healthTone, relativeDays, formatDateTime, escapeHtml, isMetricOnTrack, metricProgressPct } from "../../lib/utils";
+import { MONTHS, computeHealthScore, healthTone, relativeDays, formatDateTime, escapeHtml, isMetricOnTrack, metricProgressPct, portalLinkFor } from "../../lib/utils";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { CLIENT_TYPES, DEFAULT_CLIENT_TYPE } from "../../data/seed";
 import { useCurrency } from "../../hooks/useCurrency";
@@ -243,7 +243,7 @@ export default function ClientDetail({
   };
 
   const copyPortalLink = () => {
-    navigator.clipboard?.writeText(`${client.link} · PIN ${client.pin}`);
+    navigator.clipboard?.writeText(`${portalLinkFor(client)} · PIN ${client.pin}`);
     setCopied(true);
     setTimeout(() => setCopied(false), 1800);
   };
@@ -425,7 +425,7 @@ export default function ClientDetail({
               </CardTitle>
               <div className="flex items-center gap-2 bg-stone-50 border border-line rounded-xl px-3.5 py-3">
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm text-stone-700 truncate">{client.link}</div>
+                  <div className="text-sm text-stone-700 truncate">{portalLinkFor(client)}</div>
                   <div className="text-xs text-stone-400 mt-0.5">PIN {client.pin}</div>
                 </div>
                 <PrimaryButton size="sm" variant="ghost" icon={copied ? Check : Copy} onClick={copyPortalLink}>

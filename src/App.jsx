@@ -65,19 +65,32 @@ export default function App() {
 
   const [view, setView] = useState("home");
   const [selectedClient, setSelectedClient] = useState(null);
-  const [portalMode, setPortalMode] = useState(false);
+
+  // A client's shared portal link looks like /portal/:clientId (see
+  // lib/utils.js's portalLinkFor — the id itself isn't actually needed here,
+  // since the PIN they enter is what identifies them server-side; matching
+  // the path just means "go straight to the portal login, skip the owner
+  // gate entirely" instead of leaving them stuck on the owner's PIN screen).
+  // Computed once, synchronously, so there's no flash of the wrong screen
+  // before an effect gets a chance to run.
+  const [arrivedViaLink] = useState(() => /^\/portal\//.test(window.location.pathname));
+  const [portalMode, setPortalMode] = useState(arrivedViaLink);
   const [portalSession, setPortalSession] = useState(null); // { token, clientId }
 
   const handlePortalUnauthorized = useCallback(() => setPortalSession(null), []);
   const portal = usePortalData(portalSession?.token, handlePortalUnauthorized);
 
   const exitPortal = () => { setPortalMode(false); setPortalSession(null); };
+  // A real client has no "ops dashboard" to go back to and isn't "previewing"
+  // anything — only show the exit/back button when the owner opened this via
+  // the "Preview client portal" button on their own session.
+  const onExitPortal = arrivedViaLink ? undefined : exitPortal;
 
   // ---- Client portal (its own full-screen shell, its own auth entirely
   // separate from the owner's session below) ----
   if (portalMode) {
     if (!portalSession) {
-      return <ClientPortalLogin onLogin={setPortalSession} onExit={exitPortal} />;
+      return <ClientPortalLogin onLogin={setPortalSession} onExit={onExitPortal} />;
     }
     if (!portal.data) {
       return (
@@ -93,7 +106,7 @@ export default function App() {
         <ClientPortal
           data={portal.data}
           clientId={portalSession.clientId}
-          onExit={exitPortal}
+          onExit={onExitPortal}
           onAddPost={portal.actions.addPost}
           onUpdatePost={portal.actions.updatePost}
           onAddContact={portal.actions.addContact}

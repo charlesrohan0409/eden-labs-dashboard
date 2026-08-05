@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Save Lead — Eden Labs</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 440px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      background: #f5f4f0;
+      color: #1c1917;
+      font-size: 14px;
+    }
+
+    /* ---- Header ---- */
+    .header {
+      background: #14532d;
+      color: #fff;
+      padding: 16px 20px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .logo {
+      width: 28px; height: 28px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 700; color: #fff; letter-spacing: -.5px;
+    }
+    .header-text { flex: 1; }
+    .header-title { font-size: 15px; font-weight: 600; }
+    .header-sub   { font-size: 11px; opacity: .65; margin-top: 1px; }
+    .settings-btn {
+      background: rgba(255,255,255,0.12);
+      border: none; border-radius: 6px;
+      color: rgba(255,255,255,0.7);
+      cursor: pointer; padding: 5px 7px; font-size: 16px;
+      line-height: 1; transition: background .15s;
+    }
+    .settings-btn:hover { background: rgba(255,255,255,0.2); color: #fff; }
+
+    /* ---- Not connected banner ---- */
+    #not-connected {
+      background: #fff7ed; border-bottom: 1px solid #fed7aa;
+      padding: 12px 20px; display: none;
+      align-items: center; gap: 10px;
+    }
+    #not-connected span { flex: 1; font-size: 13px; color: #9a3412; }
+    #not-connected button {
+      background: #ea580c; color: #fff; border: none;
+      border-radius: 6px; padding: 5px 12px; font-size: 12px;
+      font-weight: 600; cursor: pointer;
+    }
+
+    /* ---- Form body ---- */
+    .body { padding: 18px 20px 20px; }
+
+    .field { margin-bottom: 13px; }
+    label { display: block; font-size: 11px; font-weight: 600; color: #78716c; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 5px; }
+    input, select, textarea {
+      width: 100%; padding: 8px 11px;
+      border: 1px solid #e7e5e4; border-radius: 8px;
+      background: #fff; font-size: 13px; color: #1c1917;
+      outline: none; transition: border-color .15s, box-shadow .15s;
+      font-family: inherit;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: #16a34a;
+      box-shadow: 0 0 0 3px rgba(22,163,74,.12);
+    }
+    textarea { resize: vertical; min-height: 64px; line-height: 1.5; }
+
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    /* source chip strip */
+    .source-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: #f0fdf4; border: 1px solid #bbf7d0;
+      border-radius: 99px; padding: 3px 9px;
+      font-size: 11px; color: #166534; margin-top: 5px;
+      max-width: 100%; overflow: hidden;
+    }
+    .source-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ---- Footer / save button ---- */
+    .footer { padding: 0 20px 18px; }
+    #save-btn {
+      width: 100%; padding: 10px;
+      background: #14532d; color: #fff;
+      border: none; border-radius: 10px;
+      font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: background .15s, opacity .15s;
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+    }
+    #save-btn:hover:not(:disabled) { background: #166534; }
+    #save-btn:disabled { opacity: .55; cursor: default; }
+
+    /* ---- Status ---- */
+    #status {
+      margin: 10px 20px 0;
+      padding: 9px 13px;
+      border-radius: 8px;
+      font-size: 13px;
+      display: none;
+    }
+    #status.success { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+    #status.error   { background: #fff1f2; color: #9f1239; border: 1px solid #fecdd3; }
+
+    /* spinner */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { animation: spin .7s linear infinite; display: inline-block; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="logo">EL</div>
+    <div class="header-text">
+      <div class="header-title">Save Lead</div>
+      <div class="header-sub">Eden Labs CRM</div>
+    </div>
+    <button class="settings-btn" id="open-settings" title="Settings">⚙</button>
+  </div>
+
+  <div id="not-connected">
+    <span>Not connected — enter your PIN to get started.</span>
+    <button id="connect-btn">Connect</button>
+  </div>
+
+  <div class="body">
+    <div class="field">
+      <label>Name *</label>
+      <input id="name" type="text" placeholder="Full name" autocomplete="off" />
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>Company</label>
+        <input id="company" type="text" placeholder="Company name" />
+      </div>
+      <div class="field">
+        <label>Title / Role</label>
+        <input id="title" type="text" placeholder="e.g. CFO" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>Stage</label>
+        <select id="stage">
+          <option value="lead">Lead</option>
+          <option value="qualified">Qualified</option>
+          <option value="proposal_sent">Proposal sent</option>
+          <option value="closed">Closed</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Est. deal value ($)</label>
+        <input id="deal-value" type="number" placeholder="e.g. 3500" min="0" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>Email</label>
+        <input id="email" type="email" placeholder="email@company.com" />
+      </div>
+      <div class="field">
+        <label>Phone</label>
+        <input id="phone" type="tel" placeholder="+1 555 000 0000" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Notes</label>
+      <textarea id="notes" placeholder="Anything worth remembering…"></textarea>
+    </div>
+
+    <div class="field" id="source-field" style="display:none">
+      <label>Source URL</label>
+      <div class="source-chip">
+        <span>🔗</span>
+        <span id="source-url-display"></span>
+      </div>
+    </div>
+  </div>
+
+  <div id="status"></div>
+
+  <div class="footer">
+    <button id="save-btn">Save to CRM</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

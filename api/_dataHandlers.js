@@ -75,10 +75,37 @@ export async function handleDataPut(headers, body) {
   return { status: 200, body: { ok: true } };
 }
 
+// Adds a CRM contact from the Chrome extension. Accepts the full contact
+// payload (name, company, title, stage, url, notes, etc.) and merges it into
+// the app_data blob via the same addContact mutation the dashboard uses.
+export async function handleCRMLead(headers, body) {
+  if (!requireOwner(headers)) return { status: 401, body: { error: "Unauthorized" } };
+  const { name } = body || {};
+  if (!name?.trim()) return { status: 400, body: { error: "`name` is required." } };
+  const data = await loadData();
+  M.addContact(data, {
+    name:       name.trim(),
+    company:    body.company   || "",
+    title:      body.title     || "",
+    stage:      body.stage     || "lead",
+    source:     body.source    || "Chrome Extension",
+    url:        body.url       || "",
+    notes:      body.notes     || "",
+    email:      body.email     || "",
+    phone:      body.phone     || "",
+    dealValue:  body.dealValue || null,
+    clientId:   null,
+    closedDate: null,
+    addedDate:  new Date().toISOString().slice(0, 10),
+  });
+  await upsertAppData(data);
+  return { status: 200, body: { ok: true, count: data.contacts.length } };
+}
+
 // Called right after a new client is created — hashes their portal PIN into
 // client_credentials so /api/auth-client can actually find them. The
 // plaintext PIN itself still only lives in the app_data blob (shown to the
-// owner, sent once in the onboarding email) — this table never stores it.
+// owner, sent once in the onboarding email) — this table never supports it.
 export async function handleRegisterClientPin(headers, body) {
   if (!requireOwner(headers)) return { status: 401, body: { error: "Unauthorized" } };
   const { clientId, pin } = body || {};

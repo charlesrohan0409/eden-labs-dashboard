@@ -111,6 +111,7 @@ export default function HomeDashboard({ data, setView, setSelectedClient, onAddT
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <IconStat
           dark
+          privacyToggle
           icon={DollarSign}
           label="Monthly recurring"
           value={money(mrr)}

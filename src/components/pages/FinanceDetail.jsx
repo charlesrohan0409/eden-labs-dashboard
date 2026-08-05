@@ -14,6 +14,7 @@ import Avatar from "../ui/Avatar";
 import PillTabs from "../ui/PillTabs";
 import PrimaryButton from "../ui/PrimaryButton";
 import InvoiceModal from "../ui/InvoiceModal";
+import PrivacyToggle from "../ui/PrivacyToggle";
 import { MONTHS, downloadCSV, today } from "../../lib/utils";
 import { useCurrency } from "../../hooks/useCurrency";
 import { invoiceNumber } from "../../lib/invoice";
@@ -190,8 +191,11 @@ export default function FinanceDetail({ data, setView, onAddExpense, onAddInvoic
             <Card dark className="p-6 lg:col-span-4 flex flex-col">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-white/50">Total collected</span>
-                <div className="w-7 h-7 rounded-full bg-emerald-500/15 flex items-center justify-center">
-                  <Wallet size={13} className="text-emerald-400" />
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <PrivacyToggle dark />
+                  <div className="w-7 h-7 rounded-full bg-emerald-500/15 flex items-center justify-center">
+                    <Wallet size={13} className="text-emerald-400" />
+                  </div>
                 </div>
               </div>
               <div className="text-[40px] leading-none font-bold tracking-tight mt-4 tnum">

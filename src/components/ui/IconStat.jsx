@@ -1,5 +1,6 @@
 import { TrendingUp, TrendingDown } from "lucide-react";
 import Card from "./Card";
+import PrivacyToggle from "./PrivacyToggle";
 
 const TONES = {
   emerald: { wash: "bg-emerald-50", icon: "text-emerald-700" },
@@ -17,7 +18,7 @@ const TONES = {
  */
 export default function IconStat({
   icon: Icon, tone = "emerald", label, value, unit, trend, trendLabel,
-  spark, dark = false, footer, invertTrend = false,
+  spark, dark = false, footer, invertTrend = false, privacyToggle = false,
 }) {
   const t = TONES[tone] || TONES.emerald;
   // On most metrics up is good; on cost/overdue metrics it isn't.
@@ -28,15 +29,18 @@ export default function IconStat({
     <Card dark={dark} className="p-5 flex flex-col">
       <div className="flex items-start justify-between gap-2">
         <span className={`text-xs font-medium ${dark ? "text-white/50" : "text-stone-400"}`}>{label}</span>
-        {Icon && (
-          <div
-            className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
-              dark ? "bg-emerald-500/15" : t.wash
-            }`}
-          >
-            <Icon size={13} className={dark ? "text-emerald-400" : t.icon} />
-          </div>
-        )}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {privacyToggle && <PrivacyToggle dark={dark} />}
+          {Icon && (
+            <div
+              className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
+                dark ? "bg-emerald-500/15" : t.wash
+              }`}
+            >
+              <Icon size={13} className={dark ? "text-emerald-400" : t.icon} />
+            </div>
+          )}
+        </div>
       </div>
 
       <div className={`text-[28px] leading-none font-bold tracking-tight mt-3 tnum ${dark ? "text-white" : "text-stone-900"}`}>

@@ -51,6 +51,21 @@ export function updateDelivery(d, id, idx, val) {
   if (c && c.delivery[idx]) c.delivery[idx].current = val;
   return d;
 }
+// Permanently removes a client and everything tied to them — distinct from
+// endContract, which just flips status and keeps all history. Cascades
+// across every collection that carries a clientId so nothing orphaned is
+// left showing a client that no longer exists.
+export function deleteClient(d, id) {
+  d.clients = d.clients.filter((c) => c.id !== id);
+  d.posts = d.posts.filter((p) => p.clientId !== id);
+  d.dms = d.dms.filter((m) => m.clientId !== id);
+  d.calls = d.calls.filter((c) => c.clientId !== id);
+  d.invoices = d.invoices.filter((i) => i.clientId !== id);
+  d.tasks = d.tasks.filter((t) => t.clientId !== id);
+  d.contacts = d.contacts.filter((c) => c.clientId !== id);
+  if (Array.isArray(d.activityLog)) d.activityLog = d.activityLog.filter((a) => a.clientId !== id);
+  return d;
+}
 export function endContract(d, id, reason) {
   const c = d.clients.find((x) => x.id === id);
   if (c) {

@@ -4,7 +4,7 @@ import {
 } from "recharts";
 import {
   ArrowLeft, Send, FileDown, TrendingUp, CheckCircle2, DollarSign, Phone, Link2, Copy, Check,
-  AlertTriangle, Ban, Eye, Clock, StickyNote, Activity, FileText, MessageSquare, CheckCheck,
+  AlertTriangle, Ban, Eye, Clock, StickyNote, Activity, FileText, MessageSquare, CheckCheck, Trash2,
 } from "lucide-react";
 import Card, { CardTitle } from "../ui/Card";
 import Badge from "../ui/Badge";
@@ -90,7 +90,7 @@ function ActivityTab({ clientId, activityLog }) {
 
 export default function ClientDetail({
   data, clientId, setView, onAddPost, onUpdatePost, onAddDM, onUpdateContract, onUpdateDelivery,
-  onUpdatePostStatus, onEndContract, onAddTask, onToggleTask, onDeleteTask,
+  onUpdatePostStatus, onEndContract, onDeleteClient, onAddTask, onToggleTask, onDeleteTask,
   onUpdateClientNotes, onLogActivity,
 }) {
   const [tab, setTab] = useState("overview");
@@ -103,6 +103,8 @@ export default function ClientDetail({
   const [reportStatus, setReportStatus] = useState("");
   const [copied, setCopied] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [endForm, setEndForm] = useState({ reason: "" });
   const [viewingPost, setViewingPost] = useState(null);
   const [notesText, setNotesText] = useState("");
@@ -250,6 +252,15 @@ export default function ClientDetail({
     onEndContract(client.id, endForm.reason);
     setEndOpen(false);
     setEndForm({ reason: "" });
+  };
+
+  // Unlike endContract (reversible, keeps history), this is permanent — the
+  // client and every post/DM/invoice/task tied to them is gone. Type-to-
+  // confirm rather than a single click, since there's no undo.
+  const confirmDeleteClient = () => {
+    if (deleteConfirmText.trim() !== client.name) return;
+    onDeleteClient(client.id);
+    setView("clients");
   };
 
   const inputCls = "border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
@@ -619,7 +630,7 @@ export default function ClientDetail({
                   </div>
                 </div>
                 <button
-                  onClick={() => { setEndOpen(true); setEndError(""); }}
+                  onClick={() => setEndOpen(true)}
                   className="inline-flex items-center gap-1.5 text-sm font-medium rounded-full px-4 py-2 border border-rose-300 text-rose-700 hover:bg-rose-50 transition-colors shrink-0"
                 >
                   <Ban size={15} /> End contract
@@ -627,6 +638,26 @@ export default function ClientDetail({
               </div>
             </Card>
           )}
+
+          <Card className="p-5 border-rose-200">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="min-w-0">
+                <div className="text-[15px] font-semibold text-stone-900 tracking-tight flex items-center gap-2">
+                  <Trash2 size={15} className="text-rose-500" /> Delete this client
+                </div>
+                <div className="text-xs text-stone-500 mt-1 max-w-md">
+                  Permanently removes {client.name} and everything tied to them — posts, DMs, invoices,
+                  calls, tasks, and activity history. This cannot be undone.
+                </div>
+              </div>
+              <button
+                onClick={() => { setDeleteOpen(true); setDeleteConfirmText(""); }}
+                className="inline-flex items-center gap-1.5 text-sm font-medium rounded-full px-4 py-2 bg-rose-600 text-white hover:bg-rose-700 transition-colors shrink-0"
+              >
+                <Trash2 size={15} /> Delete client
+              </button>
+            </div>
+          </Card>
 
           <Card className="p-0 overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-stone-100 flex-wrap gap-2">
@@ -853,6 +884,51 @@ export default function ClientDetail({
               value={endForm.reason}
               onChange={(e) => setEndForm({ ...endForm, reason: e.target.value })}
               onKeyDown={(e) => e.key === "Enter" && confirmEndContract()}
+              className={`${inputCls} w-full mt-1`}
+            />
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete client — permanent, type-to-confirm since there's no undo */}
+      <Modal
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        title={`Delete ${client.name}?`}
+        subtitle="This is permanent — unlike ending a contract, nothing is kept."
+        width="sm"
+        footer={
+          <>
+            <PrimaryButton variant="ghost" onClick={() => setDeleteOpen(false)}>Cancel</PrimaryButton>
+            <button
+              onClick={confirmDeleteClient}
+              disabled={deleteConfirmText.trim() !== client.name}
+              className="inline-flex items-center gap-1.5 text-sm font-medium rounded-full px-4 py-2 bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <Trash2 size={15} /> Delete permanently
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div className="rounded-xl bg-rose-50 border border-rose-200 px-3.5 py-3 text-xs text-rose-700 flex gap-2">
+            <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+            <span>
+              {client.name} and every post, DM, invoice, call, task, and activity entry tied to them will
+              be permanently deleted. Their portal PIN stops working immediately. There is no undo.
+            </span>
+          </div>
+
+          <div>
+            <label className="text-xs text-stone-500 font-medium">
+              Type <span className="font-semibold text-stone-700">{client.name}</span> to confirm
+            </label>
+            <input
+              autoFocus
+              placeholder={client.name}
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && confirmDeleteClient()}
               className={`${inputCls} w-full mt-1`}
             />
           </div>

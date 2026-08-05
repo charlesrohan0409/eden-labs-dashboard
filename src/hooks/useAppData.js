@@ -103,6 +103,17 @@ export function useAppData(token, onUnauthorized) {
     updateDelivery: (id, idx, val) => update((d) => M.updateDelivery(d, id, idx, val)),
     endContract: (id, reason) => update((d) => M.endContract(d, id, reason)),
     updateClientNotes: (id, text) => update((d) => M.updateClientNotes(d, id, text)),
+    deleteClient: (id) => {
+      update((d) => M.deleteClient(d, id));
+      // Best-effort, mirrors addClient's registration call: wipe the old
+      // portal PIN Supabase-side too, so it stops authenticating into a
+      // client that no longer exists once this resolves.
+      fetch("/api/delete-client-pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ clientId: id }),
+      }).catch(() => {});
+    },
 
     // ---- activity log ----
     logActivity: (entry) => update((d) => M.logActivity(d, entry)),

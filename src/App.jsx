@@ -175,6 +175,7 @@ export default function App() {
             onUpdateDelivery={actions.updateDelivery}
             onUpdatePostStatus={actions.updatePostStatus}
             onEndContract={actions.endContract}
+            onDeleteClient={actions.deleteClient}
             onAddTask={actions.addTask}
             onToggleTask={actions.toggleTask}
             onDeleteTask={actions.deleteTask}

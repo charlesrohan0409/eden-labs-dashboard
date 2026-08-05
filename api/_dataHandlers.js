@@ -5,7 +5,7 @@
 import { migrateData } from "../src/data/migrate.js";
 import { seedData } from "../src/data/seed.js";
 import * as M from "../src/data/mutations.js";
-import { getOwnerAuth, getAllClientCredentials, setClientCredential, getAppData, upsertAppData } from "./_supabaseAdmin.js";
+import { getOwnerAuth, getAllClientCredentials, setClientCredential, deleteClientCredential, getAppData, upsertAppData } from "./_supabaseAdmin.js";
 import { verifyPin, hashPin, genSalt, signToken, verifyToken, bearerFrom } from "./_crypto.js";
 
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days — "log in once, use from anywhere"
@@ -115,6 +115,18 @@ export async function handleRegisterClientPin(headers, body) {
   return { status: 200, body: { ok: true } };
 }
 
+// Mirror of handleRegisterClientPin — called right after deleteClient wipes
+// the client out of the app_data blob, so their old portal PIN stops working
+// instead of quietly continuing to authenticate into a client that no longer
+// exists.
+export async function handleDeleteClientPin(headers, body) {
+  if (!requireOwner(headers)) return { status: 401, body: { error: "Unauthorized" } };
+  const { clientId } = body || {};
+  if (!clientId) return { status: 400, body: { error: "`clientId` is required." } };
+  await deleteClientCredential(clientId);
+  return { status: 200, body: { ok: true } };
+}
+
 // ---------------------------------------------------------- client portal ---
 function stripClientForPortal(c) {
   const { pin, ...rest } = c;
@@ -199,6 +211,7 @@ export const DATA_ROUTES = {
   "/api/auth-owner": { method: "POST", handler: ({ body }) => handleAuthOwner(body) },
   "/api/auth-client": { method: "POST", handler: ({ body }) => handleAuthClient(body) },
   "/api/register-client-pin": { method: "POST", handler: ({ headers, body }) => handleRegisterClientPin(headers, body) },
+  "/api/delete-client-pin": { method: "POST", handler: ({ headers, body }) => handleDeleteClientPin(headers, body) },
   "/api/data": {
     handler: ({ method, headers, body }) => {
       if (method === "GET") return handleDataGet(headers);

@@ -1,7 +1,7 @@
 // Invoice numbering and the HTML document used for both the print/download
 // flow and the email body — one template, two destinations.
 
-import { escapeHtml } from "./utils";
+import { escapeHtml } from "./utils.js";
 
 // Sequential display number based on position in the store — same scheme
 // FinanceDetail has always used, just centralised so the modal that creates

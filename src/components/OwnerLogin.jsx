@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Lock } from "lucide-react";
 import Card from "./ui/Card";
 import PrimaryButton from "./ui/PrimaryButton";
+import wordmark from "../assets/eden-labs-wordmark.png";
 
 // Gates the entire owner dashboard. The PIN is checked server-side against a
 // hashed value in Supabase (/api/auth-owner) — nothing about "what the right
@@ -20,10 +20,7 @@ export default function OwnerLogin({ onLogin, loading, error }) {
     <div className="min-h-screen flex items-center justify-center bg-canvas px-4">
       <div className="w-full max-w-sm">
         <Card className="p-8 text-center">
-          <div className="w-11 h-11 rounded-2xl bg-emerald-800 text-white flex items-center justify-center mx-auto mb-4">
-            <Lock size={17} />
-          </div>
-          <div className="text-xl font-bold tracking-tight text-stone-900">Eden Labs</div>
+          <img src={wordmark} alt="Eden Labs" className="h-9 w-auto rounded-lg mx-auto mb-4" />
           <div className="text-xs text-stone-400 mt-1 mb-6">Enter your PIN to open the dashboard</div>
 
           <input

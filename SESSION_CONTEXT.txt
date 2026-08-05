@@ -1,0 +1,687 @@
+EDEN LABS DASHBOARD — SESSION CONTEXT DUMP
+Generated: 2026-08-05 (updated later same session — see §11 ADDENDUM at the
+bottom for everything built AFTER this file was first written; where §1-§10
+and §11 disagree, §11 wins.)
+Purpose: paste this whole file back to Claude in a fresh conversation if context runs out.
+It contains everything needed to resume work with zero loss: what this app is, what's built,
+what's mid-flight, what's decided, what's still an open question, and exactly where things live.
+
+================================================================================
+1. WHAT THIS IS
+================================================================================
+"Eden Labs" — Charles Rohan's own LinkedIn ghostwriting / client-acquisition agency ops
+dashboard. Started as a single 3000-line Claude.ai artifact (React, window.storage for
+persistence — an API that only exists inside claude.ai). Converted into a real Vite + React
+project at:
+
+  /Users/charlesrohan/Projects/EdenLabs Dashboard/eden-labs/
+
+Not a git repo (as of last check). Not yet deployed. Runs locally via `npm run dev` (Vite,
+port 5173). Target deploy: Vercel (chosen because it gives serverless functions for free,
+which is why the API proxy pattern below exists).
+
+Charles is not really a coder — he directs at a product/feature level and expects me to make
+sound engineering calls, verify claims against real docs/APIs rather than assume, and flag
+problems (bugs, bad assumptions, scope mismatches) rather than silently building around them.
+He has caught real mistakes I made (see §7 "Corrections Charles caught" — read that section,
+it matters for how carefully to double check things involving money/identity/his own name).
+
+================================================================================
+2. TECH STACK & ARCHITECTURE
+================================================================================
+- Vite 8 + React 19, Tailwind 3 (warm neutral canvas + emerald accent design system).
+- No backend database yet. All app data (clients, posts, invoices, tasks, etc.) lives in
+  ONE big JSON object in the browser's localStorage, key "eden-labs-v1-data". Loaded/saved
+  via src/hooks/useAppData.js. This was flagged early as a real risk (see §8) — a Supabase
+  migration was the ORIGINAL plan's Step 3 but got paused indefinitely when Charles said he
+  wanted to keep adding features to the artifact-derived app first. It has NOT been revisited
+  since — still pure localStorage, still single-browser, still no auth beyond a client-portal
+  PIN and an owner passcode env var.
+- Server-side secrets pattern (used for EVERY third-party API key — this is the core
+  architectural decision of this whole session, repeat it for anything new):
+    - api/_handlers.js holds the actual logic for every /api/* route as a plain async
+      function (body) => ({status, body}). Secrets are read via process.env HERE ONLY.
+    - api/<name>.js files are thin Vercel serverless-function wrappers around each handler
+      (this is what Vercel actually deploys/serves in production).
+    - vite.config.js has a custom Vite plugin (apiDevServer) that mounts the exact same
+      handlers as Express-style middleware during `npm run dev`, by importing ROUTES from
+      _handlers.js and looping over them. This means dev and prod run IDENTICAL logic — no
+      separate dev-only mock.
+    - The BROWSER NEVER calls a third-party API directly. It always calls same-origin
+      /api/buffer, /api/fathom, /api/calendar, /api/send-email. This solves two problems at
+      once: (a) secrets never reach client JS / never get bundled by Vite (no VITE_ prefix
+      on any of them, which matters because Vite inlines every VITE_*-prefixed var into the
+      client bundle at build time — anything without that prefix stays server/Node-only),
+      and (b) most of these providers don't set CORS headers for browser calls anyway, so
+      direct calls would just fail.
+    - src/lib/<name>.js files are the CLIENT-side helpers — thin fetch() wrappers around
+      /api/<name> that the React components actually import and call.
+  When asked to add a new integration, replicate this exact pattern. Do not put a raw API
+  key in a VITE_ var, do not fetch() a third-party API directly from a component.
+
+- .env.local holds all real secrets, is gitignored (confirmed). .env.example documents every
+  var with no real values, safe to commit. Current vars (see §5 for status of each):
+    VITE_OWNER_PASSCODE   (client-side deliberately — gates the "End contract" dialog, a
+                            speed bump not real security, replaced when real auth exists)
+    BUFFER_API_KEY        (SET — real key, working, verified against live account)
+    RESEND_API_KEY        (empty — user has not gotten a key yet)
+    RESEND_FROM           (empty — optional, falls back to Resend's shared sender)
+    GOOGLE_CALENDAR_ICAL_URL  (empty — user has key ready, about to paste in)
+    FATHOM_API_KEY        (empty — user has key ready, about to paste in)
+
+================================================================================
+3. FILE TREE (everything under eden-labs/, minus node_modules/dist)
+================================================================================
+.claude/launch.json         — preview_start config (name "eden-labs", npm run dev, port 5173)
+.oxlintrc.json
+.env.local                  — gitignored, real secrets, see §2
+.env.example                — safe template, committed
+.gitignore                  — node_modules, dist, .env.local, .DS_Store
+package.json / package-lock.json
+postcss.config.js
+tailwind.config.js          — custom colors: canvas, line, night, nightsoft; fonts Inter + Instrument Serif
+vite.config.js              — apiDevServer plugin (see §2), imports ROUTES from api/_handlers.js
+
+api/
+  _handlers.js               — ALL server logic: handleBuffer, handleCalendar, handleSendEmail,
+                                handleFathom, ROUTES export mapping path->handler
+  _ical.js                    — hand-rolled RFC5545 iCal parser (no npm dep) — unfold, parseLine,
+                                timezone-aware date parsing, RRULE expansion (DAILY/WEEKLY/MONTHLY/
+                                YEARLY, BYDAY, COUNT, UNTIL, EXDATE), caps output at 500 events /
+                                200 recurrence expansions so a bad rule can't hang
+  buffer.js / calendar.js / send-email.js / fathom.js
+                               — Vercel wrapper: parse body, call handler, res.status(status).json(out)
+
+src/
+  main.jsx, App.jsx           — App.jsx is the router: `view` state string switches between pages,
+                                portalMode/portalClient state switches to the client-portal shell
+  index.css                   — Tailwind directives + print CSS (#eden-print-area, used by
+                                contract/report/invoice "Download PDF" buttons) + .no-scrollbar util
+
+  data/
+    seed.js                   — seedData(): 3 seed clients (Chris Alman/Equip CFO, Alexandre
+                                Chemaly/Leadbolt, Merlin Manrold/Independent-at risk), 7 CRM
+                                contacts, 9ish posts (mix of text/poll types), tasks, invoices,
+                                integrations array (buffer/apollo/lemlist/calendly/fathom entries).
+                                Also buildContractTemplate(), buildNewClient(), sendOnboardingEmail()
+                                (LEFTOVER ARTIFACT CODE — still calls api.anthropic.com directly
+                                from browser, NEVER FIXED, see §8 outstanding issue)
+    migrate.js                 — migrateData(loaded): normalizes any saved localStorage blob against
+                                a fresh seed so old data never breaks on new fields. Runs the CRM
+                                stage migration (old 5-stage names -> new lead/call_booked/
+                                proposal_sent/closed/lost), post type/media/poll defaults, invoice
+                                description/dueDate/notes defaults, contract endedAt/endReason, etc.
+                                IMPORTANT: only runs on EXISTING saved data — a brand-new browser
+                                with no localStorage entry skips migrate entirely and uses seedData()
+                                raw, so seed.js and migrate.js can drift if you're not careful.
+
+  hooks/
+    useAppData.js              — the single source of truth. loadData/saveData (localStorage,
+                                window.storage fallback kept for harmless claude.ai-artifact
+                                compat). useAppData() returns {data, update, actions}. `update`
+                                clones the WHOLE state with structuredClone on every single action
+                                and re-saves the whole JSON blob to localStorage every time —
+                                flagged early as a perf/scale risk once media (base64 images) is in
+                                play, never fixed, see §8. `actions` is a big object of named
+                                mutators: addTask/toggleTask/updateTask/deleteTask, addClient/
+                                updateContract/updateDelivery/endContract, addContact/updateStage,
+                                addPost/updatePost/updatePostStatus/deletePost, addSwipe/addDM/
+                                addComment, addExpense/addInvoice/updateInvoiceStatus/
+                                generateInvoices, logGrowth, toggleIntegration, setBufferChannels/
+                                setBufferDisconnected/setAgencyBufferChannel, setFathomConnected/
+                                setFathomDisconnected.
+    useBufferPerformance.js    — module-level cache (not React state) of every Buffer post +
+                                metrics, fetched once and shared across Home/Growth/Content/
+                                Performance pages so they don't each re-fetch. Derives totals,
+                                byMonth, byDay (best day to post), byChannel, deltas vs previous
+                                period, topPosts, withComments (posts with comments>0, for the
+                                "Comments to reply to" inbox). Range filtering (30d/90d/12mo/all)
+                                happens CLIENT-SIDE over one full fetch, not re-fetched per range.
+    useGoogleCalendar.js        — same module-cache pattern. Fetches ONE fixed generous window
+                                (daysBack:3, daysAhead:180) regardless of caller — this was a
+                                deliberate fix for a real bug I caught myself: a shared cache
+                                keyed by nothing would serve one caller's date-window to another
+                                if two components asked for different ranges. All "this week /
+                                this month" filtering happens client-side over that one fetch.
+                                Exposes upcoming (sorted, future-only) and byDay (agenda grouping
+                                with Today/Tomorrow/weekday labels).
+
+  lib/
+    utils.js                   — MONTHS, uid(), today(), addDays(), nowLocalISO(), formatDateTime(),
+                                relativeDays(), computeHealthScore(), healthTone(), STAGE_WEIGHTS,
+                                LEGACY_STAGE_MAP, colorForName/initials (avatar), downloadCSV()
+    theme.js                    — COLORS object (single source for chart colors — accent=emerald,
+                                teal/amber/violet/sky/rose/muted/gridline), chartTooltipStyle,
+                                axisTick — every recharts usage in the app imports from here so
+                                charts read as one system
+    media.js                    — fileToImage() (downscales to 1400px longest edge, re-encodes
+                                JPEG unless PNG-with-transparency, returns data URL — NOT uploaded
+                                anywhere, just base64 in app state, see §8 re: localStorage size),
+                                fileToVideo() (8MB cap), readFileAsDataUrl()
+    invoice.js                  — invoiceNumber(id, invoices) (sequential INV-1001 etc based on
+                                array position), buildInvoiceDocument() (full standalone HTML doc,
+                                used for BOTH the print/download window.open() flow AND the Resend
+                                email body — one template, two destinations), buildInvoiceEmailText()
+    email.js                     — sendEmail({to,subject,html,text,replyTo,attachments}) -> POSTs
+                                /api/send-email
+    buffer.js                    — bufferGraphQL() (generic POST to /api/buffer), listBufferChannels(),
+                                createBufferPost({text,channelId,scheduledAt}), fetchBufferPerformance()
+                                (paginates every sent post per organization, normalizes metrics),
+                                METRIC_KEYS list
+    fathom.js                     — fathomRequest(params) -> POST /api/fathom, listFathomMeetings()
+                                (paginates via cursor, always requests include_summary+
+                                include_transcript), matchMeetingsToClient(meetings, client)
+                                (matches on email domain first, then name/company substring against
+                                calendar_invitees — real matching, not the old JSON.stringify hack),
+                                testFathomConnection() (used by Integrations page test button)
+
+  components/
+    layout/
+      Sidebar.jsx               — NAV_ITEMS array (Dashboard/Clients/Finance/CRM/Content/
+                                Performance/Calendar/Integrations — 8 items), isNavActive(),
+                                PARENT_OF map (growth-detail->home, client-detail->clients;
+                                finance-detail used to be in here too but is now its own nav
+                                item so it maps to itself via the direct check)
+      MobileTopBar.jsx, MobileBottomNav.jsx (horizontal-scroll, fixed-width buttons — switched
+                                from flex-1 once nav items grew past ~5, see §8 history)
+      Logo.jsx                  — LogoMark (3 ascending bars SVG) + wordmark "Eden Labs" / "AGENCY OS"
+
+    ui/  (all the reusable primitives)
+      Card.jsx (+ CardTitle), Badge.jsx, Avatar.jsx, PrimaryButton.jsx, PillTabs.jsx,
+      IconStat.jsx (the big stat-tile-with-sparkline component used everywhere),
+      StatBlock.jsx, Modal.jsx (generic dialog, used by InvoiceModal + End Contract dialog),
+      ImagePicker.jsx (upload button + thumbnail, used for client photo/logo — downsizes via
+                       lib/media.js), TaskList.jsx (dashboard + per-client task widget),
+      CrmBoard.jsx (5-stage kanban: lead/call_booked/proposal_sent/closed/lost, real HTML5
+                    drag-and-drop, wide 300px columns, per-stage $ totals),
+      PostComposer.jsx (see detailed note below — THE most complex component),
+      PostPreview.jsx (renders a post exactly as LinkedIn would — desktop/mobile toggle,
+                       handles text/image/carousel/video/poll, "…see more" truncation matching
+                       LinkedIn's real cutoffs, reaction icon stack) — exports both default
+                       PostPreview (with device switcher) and named LinkedInPost (bare render,
+                       used inside PendingApproval so the approval queue shows the REAL post,
+                       not a one-line summary — this was a specific bug Charles reported and
+                       I fixed),
+      PendingApproval.jsx (client-portal approval queue, full post preview + Approve/Request
+                          changes, "See full post" modal),
+      CommentThread.jsx (per-tab comment thread, used across client portal tabs),
+      CommentsInbox.jsx (Content page — "comments to reply to" using Buffer's comment COUNTS,
+                        links out to the real post on LinkedIn; explicitly does NOT pretend to
+                        show comment text/authors because Buffer's API doesn't expose that —
+                        see §7, a correction Charles caught),
+      MiniCalendar.jsx (small month grid for scheduled posts, client-portal Content tab),
+      MeetingRow.jsx (one calendar event row, `dense` prop for the compact dashboard card vs
+                     full agenda page), InvoiceModal.jsx (see below)
+
+    pages/
+      HomeDashboard.jsx          — Overview. Header stats (MRR/delivery/pipeline/tasks), TaskList +
+                                Delivery-by-client side by side, then a 3-col row: Growth card
+                                (2 cols — outreach chart + content-icons row + a NEW sub-chart
+                                "Content growth · impressions & engagement" using
+                                useBufferPerformance, dual-yAxis area chart, ONLY impressions+
+                                engagement per Charles's explicit spec, nothing else) stacked
+                                with [Finance card, Upcoming meetings card] in the 3rd column
+                                (meetings card added this session, uses useGoogleCalendar,
+                                shows next 4 events via MeetingRow dense, links to /calendar)
+      GrowthDetail.jsx            — full growth page, momentum chart, channel performance, top
+                                clients, PLUS a "Content performance (live from Buffer)" card
+                                added this session (headline stats, trend chart, top 3 posts
+                                linking to LinkedIn) — this is the FULL version, Home's is the
+                                deliberately-minimal 2-series one per explicit request
+      FinanceDetail.jsx            — Overview/Invoices/Expenses/Unit-economics tabs. "New invoice"
+                                button (hero card + header + Invoices-tab toolbar, all three open
+                                InvoiceModal) is separate from "Bill active clients" (the original
+                                bulk-generate-for-every-active-client action, renamed this session
+                                for clarity — it used to be mislabeled "New invoice" on the hero
+                                card, which was a real bug I fixed). Invoice cards show
+                                invoice.description verbatim when present (ad-hoc invoices) and
+                                only fall back to the fabricated 45/35/20 Content/Outreach/
+                                Reporting split for OLDER invoices that never had a real
+                                description — this was a bug caught during testing THIS session
+                                (ad-hoc invoices were showing the fake split instead of their real
+                                description) and fixed.
+      ClientsList.jsx, ClientDetail.jsx, CRM.jsx, ContentPage.jsx, PerformancePage.jsx,
+      CalendarPage.jsx, IntegrationsPage.jsx (BufferCard + FathomCard, both "real test button"
+                                cards vs the other placeholder integrations which are still a
+                                dumb boolean toggle)
+
+    portal/
+      ClientPortalLogin.jsx, ClientPortal.jsx (the client-facing app — Overview/Content/
+                                Outreach/CRM/Transcripts/Messages/Contract tabs. Transcripts tab
+                                rewritten this session to use the real Fathom proxy + real
+                                client-matching instead of a client-typed API key.)
+
+================================================================================
+4. THE DATA MODEL (shape of the one big JSON blob in localStorage)
+================================================================================
+{
+  clients: [{
+    id, name, company, email, photoUrl, logoUrl, status ("active"/"at-risk"/"ended"), pin,
+    link, contract: { value, status, cycle, notes, serviceType ("content"/"content_outreach"/
+    "full"), startDate, renewalDate, history[], bodyText, endedAt, endReason },
+    delivery: [{ metric, target, current }]
+  }],
+  contacts: [{ id, name, company, title, stage ("lead"/"call_booked"/"proposal_sent"/"closed"/
+    "lost"), source, clientId, dealValue, closedDate, phone, email, addedDate, photoUrl }],
+  tasks: [{ id, title, clientId, dueDate, priority, done, createdAt }],
+  posts: [{ id, clientId, content, status ("draft"/"pending_review"/"scheduled"/"published"),
+    type ("text"/"image"/"carousel"/"video"/"poll"), media: {type, items:[{url,name,...}]}|null,
+    poll: {question, options:[{text,votes}], durationDays}|null, scheduledAt (ISO), date,
+    bufferPostId (set once actually pushed to Buffer — NEVER re-published if already set, to
+    avoid duplicate LinkedIn posts on edit — this is enforced in PostComposer's alreadyOnBuffer
+    check), stats (legacy — likes/comments/reposts/views on old seed posts) }],
+  dms, expenses, invoices: [{ id, clientId, amount, status, date, period, description, dueDate,
+    notes }] (description/dueDate/notes added this session for the ad-hoc invoice modal),
+  growthLog, channelPerf, calls, outreachByChannel, comments, swipeFile,
+  integrations: [
+    { id:"buffer", connected, channels:[{id,name,service,avatar}], agencyChannelId,
+      lastCheckedAt },
+    { id:"fathom", connected, lastCheckedAt } (apiKey field is DEAD/unused leftover, harmless),
+    { id:"apollo"/"lemlist"/"calendly", connected } (still fake toggles, no real API wired)
+  ]
+}
+
+================================================================================
+5. INTEGRATION STATUS — exact state of each, right now
+================================================================================
+BUFFER — FULLY WORKING, LIVE KEY SET.
+  Real personal GraphQL API key (api.buffer.com), connected to Charles's own 2 LinkedIn
+  channels: "edenlabs7" (company page) and "charles-rohan0409" (personal profile). Verified:
+  listing orgs/channels, creating a real scheduled post (createPost mutation), pulling real
+  post metrics (Post.metrics field — impressions/reach/reactions/comments/engagementRate all
+  confirmed returning real numbers via live introspection + live queries against the account).
+  IMPORTANT CORRECTION HISTORY: I initially told Charles Buffer's API does NOT expose
+  engagement data — I was WRONG, based on a marketing page instead of the actual GraphQL
+  schema. Charles pushed back, I re-verified via introspection, confirmed metrics ARE real
+  and exposed, corrected myself. See §7.
+  ALSO IMPORTANT: Charles explicitly said "use this Buffer API only for me, not others
+  (clients)" — I had built a "map client -> Buffer channel" feature that let a client's posts
+  publish through CHARLES's own personal/company LinkedIn, which is wrong (his Buffer account
+  only has HIS OWN 2 channels — there's no way for a client's separate LinkedIn to be
+  connected via his personal key). I fully REMOVED that feature: no Buffer channel picker on
+  Client Detail, no Buffer publish attempt from client-portal composers or the approval-queue
+  Approve button (reverted to pure local status flip). Buffer publishing is ONLY wired on the
+  Content page (Charles's own unassigned agency content) via an "agency channel" picker.
+  Comment/DM data: Buffer's API does NOT expose comment text or commenter identity — verified
+  by introspecting all 231 types in the schema, only a comment COUNT metric and
+  LinkedInPostMetadata.firstComment (which is a comment YOU attach when posting, not a reader
+  reply) exist. Built CommentsInbox.jsx to honestly reflect this: shows which posts have
+  comments waiting + links to the real LinkedIn post, does not fabricate comment content.
+  Aggregate metrics endpoint (aggregatedPostMetrics) is capped at 31 days on the free plan —
+  worked around by pulling ALL per-post metrics (no cap, verified back to Sept 2025) and
+  rolling up aggregates client-side in useBufferPerformance.js instead.
+  ⚠️ LIVE INCIDENT: during testing, a test post scheduled "12 minutes out" on the personal
+  LinkedIn channel WENT LIVE before it could be deleted from Buffer's queue (I scheduled it
+  too close to real-time). Charles was told to delete it manually from LinkedIn. Real lesson:
+  never schedule a test post with a delivery window that tight again — schedule days out, or
+  don't test createPost against a live personal channel at all without asking first (I did ask
+  first that time, but picked too short a delay).
+
+FATHOM — JUST BUILT THIS SESSION, KEY NOT YET PASTED IN.
+  Verified against real Fathom docs (developers.fathom.ai) rather than assumed:
+    - Auth: plain API key as Bearer token (Authorization: Bearer KEY) — Charles asked "do we
+      need OAuth?" — NO, confirmed OAuth is only for multi-tenant third-party apps; single
+      account = plain key, same shape as Buffer.
+    - Base: GET https://api.fathom.ai/external/v1/meetings, query params include_summary/
+      include_transcript (bool), calendar_invitees_domains[], created_after/before, cursor
+      pagination. Response items have calendar_invitees:[{name,email,email_domain,is_external}],
+      default_summary:{markdown_formatted}, share_url, recording_start_time, etc — all used in
+      the new matchMeetingsToClient() for REAL matching instead of the old string-search hack.
+    - Webhooks exist too (POST /external/v1/webhooks, Svix-style signing: webhook-id/
+      webhook-timestamp/webhook-signature headers, HMAC-SHA256, whsec_ secret). EXPLICITLY
+      DEFERRED — explained to Charles that webhooks need (a) a public HTTPS URL, which only
+      exists once deployed, not on localhost, and (b) somewhere durable server-side to land
+      the pushed data, which doesn't exist yet since Vercel functions are stateless and the
+      only "database" is browser localStorage. Webhooks are the RIGHT long-term design but
+      blocked on the still-paused Supabase migration. Charles agreed to do the pull-based
+      REST integration now, webhooks later once a real DB exists.
+  Built: api/_handlers.js handleFathom, api/fathom.js, src/lib/fathom.js
+  (listFathomMeetings/matchMeetingsToClient/testFathomConnection), IntegrationsPage.jsx
+  FathomCard (real test-connection button, same pattern as BufferCard), useAppData.js
+  setFathomConnected/setFathomDisconnected (replacing the old saveFathomKey which stored a
+  client-typed key in localStorage — that whole "client enters Fathom key in their own portal"
+  UI has been REMOVED from ClientPortal.jsx; the key is Charles's own account key, server-side
+  only, never something a client sees or enters). FATHOM_API_KEY env var line added to
+  .env.local and .env.example, currently empty — Charles said he has the key ready and is
+  about to paste it in himself.
+
+GOOGLE CALENDAR — BUILT, KEY NOT YET PASTED IN.
+  Went with the SECRET iCAL URL approach, not OAuth, after explicit discussion:
+    - iCal: paste one URL, read-only, no Cloud project/consent screen, but Google refreshes
+      these feeds on ITS OWN schedule (can lag minutes to hours behind a just-created event —
+      told Charles this explicitly, hadn't mentioned it before he asked).
+    - Full OAuth: read+write, real-time, but needs a Google Cloud project + consent screen +
+      token refresh flow — meaningfully more setup and code for a feature that only needed to
+      be read-only ("see upcoming meetings").
+  Decision: iCal, confirmed by Charles. Built: api/_ical.js (hand-rolled parser, see §3),
+  api/_handlers.js handleCalendar, api/calendar.js, src/hooks/useGoogleCalendar.js,
+  src/components/ui/MeetingRow.jsx, src/components/pages/CalendarPage.jsx (agenda view,
+  This week/This month/All upcoming filter), Sidebar nav item "Calendar", HomeDashboard
+  "Upcoming meetings" card. GOOGLE_CALENDAR_ICAL_URL env var added, currently empty.
+
+RESEND (email) — BUILT, KEY NOT YET OBTAINED.
+  Chosen over Gmail OAuth (too much setup) and plain mailto: (not automated) — explicit
+  decision via AskUserQuestion, Charles picked Resend. Used for the InvoiceModal's "Send
+  email" button. api/_handlers.js handleSendEmail, api/send-email.js, src/lib/email.js.
+  RESEND_API_KEY/RESEND_FROM env vars added, both empty. Verified end-to-end in the sense
+  that the error path works correctly (shows "RESEND_API_KEY is not set..." rather than
+  pretending success) — not yet tested with a real key/real send.
+
+APOLLO / LEMLIST / CALENDLY — untouched placeholders, fake boolean-toggle "Connect" buttons,
+  no real API wired, not part of this session's work.
+
+================================================================================
+6. FEATURES BUILT THIS SESSION (in build order, roughly)
+================================================================================
+- Full visual redesign from the raw Claude-artifact look to the current warm/emerald system
+  (this was actually earlier, foundational — mentioned for completeness).
+- Buffer integration (auth, channel listing, real post creation with a device-safe
+  datetime-local scheduler, per-post metrics).
+- Performance page (impressions/reach/engagement dashboards, best-day-to-post, per-channel
+  split, sortable post table with links to LinkedIn).
+- Content-performance section added to Growth detail page.
+- CommentsInbox on Content page.
+- Removed the mistaken per-client Buffer channel mapping (Charles's correction, see §7).
+- Fixed draft-click-to-edit bug in PostComposer (clicking a saved post in the "Recent" list
+  now actually loads it back into the editor — text/type/media/poll/scheduledAt all restored
+  — and saving UPDATES the same post via onUpdatePost instead of creating a duplicate; if the
+  post already has a bufferPostId, re-saving as "scheduled" does NOT call createBufferPost
+  again, to avoid double-publishing to LinkedIn).
+- Added Finance as its own top-level sidebar nav item (was previously only reachable via a
+  dashboard card).
+- Built InvoiceModal.jsx: ad-hoc single-invoice creation (client/description/amount/issue
+  date/due date/notes) -> real invoice added to app state -> "Download PDF" (opens a new tab,
+  writes a self-contained HTML invoice doc, calls window.print() after a short delay so the
+  browser's print dialog defaults to Save-as-PDF) and "Send email" (real POST to
+  /api/send-email via Resend). Fixed a bug found in testing: invoice cards were always
+  showing the fabricated 45/35/20 split instead of the real typed description.
+  Renamed the old bulk-generate button "Bill active clients" to disambiguate from the new
+  single-invoice flow (the hero card's button used to be mislabeled "New invoice" while
+  actually calling the bulk generator — fixed).
+  invoiceNumber()/buildInvoiceDocument()/buildInvoiceEmailText() centralized in lib/invoice.js.
+- Google Calendar (iCal) integration end to end: parser, proxy, hook, agenda page, sidebar
+  nav, dashboard mini-card. Caught and fixed my own bug before shipping: a shared module-level
+  cache keyed by nothing would have served one component's date-window to another if two
+  components requested different ranges — fixed by always fetching one fixed generous window
+  and filtering client-side.
+- Content growth mini-chart added under the Growth card on the Home dashboard specifically
+  (impressions + engagement ONLY, dual y-axis, per explicit "that's it" instruction — do not
+  add more series to this specific chart without being asked).
+- Fathom integration rebuilt properly server-side (see §5), replacing the old
+  client-enters-their-own-key-in-the-portal pattern.
+
+================================================================================
+7. CORRECTIONS CHARLES CAUGHT (patterns to not repeat)
+================================================================================
+a) I told him Buffer's API can't return engagement/impressions data. WRONG — I'd read a
+   marketing page, not the schema. He said "check properly, the terms say personal API
+   allows pulling engagement data." I re-verified via live GraphQL introspection against his
+   real account, confirmed he was right, corrected myself explicitly rather than hedging.
+   LESSON: when a claim is checkable against a live API/real docs, check it — don't rely on
+   a summary page, and don't dig in defensively when corrected. Introspect / test live if a
+   tool exists to do so.
+
+b) I built a feature (per-client Buffer channel mapping) that technically worked but was
+   architecturally wrong: it let content meant for a CLIENT get published through CHARLES's
+   own personal LinkedIn profile, because his Buffer account only has his own channels
+   connected. He caught this: "use the buffer API I gave you only for me, not others
+   (clients)." I fully removed the feature rather than patching around it, and explained
+   exactly why it was wrong (his Buffer account structurally cannot have a client's separate
+   LinkedIn connected to it).
+   LESSON: for a personal-account API key, don't build multi-tenant-shaped features around
+   it just because the data model has multiple clients — check whether the underlying
+   account/credential can actually represent that shape before designing a feature over it.
+
+c) Scheduled a "safe test post" to Buffer only 12 minutes in the future; it went fully live
+   on his real LinkedIn before he could delete it from the Buffer queue.
+   LESSON: for any test of a real "publish to a live external platform" action, schedule far
+   enough out (hours/days) that a human has real time to intervene, or don't test against a
+   live personal account's real content stream at all without more explicit buffer time.
+
+d) Was asked "is Fathom webhook okay?" and gave an accurate, verified answer (yes it exists,
+   here's exactly how, but it's blocked on there being no database) rather than either
+   over-promising or refusing — this went fine, listed here as the model to repeat: verify
+   against real docs first (fetched developers.fathom.ai directly), then give a structured
+   honest tradeoff instead of just saying yes/no.
+
+================================================================================
+8. KNOWN OUTSTANDING ISSUES / TECH DEBT (raised, not yet fixed unless noted)
+================================================================================
+STILL OPEN:
+  - Delivery metric direction bug: computeHealthScore() and all "on track" UI use
+    `current >= target` for EVERY delivery metric. This is wrong for metrics where LOWER is
+    better (e.g. "DM response time (hrs)" target 12 current 9 — 9 is GOOD but reads as
+    "behind" because 9 < 12). Flagged multiple times, never fixed. Would need a `direction:
+    "higher"|"lower"` field per delivery metric.
+  - No real "time passing" automation: scheduled posts never auto-flip to "published",
+    invoices never auto-flip to "overdue", contract renewals never auto-flag as lapsed beyond
+    a static UI countdown. Would need a real backend cron (Supabase scheduled function or
+    similar) — blocked on the same missing-database issue as Fathom webhooks.
+  - useAppData's `update()` does structuredClone() of the ENTIRE app state + full
+    JSON.stringify to localStorage on EVERY SINGLE ACTION (toggling a checkbox re-serializes
+    every base64 image in every draft post). Not yet a problem at current data volume, will
+    become one. Also: saveData() swallows storage errors with only a console.error — no user-
+    visible warning if localStorage quota is exceeded (a real risk now that posts can carry
+    base64 images/video) — a save could silently fail and the user would believe their work
+    was saved when it wasn't.
+  - Growth log manual-entry form in GrowthDetail.jsx hardcodes `month: "Aug"` when logging a
+    new entry — will silently log to the wrong month bucket in any month that isn't August.
+  - The ORIGINAL artifact's AI contract-editing (handleAiEdit in ClientDetail.jsx),
+    handleSendEmail, and handleSendReport, plus seed.js's sendOnboardingEmail(), ALL still
+    call https://api.anthropic.com/v1/messages directly from the browser with no API key
+    (leftover artifact code that only ever worked inside claude.ai's runtime). These are
+    DEAD/BROKEN in the real app right now and have NOT been migrated to the server-proxy
+    pattern yet, unlike Buffer/Fathom/Calendar/Resend. This was Step 3 of the ORIGINAL plan
+    (move Anthropic + Gmail calls server-side) and never got done because Charles pivoted to
+    "make more changes first" before Step 3 started. Contract AI-editing and the "send
+    email"/"send report" buttons on Client Detail's Contract/Report tabs will currently fail
+    silently or error out if clicked.
+  - No Supabase / real database. Single browser, single user, no auth beyond a client PIN and
+    an env-var passcode. This blocks: Fathom webhooks, any real-time status automation, multi-
+    device access, multi-user/team support, a real audit/activity log (who changed what) —
+    all previously flagged as valuable, none started.
+  - CRM/Client "type" categorization (LinkedIn content vs book editing vs app/web dev clients)
+    — Charles wants this, requested THIS session, NOT YET BUILT (needs a design decision
+    first — see §9 below, this is genuinely ambiguous and worth clarifying rather than
+    guessing given how much of the Client Detail page structure it would touch).
+  - Post composer / preview identity: shows "Eden Labs" as the author name+generic avatar
+    everywhere (Content page, PostPreview, PendingApproval). Charles wants HIS name + HIS
+    photo shown instead. NOT YET BUILT — needs a small "profile" concept (name + avatar,
+    probably stored in app data, settable somewhere) that PostComposer/PostPreview/
+    PendingApproval read from instead of the hardcoded "Eden Labs" / "" defaults currently
+    passed in from ContentPage.jsx.
+  - No multi-currency support. Every $ figure is hardcoded USD display (toLocaleString with
+    no currency awareness). Charles wants an INR toggle with live conversion. NOT YET BUILT.
+  - No WhatsApp invoice sending, no Razorpay invoice creation. NOT YET BUILT — both are brand
+    new external integrations needing their own credential setup (WhatsApp: Meta Cloud API vs
+    Twilio, meaningfully different setup either way; Razorpay: standard API key/secret pair).
+    Have NOT yet asked Charles which WhatsApp provider he wants — should ask before building,
+    same as was done for Buffer/Resend/Calendar, rather than guessing and building the wrong
+    shape.
+
+FIXED THIS SESSION (do not re-flag as new bugs):
+  - Draft click-to-edit (was completely broken, now works, see §6)
+  - Invoice card showing fake 45/35/20 split instead of real description (fixed, see §6)
+  - Hero card's mislabeled "New invoice" button that actually triggered bulk billing (fixed)
+  - Buffer per-client channel mapping architecture mistake (fully removed, see §7b)
+  - Old client-typed Fathom API key stored in localStorage / sent from browser (removed,
+    replaced with server-side key, see §5)
+  - useGoogleCalendar shared-cache date-window bug (caught before shipping, fixed, see §6)
+
+================================================================================
+9. OPEN QUESTIONS / DECISIONS NEEDED FROM CHARLES (ask before building blindly)
+================================================================================
+1. WhatsApp invoice sending: which provider? Meta's WhatsApp Cloud API directly (needs a
+   Meta Business/developer account, phone number setup, template message approval process
+   for anything beyond a 24h customer-service window) vs a wrapper like Twilio's WhatsApp API
+   (faster to set up, costs a small per-message fee, less raw Meta bureaucracy). Should ask
+   before writing any code, same pattern as every other integration this session.
+
+2. Razorpay invoice creation: presumably real Razorpay "Invoices" API (needs a Razorpay
+   account + API key/secret, and Razorpay invoices are India-specific/INR-oriented — this
+   probably wants to land at the same time as the INR currency toggle work, worth sequencing
+   together rather than separately).
+
+3. Client "type" / vertical categorization — genuinely needs a design decision, not just
+   code: Charles has 3 service lines (1. existing LinkedIn content/growth agency work — what
+   the whole app is built around today, 2. book editing, 3. building apps/web apps with
+   Claude Code). He wants "when adding a client, it should ask what type" and "the dashboard
+   should change accordingly" but didn't specify HOW it should change. Things that plausibly
+   differ per type and need an explicit answer before building:
+     - Does a book-editing or app-dev client need the LinkedIn Content tab / composer at all?
+     - What replaces "delivery" metrics for each type (LinkedIn: posts/week, DM response time;
+       book editing: probably chapters edited / manuscript progress / deadline; app dev:
+       probably sprint/milestone progress, maybe a repo or deploy link)?
+     - Does Buffer/Performance/Growth still apply to non-LinkedIn clients, or should those
+       sections just not show for them?
+     - Same question for the client PORTAL — does a book-editing client's portal still show
+       Content/Outreach/CRM tabs, or a different tab set entirely?
+   This should probably be a short back-and-forth (maybe AskUserQuestion) rather than a
+   guess, since guessing wrong means rebuilding a meaningful chunk of ClientDetail.jsx AND
+   ClientPortal.jsx AND the client creation form AND the data model's `delivery` shape.
+
+4. Post-composer identity: no photo was attached in chat for "your name + photo" — will need
+   Charles to actually upload it through whatever profile UI gets built (ImagePicker.jsx
+   already exists and can be reused for this).
+
+================================================================================
+10. HOW TO RESUME
+================================================================================
+- Read this whole file first.
+- Then re-read the actual current source files for anything you're about to touch — this
+  summary is accurate as of generation time but the code is the ground truth; don't trust
+  paraphrased field names over an actual Read of the file.
+- Dev server: `cd "/Users/charlesrohan/Projects/EdenLabs Dashboard/eden-labs" && npm run dev`
+  (or use the preview_start tool with name "eden-labs", per .claude/launch.json).
+- Verify a change actually works the way earlier parts of this session did: prefer real
+  browser interaction / DOM checks over trusting a screenshot in this environment — screenshots
+  of scrolled positions were unreliable (blank/glitched frames) for a stretch this session;
+  DOM text extraction via javascript_tool was the reliable fallback the whole time.
+- Before writing to any file, Read it first (tool requirement) even if this document describes
+  its contents — the tools enforce this and paraphrase can drift from the literal current text.
+- Nothing in this app is deployed yet. No git repo yet either, as of last check — confirm
+  before assuming any version control safety net exists.
+
+================================================================================
+11. ADDENDUM — built AFTER this file was first written (same session)
+================================================================================
+This section supersedes anything above it that contradicts it.
+
+FATHOM — NOW BUILT (was "about to build" above).
+  api/_handlers.js handleFathom + api/fathom.js + src/lib/fathom.js
+  (listFathomMeetings / matchMeetingsToClient / testFathomConnection).
+  IntegrationsPage has a real FathomCard test-connection button, same pattern as
+  BufferCard. useAppData: setFathomConnected / setFathomDisconnected replaced the
+  old saveFathomKey. The client-portal "type your own Fathom API key" UI is GONE
+  — key is Charles's own, server-side only. ClientPortal Transcripts tab now
+  renders real Fathom fields (meeting_title, recording_start_time, share_url,
+  default_summary.markdown_formatted) and matches meetings to a client via
+  calendar_invitees email-domain/name rather than the old JSON.stringify hack.
+  FATHOM_API_KEY env var exists in .env.local + .env.example, EMPTY — Charles
+  said he has the key and will paste it himself. Webhooks still deferred (needs
+  a public URL + a real DB).
+  Fixed while doing this: fetchTranscripts referenced `client` above the
+  `if (!client) return null` guard — reordered.
+
+OWNER PROFILE — NEW.
+  data.profile = { name, headline, photoUrl, company }. Seeded as Charles Rohan.
+  Editable via a new "Your profile" card on the Integrations page (renamed
+  "Settings & integrations"), photo via the existing ImagePicker.
+  PostComposer/PostPreview on the Content page now show profile.name +
+  profile.photoUrl instead of the hardcoded "Eden Labs". HomeDashboard greeting
+  + header chip read from profile too. VERIFIED: preview renders "Charles Rohan".
+  Charles has NOT uploaded his photo yet — he does that himself via that card.
+
+CURRENCY (USD / INR) — NEW.
+  src/lib/currency.js + src/hooks/useCurrency.jsx (CurrencyProvider + useCurrency,
+  wrapped around both app shells in App.jsx). data.settings.currency persists the
+  choice; toggle lives on the new Currency card in Settings & integrations.
+  KEY DESIGN POINT: every amount stays STORED in USD. Currency is display-only,
+  converted at render. Never rewrite stored values on a currency switch — the
+  rate moves and an invoice would silently change what it says it's worth.
+  Live rate: tried exchangerate.host (now needs a key — dead) and frankfurter
+  (blocks browser origins — dead). Working keyless+CORS sources, tried in order:
+    1. https://open.er-api.com/v6/latest/USD          -> j.rates.INR
+    2. https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json -> j.usd.inr
+  Cached in localStorage key "eden-labs-fx-rate" for 12h. Falls back to an
+  expired cached rate before the hardcoded constant (95). UI labels non-live
+  rates "approximate" rather than implying precision.
+  VERIFIED LIVE: $1,000 -> ₹95,401 at 95.40, and it propagates to Dashboard MRR,
+  Finance, Clients header, CRM pipeline — with correct en-IN lakh grouping
+  (₹6,01,028). money() is threaded through FinanceDetail, HomeDashboard,
+  ClientDetail, ClientsList, GrowthDetail, CrmBoard, ClientPortal, InvoiceModal.
+  Invoice PDF/email take an injected fmtMoney so the document renders in the
+  active currency at 2dp.
+
+CLIENT TYPES — NEW.
+  CLIENT_TYPES + DEFAULT_CLIENT_TYPE exported from src/data/seed.js. Three types:
+    linkedin  — tabs: overview/content/dms/contract/report
+                portalTabs: overview/content/outreach/crm/transcripts/dms/contract
+                metrics: Posts per week, Outreach sent / wk
+    book      — tabs: overview/dms/contract/report
+                portalTabs: overview/transcripts/dms/contract
+                metrics: Chapters edited, Editing rounds done
+    app       — tabs: overview/dms/contract/report
+                portalTabs: overview/transcripts/dms/contract
+                metrics: Milestones shipped, Open bugs (has direction:"lower")
+  Add-client form asks the type FIRST (3 cards), previews the starting metrics,
+  and hides the LinkedIn-only service-tier dropdown for non-LinkedIn types.
+  Clients list has a type filter + a type badge per card; ClientDetail shows a
+  type badge and renders only that type's tabs (falls back to Overview if the
+  current tab isn't valid for the type). ClientPortal does the same via portalTabs.
+  migrate.js backfills type = "linkedin" on any pre-existing client.
+  VERIFIED END TO END: created a real book-editing client — got the book metrics,
+  ClientDetail showed [Overview, DMs, Contract, Report] with NO Content tab, and
+  the portal showed only [Overview, Transcripts, Messages, Contract]. Test client
+  was deleted afterwards.
+  NOTE: the `direction: "lower"` field now EXISTS on the app type's "Open bugs"
+  metric, but NOTHING READS IT YET — computeHealthScore and every "on track" UI
+  still use `current >= target`. So "Open bugs 0/0" works by luck, but a
+  lower-is-better metric with a nonzero current still reads wrong. The long-
+  standing delivery-direction bug (§8) is now HALF-fixed: the data model
+  supports it, the logic doesn't. Finishing it means updating computeHealthScore
+  in lib/utils.js plus the on-track checks in HomeDashboard, ClientsList,
+  ClientDetail, and ClientPortal.
+
+ONBOARDING EMAIL — FIXED (was listed as dead artifact code in §8).
+  sendOnboardingEmail in data/seed.js no longer POSTs to api.anthropic.com with
+  a Gmail MCP server (that only worked inside claude.ai and threw "Failed to
+  fetch" here — observed live in console). It now goes through /api/send-email
+  (Resend), sends a styled HTML + plain-text welcome with portal link and PIN,
+  and returns { sent, error } instead of a bare boolean so ClientsList can show
+  the real reason when it fails.
+  STILL DEAD (unchanged): handleAiEdit, handleSendEmail, handleSendReport in
+  ClientDetail.jsx — all three still call api.anthropic.com from the browser.
+  handleSendEmail/handleSendReport could now be pointed at /api/send-email the
+  same way; handleAiEdit needs an Anthropic key in a new server route.
+
+INVOICE FIX (during testing).
+  Invoice cards in FinanceDetail showed a fabricated 45/35/20 Content/Outreach/
+  Reporting split on EVERY invoice, including ad-hoc ones that have a real typed
+  description. Now: real description shows verbatim; the fabricated split only
+  applies to older invoices that never had one.
+  Also renamed the bulk action to "Bill active clients" — the hero card's button
+  said "New invoice" while actually bulk-generating for every active client.
+
+DECISIONS MADE (asked via AskUserQuestion, answered by Charles):
+  - WhatsApp invoice sending: DROPPED for now, revisit later. Do not build.
+  - Razorpay: he does NOT have API keys yet. Build only once he does. INR display
+    currency was built independently and does not depend on Razorpay.
+  - Client types: full treatment (own delivery metrics + own tab sets) — chosen
+    over the lighter "same structure, just a label" option. Already built.
+
+CURRENT ENV VAR STATE:
+  VITE_OWNER_PASSCODE      = eden-labs (set)
+  BUFFER_API_KEY           = SET, live, working
+  FATHOM_API_KEY           = empty, Charles to paste
+  GOOGLE_CALENDAR_ICAL_URL = empty, Charles to paste
+  RESEND_API_KEY           = empty, Charles needs to sign up at resend.com
+  RESEND_FROM              = empty (optional; falls back to onboarding@resend.dev)
+
+BROWSER-TESTING NOTE FOR FUTURE SESSIONS:
+  Screenshots in this environment are unreliable after scrolling/HMR (blank or
+  stale frames), and the console shows stale "[vite] Failed to reload" errors on
+  a tab that was open during edits. Both are environment artifacts, NOT app bugs.
+  Reliable approach: open a FRESH tab (tabs_create + navigate) to check for real
+  console errors, and use javascript_tool DOM text extraction to verify rendering
+  instead of trusting screenshots.

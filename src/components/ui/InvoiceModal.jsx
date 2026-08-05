@@ -1,0 +1,238 @@
+import { useState } from "react";
+import { Plus, Download, Send, Loader2, CheckCircle2, FileText } from "lucide-react";
+import Modal from "./Modal";
+import Badge from "./Badge";
+import PrimaryButton from "./PrimaryButton";
+import { today, addDays, uid } from "../../lib/utils";
+import { invoiceNumber, buildInvoiceDocument, buildInvoiceEmailText } from "../../lib/invoice";
+import { sendEmail } from "../../lib/email";
+import { useCurrency } from "../../hooks/useCurrency";
+
+const EMPTY_FORM = { clientId: "", description: "", amount: "", issueDate: today(), dueDate: addDays(today(), 14), notes: "" };
+
+/**
+ * Create a single ad-hoc invoice. Two phases in one modal: fill in the
+ * details, then — once it exists — download it as a PDF or email it for
+ * real. Nothing here touches the recurring "bill every active client" flow.
+ */
+export default function InvoiceModal({ open, onClose, clients, invoices, onCreate }) {
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [created, setCreated] = useState(null); // the invoice once it exists
+  const [sendStatus, setSendStatus] = useState("");
+  const [sendError, setSendError] = useState("");
+  const [sending, setSending] = useState(false);
+  const { money, currency } = useCurrency();
+  // 2dp on an invoice — a document should show exact cents/paise.
+  const fmtMoney = (n) => money(n, { decimals: 2 });
+
+  const client = clients.find((c) => c.id === (created?.clientId || form.clientId));
+
+  const close = () => {
+    onClose();
+    // Reset after the close animation would run, if there were one.
+    setTimeout(() => {
+      setForm(EMPTY_FORM);
+      setCreated(null);
+      setSendStatus("");
+      setSendError("");
+    }, 200);
+  };
+
+  const pickClient = (clientId) => {
+    const c = clients.find((x) => x.id === clientId);
+    setForm((f) => ({
+      ...f,
+      clientId,
+      // Prefill from the retainer if the description/amount are still blank —
+      // never overwrite something the user already typed.
+      description: f.description || (c ? `${new Date().toLocaleDateString(undefined, { month: "long" })} retainer` : ""),
+      amount: f.amount || (c?.contract?.value ? String(c.contract.value) : f.amount),
+    }));
+  };
+
+  const handleCreate = () => {
+    if (!form.clientId || !Number(form.amount)) return;
+    const invoice = {
+      id: uid(),
+      clientId: form.clientId,
+      amount: Number(form.amount),
+      description: form.description.trim(),
+      notes: form.notes.trim(),
+      date: form.issueDate,
+      dueDate: form.dueDate,
+      period: form.issueDate.slice(0, 7),
+      status: "pending",
+    };
+    onCreate(invoice);
+    setCreated(invoice);
+  };
+
+  const number = created ? invoiceNumber(created.id, [...invoices, created]) : null;
+
+  const handleDownload = () => {
+    const html = buildInvoiceDocument({ invoice: created, client, number, fmtMoney });
+    // A dedicated tab prints cleanly regardless of the modal's own layout,
+    // and Chrome's print dialog defaults to "Save as PDF".
+    const win = window.open("", "_blank");
+    if (!win) {
+      setSendError("Your browser blocked the new tab — allow popups for this site and try again.");
+      return;
+    }
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 300);
+  };
+
+  const handleSend = async () => {
+    if (!client?.email) {
+      setSendError("This client has no email on file — add one from their client page first.");
+      return;
+    }
+    setSending(true);
+    setSendError("");
+    setSendStatus("");
+    try {
+      await sendEmail({
+        to: client.email,
+        subject: `Invoice ${number} from Eden Labs`,
+        html: buildInvoiceDocument({ invoice: created, client, number, fmtMoney }),
+        text: buildInvoiceEmailText({ invoice: created, client, number, fmtMoney }),
+      });
+      setSendStatus(`Sent to ${client.email}.`);
+    } catch (e) {
+      setSendError(e.message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const inputCls = "border border-line rounded-lg px-3 py-2 text-sm bg-white w-full focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
+
+  return (
+    <Modal
+      open={open}
+      onClose={close}
+      width="md"
+      title={created ? `Invoice ${number}` : "New invoice"}
+      subtitle={created ? "Download it, or send it for real" : "One-off — separate from the monthly retainer billing"}
+      footer={
+        created ? (
+          <>
+            <PrimaryButton variant="ghost" icon={Download} onClick={handleDownload}>Download PDF</PrimaryButton>
+            <PrimaryButton icon={sending ? Loader2 : Send} onClick={handleSend} disabled={sending}>
+              {sending ? "Sending…" : "Send email"}
+            </PrimaryButton>
+          </>
+        ) : (
+          <>
+            <PrimaryButton variant="ghost" onClick={close}>Cancel</PrimaryButton>
+            <PrimaryButton icon={Plus} onClick={handleCreate} disabled={!form.clientId || !Number(form.amount)}>
+              Create invoice
+            </PrimaryButton>
+          </>
+        )
+      }
+    >
+      {!created ? (
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-stone-500 font-medium">Client</label>
+            <select value={form.clientId} onChange={(e) => pickClient(e.target.value)} className={`${inputCls} mt-1`}>
+              <option value="">Select a client…</option>
+              {clients.map((c) => <option key={c.id} value={c.id}>{c.name} · {c.company}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs text-stone-500 font-medium">Description</label>
+            <input
+              placeholder="e.g. August retainer, one-off carousel design"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              className={`${inputCls} mt-1`}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-stone-500 font-medium">Amount (USD)</label>
+              <input
+                type="number" min="0" placeholder="0.00"
+                value={form.amount}
+                onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                className={`${inputCls} mt-1`}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-stone-500 font-medium">Issue date</label>
+              <input
+                type="date" value={form.issueDate}
+                onChange={(e) => setForm({ ...form, issueDate: e.target.value })}
+                className={`${inputCls} mt-1`}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-stone-500 font-medium">Due date</label>
+            <input
+              type="date" value={form.dueDate}
+              onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
+              className={`${inputCls} mt-1`}
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-stone-500 font-medium">Notes (optional)</label>
+            <textarea
+              rows={2}
+              placeholder="Shown at the bottom of the invoice"
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              className={`${inputCls} mt-1 resize-none`}
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Compact preview — the real document is the print/email HTML */}
+          <div className="border border-line rounded-xl p-4">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2 text-stone-500">
+                <FileText size={14} /> <span className="text-xs font-medium">Preview</span>
+              </div>
+              <Badge tone={created.status === "paid" ? "emerald" : "amber"}>
+                {created.status === "paid" ? "Paid" : "Payment due"}
+              </Badge>
+            </div>
+            <div className="flex justify-between text-sm mb-1.5">
+              <span className="text-stone-500">Billed to</span>
+              <span className="text-stone-800 font-medium">{client?.company || client?.name || "—"}</span>
+            </div>
+            <div className="flex justify-between text-sm mb-1.5">
+              <span className="text-stone-500">{created.description || "Services rendered"}</span>
+              <span className="text-stone-800 font-medium tnum">{money(created.amount)}</span>
+            </div>
+            <div className="flex justify-between text-sm pt-2 border-t border-stone-100 mt-2">
+              <span className="text-stone-500">Due</span>
+              <span className="text-stone-800 font-medium">{new Date(created.dueDate).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</span>
+            </div>
+          </div>
+
+          {!client?.email && (
+            <div className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+              {client?.name} has no email on file — you can still download the PDF, but sending needs one.
+            </div>
+          )}
+          {sendStatus && (
+            <div className="flex items-center gap-1.5 text-xs text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">
+              <CheckCircle2 size={13} /> {sendStatus}
+            </div>
+          )}
+          {sendError && <div className="text-xs text-rose-600 bg-rose-50 rounded-lg px-3 py-2">{sendError}</div>}
+        </div>
+      )}
+    </Modal>
+  );
+}

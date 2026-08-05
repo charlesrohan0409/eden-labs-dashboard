@@ -12,18 +12,12 @@ import IconStat from "../ui/IconStat";
 import Avatar from "../ui/Avatar";
 import TaskList from "../ui/TaskList";
 import MeetingRow from "../ui/MeetingRow";
+import WeatherGreeting from "../ui/WeatherGreeting";
 import { MONTHS, computeHealthScore, healthTone, STAGE_WEIGHTS, relativeDays, isMetricOnTrack, metricProgressPct } from "../../lib/utils";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { useBufferPerformance } from "../../hooks/useBufferPerformance";
 import { useCurrency } from "../../hooks/useCurrency";
 import { useGoogleCalendar } from "../../hooks/useGoogleCalendar";
-
-const greeting = () => {
-  const h = new Date().getHours();
-  if (h < 12) return "Good morning";
-  if (h < 18) return "Good afternoon";
-  return "Good evening";
-};
 
 export default function HomeDashboard({ data, setView, setSelectedClient, onAddTask, onToggleTask, onDeleteTask, onUpdateTask }) {
   const { money } = useCurrency();
@@ -88,16 +82,9 @@ export default function HomeDashboard({ data, setView, setSelectedClient, onAddT
 
   return (
     <div className="space-y-5">
-      {/* ── Greeting header ── */}
+      {/* ── Greeting header — animates to the local weather; see WeatherGreeting ── */}
       <div className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-stone-900">
-            {greeting()}, {(data.profile?.name || "Charles").split(" ")[0]}
-          </h1>
-          <p className="text-sm text-stone-500 mt-1">
-            Stay on top of your clients, delivery, and pipeline.
-          </p>
-        </div>
+        <WeatherGreeting name={data.profile?.name || "Charles"} />
         <div className="flex items-center gap-2.5 bg-white border border-line rounded-full pl-3 pr-1.5 py-1.5">
           <div className="text-right hidden sm:block">
             <div className="text-xs font-semibold text-stone-800 leading-none">{data.profile?.name}</div>

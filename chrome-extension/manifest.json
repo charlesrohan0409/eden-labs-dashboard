@@ -8,8 +8,7 @@
   "host_permissions": ["https://dashboard.theedenlabs.com/*"],
 
   "background": {
-    "service_worker": "background.js",
-    "type": "module"
+    "service_worker": "background.js"
   },
 
   "action": {

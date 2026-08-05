@@ -41,7 +41,9 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // ---- Auth helper (called by popup + settings) ----------------------------
 
 // Exchange a PIN for a 30-day session token. Returns { token } or throws.
-export async function authenticate(pin) {
+// (Not exported — nothing outside this file imports it; every other script
+// talks to background.js exclusively through chrome.runtime.sendMessage.)
+async function authenticate(pin) {
   const res  = await fetch(`${API}/api/auth-owner`, {
     method:  "POST",
     headers: { "Content-Type": "application/json" },

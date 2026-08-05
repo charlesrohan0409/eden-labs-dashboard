@@ -21,6 +21,13 @@ export function migrateData(loaded) {
     merged.integrations.push({ id: "fathom", name: "Fathom", desc: "Meeting transcripts & summaries", connected: false, apiKey: "" });
   }
 
+  // Apollo/Lemlist/Calendly were seeded as connected:true in early builds —
+  // they were never wired to a real API and that was misleading. Reset them.
+  const PLACEHOLDER_IDS = new Set(["apollo", "lemlist", "calendly"]);
+  merged.integrations = merged.integrations.map((i) =>
+    PLACEHOLDER_IDS.has(i.id) ? { ...i, connected: false } : i
+  );
+
   // Buffer gained a real connection test that lists channels, plus an
   // "unassigned content" default channel for posts with no client.
   merged.integrations = merged.integrations.map((i) =>

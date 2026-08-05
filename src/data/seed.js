@@ -318,7 +318,7 @@ export const seedData = () => ({
   ],
   integrations: [
     { id: "buffer", name: "Buffer", desc: "Post scheduling & analytics per client", connected: true },
-    { id: "apollo", name: "Apollo.io", desc: "Prospect data & outreach sequences", connected: true },
+    { id: "apollo", name: "Apollo.io", desc: "Prospect data & outreach sequences", connected: false },
     { id: "lemlist", name: "Lemlist", desc: "Cold email sequences", connected: false },
     { id: "calendly", name: "Calendly", desc: "Booked calls sync to Calls page", connected: false },
     { id: "fathom", name: "Fathom", desc: "Meeting transcripts & summaries", connected: false, apiKey: "" },

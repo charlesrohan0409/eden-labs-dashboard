@@ -10,7 +10,9 @@ export default function ClientPortalLogin({ data, onLogin, onExit }) {
   const submit = () => {
     const client = data.clients.find((c) => c.pin === pin);
     if (client) onLogin(client.id);
-    else setError("PIN not recognized. Try 4821, 1190, or 7734 for the demo.");
+    // Never hint at valid PINs here — this screen is public, and the old copy
+    // listed three real clients' working PINs to anyone who guessed wrong.
+    else setError("That PIN didn't match. Check the one Eden Labs sent you.");
   };
 
   return (

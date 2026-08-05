@@ -85,10 +85,16 @@ export function useBufferPerformance({ enabled = true, range = "90" } = {}) {
       m.comments += p.metrics.comments;
       m.engagements += p.metrics.engagements;
     });
+    // Mark the current calendar month as partial — it hasn't finished yet so
+    // its numbers will always look low next to complete months. Charts and
+    // tooltips use this flag to add "(in progress)" so the visual dip isn't
+    // mistaken for a real decline.
+    const nowKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
     const byMonth = Object.values(byMonthMap)
       .sort((a, b) => (a.key < b.key ? -1 : 1))
       .map((m) => ({
         ...m,
+        isPartial: m.key === nowKey,
         engagementRate: m.impressions ? Number(((m.engagements / m.impressions) * 100).toFixed(2)) : 0,
       }));
 

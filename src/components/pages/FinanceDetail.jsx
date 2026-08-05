@@ -215,7 +215,9 @@ export default function FinanceDetail({ data, setView, onAddExpense, onAddInvoic
             <div className="lg:col-span-4 grid grid-cols-2 gap-4 content-start">
               {[
                 { label: "Overdue", value: overdue, icon: AlertCircle, tone: "rose", note: `${counts.overdue} invoice${counts.overdue === 1 ? "" : "s"}` },
-                { label: "Due next month", value: pending, icon: Clock, tone: "violet", note: `${counts.pending} pending` },
+                // Every pending invoice, not a next-month forecast — the old
+                // label read as a projection of money that hadn't been billed.
+                { label: "Awaiting payment", value: pending, icon: Clock, tone: "violet", note: `${counts.pending} pending` },
                 { label: "Total costs", value: totalCost, icon: Receipt, tone: "amber", note: `${data.expenses.length} entries` },
                 { label: "Net profit", value: profit, icon: DollarSign, tone: "emerald", note: `${margin}% margin` },
               ].map((s) => {
@@ -332,7 +334,13 @@ export default function FinanceDetail({ data, setView, onAddExpense, onAddInvoic
                         <td className="py-3 px-3">
                           <Badge tone={STATUS_TONE[i.status]} dot>{STATUS_LABEL[i.status] || i.status}</Badge>
                         </td>
-                        <td className="py-3 px-3 text-stone-500 tnum">{i.date}</td>
+                        <td className="py-3 px-3 text-stone-500 tnum">
+                          {/* i.date is stored as ISO YYYY-MM-DD — force noon UTC so
+                              timezone offset doesn't flip it to the previous day. */}
+                          {new Date(i.date + "T12:00:00").toLocaleDateString(undefined, {
+                            day: "numeric", month: "short", year: "numeric",
+                          })}
+                        </td>
                         <td className="py-3 px-3 text-right">
                           <PrimaryButton
                             size="sm"

@@ -1,22 +1,37 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { AlertTriangle, X } from "lucide-react";
 import { useAppData } from "./hooks/useAppData";
 import { CurrencyProvider } from "./hooks/useCurrency";
 import Sidebar from "./components/layout/Sidebar";
 import MobileTopBar from "./components/layout/MobileTopBar";
 import MobileBottomNav from "./components/layout/MobileBottomNav";
+// Always-on pages — load eagerly so the first paint is instant.
 import HomeDashboard from "./components/pages/HomeDashboard";
-import GrowthDetail from "./components/pages/GrowthDetail";
-import FinanceDetail from "./components/pages/FinanceDetail";
 import ClientsList from "./components/pages/ClientsList";
 import ClientDetail from "./components/pages/ClientDetail";
-import CRM from "./components/pages/CRM";
-import ContentPage from "./components/pages/ContentPage";
-import PerformancePage from "./components/pages/PerformancePage";
-import CalendarPage from "./components/pages/CalendarPage";
-import IntegrationsPage from "./components/pages/IntegrationsPage";
 import ClientPortalLogin from "./components/portal/ClientPortalLogin";
 import ClientPortal from "./components/portal/ClientPortal";
+// Chart-heavy pages — lazy-load so recharts isn't in the initial bundle.
+// Each loads in under 1s on a fast connection; the spinner shows on slow ones.
+const GrowthDetail   = lazy(() => import("./components/pages/GrowthDetail"));
+const FinanceDetail  = lazy(() => import("./components/pages/FinanceDetail"));
+const CRM            = lazy(() => import("./components/pages/CRM"));
+const ContentPage    = lazy(() => import("./components/pages/ContentPage"));
+const PerformancePage = lazy(() => import("./components/pages/PerformancePage"));
+const CalendarPage   = lazy(() => import("./components/pages/CalendarPage"));
+const IntegrationsPage = lazy(() => import("./components/pages/IntegrationsPage"));
+
+function PageLoader() {
+  return (
+    <div className="flex-1 flex items-center justify-center text-stone-400 text-sm">
+      <svg className="animate-spin h-5 w-5 mr-2 text-emerald-700" viewBox="0 0 24 24" fill="none">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+      </svg>
+      Loading…
+    </div>
+  );
+}
 
 // Fixed so it's visible no matter which page/portal is showing — a save
 // failure (most likely a full localStorage quota, now that posts can carry
@@ -80,6 +95,7 @@ export default function App() {
       <Sidebar view={view} setView={setView} onPreviewPortal={() => setPortalMode(true)} />
 
       <main className="flex-1 min-w-0 p-4 md:p-8 pb-24 md:pb-8 max-w-[1400px]">
+      <Suspense fallback={<PageLoader />}>
         {view === "home" && (
           <HomeDashboard
             data={data}
@@ -163,6 +179,7 @@ export default function App() {
             onSetCurrency={actions.setCurrency}
           />
         )}
+      </Suspense>
       </main>
 
       <MobileBottomNav view={view} setView={setView} />

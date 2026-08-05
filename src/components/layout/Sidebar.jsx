@@ -55,8 +55,8 @@ export default function Sidebar({ view, setView, onPreviewPortal }) {
         >
           <Link2 size={13} /> Preview client portal
         </button>
-        <div className="flex items-center gap-2 px-3 py-2 text-[11px] text-stone-500">
-          <HelpCircle size={13} /> Docs &amp; support
+        <div className="flex items-center gap-2 px-3 py-2 text-[11px] text-stone-500 select-none">
+          <HelpCircle size={13} /> Eden Labs v1 · Built with Claude
         </div>
       </div>
     </div>

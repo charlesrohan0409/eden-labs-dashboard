@@ -168,10 +168,21 @@ export default function PerformancePage({ data }) {
                 <CartesianGrid stroke={COLORS.gridline} vertical={false} />
                 <XAxis dataKey="label" tick={axisTick} axisLine={false} tickLine={false} />
                 <YAxis tick={axisTick} axisLine={false} tickLine={false} width={44} tickFormatter={compact} />
-                <Tooltip {...chartTooltipStyle} formatter={(v) => [v.toLocaleString(), SERIES[series].label]} />
+                <Tooltip
+                  {...chartTooltipStyle}
+                  formatter={(v, _n, { payload }) => [
+                    `${v.toLocaleString()}${payload?.isPartial ? " (month in progress)" : ""}`,
+                    SERIES[series].label,
+                  ]}
+                />
                 <Area type="monotone" dataKey={SERIES[series].key} stroke={SERIES[series].color} strokeWidth={2.5} fill="url(#gPerfTrend)" />
               </AreaChart>
             </ResponsiveContainer>
+            {byMonth.at(-1)?.isPartial && (
+              <div className="text-[11px] text-stone-400 mt-1 text-right">
+                · {byMonth.at(-1).label} is the current month — numbers are still counting up.
+              </div>
+            )}
           </Card>
 
           <div className="grid lg:grid-cols-2 gap-4">

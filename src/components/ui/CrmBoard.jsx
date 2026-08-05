@@ -241,8 +241,9 @@ export default function CrmBoard({ contacts, onAddContact, onUpdateStage, showEx
       )}
 
       {/* Board — always horizontally scrollable so columns keep a comfortable
-          width instead of being squeezed to fit the viewport. */}
-      <div className="overflow-x-auto -mx-4 px-4 md:-mx-8 md:px-8 pb-3 no-scrollbar">
+          width. Removed no-scrollbar so the scrollbar is visible — otherwise
+          the "Lost" column is invisible with no hint that it exists. */}
+      <div className="overflow-x-auto -mx-4 px-4 md:-mx-8 md:px-8 pb-3">
         <div className="flex gap-4 min-w-max">
           {STAGES.map((stage) => {
             const meta = STAGE_META[stage];

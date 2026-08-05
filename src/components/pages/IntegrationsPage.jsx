@@ -302,7 +302,12 @@ export default function IntegrationsPage({
               <div className="w-10 h-10 rounded-xl bg-stone-100 flex items-center justify-center shrink-0">
                 <Plug size={17} className="text-stone-500" />
               </div>
-              {i.connected && <Badge tone="emerald" dot>Connected</Badge>}
+              {/* These are manual status toggles only — no live API is wired.
+                  Show a "manual" badge instead of "Connected" to avoid the
+                  impression that data is actually syncing. */}
+              {i.connected
+                ? <Badge tone="stone" dot>Marked active</Badge>
+                : <Badge tone="stone">Placeholder</Badge>}
             </div>
 
             <div className="font-semibold text-stone-800 mt-4">{i.name}</div>
@@ -310,14 +315,14 @@ export default function IntegrationsPage({
 
             <button
               onClick={() => onToggle(i.id)}
-              className={`mt-4 w-full text-xs font-medium py-2.5 rounded-full transition-colors flex items-center justify-center gap-1.5 ${
-                i.connected
-                  ? "bg-stone-100 text-stone-600 hover:bg-stone-200"
-                  : "bg-emerald-800 text-white hover:bg-emerald-900"
-              }`}
+              className="mt-4 w-full text-xs font-medium py-2.5 rounded-full transition-colors flex items-center justify-center gap-1.5 bg-stone-100 text-stone-600 hover:bg-stone-200"
             >
-              {i.connected ? "Disconnect" : <><Check size={13} /> Connect</>}
+              {i.connected ? "Unmark" : "Mark as active"}
             </button>
+
+            <div className="text-[11px] text-stone-400 mt-2 text-center">
+              Manual toggle — no live API connected yet
+            </div>
           </Card>
         ))}
       </div>

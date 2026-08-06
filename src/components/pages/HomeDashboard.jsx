@@ -18,6 +18,7 @@ import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { useBufferPerformance } from "../../hooks/useBufferPerformance";
 import { useCurrency } from "../../hooks/useCurrency";
 import { useGoogleCalendar } from "../../hooks/useGoogleCalendar";
+import { buildDailySeries, sumEntries } from "../../lib/outreach";
 
 export default function HomeDashboard({ data, setView, setSelectedClient, onAddTask, onToggleTask, onDeleteTask, onUpdateTask }) {
   const { money } = useCurrency();
@@ -71,9 +72,28 @@ export default function HomeDashboard({ data, setView, setSelectedClient, onAddT
   }));
   const atRiskAuto = healthScores.filter((c) => c.health < 50);
 
-  const latest = data.growthLog.at(-1) || {};
-  const prev = data.growthLog.at(-2) || {};
-  const pctChange = (a, b) => (!b ? (a > 0 ? 100 : 0) : Math.round(((a - b) / b) * 100));
+  // Real outreach tracking (LinkedIn + email funnels), not the old
+  // hand-logged monthly growthLog — see lib/outreach.js and the Growth
+  // detail page for the full daily/weekly/monthly breakdown.
+  const outreachLog = data.outreachLog || [];
+  const dailyOutreach = useMemo(
+    () => buildDailySeries(outreachLog, 14).map((d) => ({ ...d, combinedSent: d.linkedinConnectionsSent + d.emailSent })),
+    [outreachLog]
+  );
+  const since7 = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 6);
+    return d.toISOString().slice(0, 10);
+  }, []);
+  const last7 = useMemo(() => sumEntries(outreachLog, since7), [outreachLog, since7]);
+  const contentPublishedThisMonth = useMemo(() => {
+    const now = new Date();
+    return data.posts.filter((p) => {
+      if (p.status !== "published" || !p.date) return false;
+      const d = new Date(p.date);
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    }).length;
+  }, [data.posts]);
 
   const bufferConnected = !!data.integrations.find((i) => i.id === "buffer")?.connected;
   const perf = useBufferPerformance({ enabled: bufferConnected, range: "90" });
@@ -213,7 +233,7 @@ export default function HomeDashboard({ data, setView, setSelectedClient, onAddT
       <div className="grid lg:grid-cols-3 gap-4">
         <Card className="p-5 lg:col-span-2">
           <CardTitle
-            sub="Outreach volume over the last 6 months"
+            sub="Connections + emails sent, last 14 days"
             action={
               <button onClick={() => setView("growth-detail")} className="text-xs text-emerald-800 flex items-center gap-0.5 hover:underline shrink-0">
                 View details <ChevronRight size={13} />
@@ -224,7 +244,7 @@ export default function HomeDashboard({ data, setView, setSelectedClient, onAddT
           </CardTitle>
 
           <ResponsiveContainer width="100%" height={170}>
-            <AreaChart data={data.growthLog}>
+            <AreaChart data={dailyOutreach}>
               <defs>
                 <linearGradient id="gHomeGrowth" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={COLORS.accent} stopOpacity={0.28} />
@@ -232,18 +252,18 @@ export default function HomeDashboard({ data, setView, setSelectedClient, onAddT
                 </linearGradient>
               </defs>
               <CartesianGrid stroke={COLORS.gridline} vertical={false} />
-              <XAxis dataKey="month" tick={axisTick} axisLine={false} tickLine={false} />
-              <YAxis tick={axisTick} axisLine={false} tickLine={false} width={34} />
-              <Tooltip {...chartTooltipStyle} />
-              <Area type="monotone" dataKey="outreachSent" stroke={COLORS.accent} fill="url(#gHomeGrowth)" strokeWidth={2.5} name="Outreach sent" />
+              <XAxis dataKey="label" tick={axisTick} axisLine={false} tickLine={false} interval={2} />
+              <YAxis tick={axisTick} axisLine={false} tickLine={false} width={34} allowDecimals={false} />
+              <Tooltip {...chartTooltipStyle} formatter={(v) => [v, "Outreach sent"]} />
+              <Area type="monotone" dataKey="combinedSent" stroke={COLORS.accent} fill="url(#gHomeGrowth)" strokeWidth={2.5} name="Outreach sent" />
             </AreaChart>
           </ResponsiveContainer>
 
           <div className="grid grid-cols-3 gap-2 border-t border-stone-100 mt-3 pt-4">
             {[
-              { icon: FileText, tone: "bg-violet-50 text-violet-700", label: "Content", value: latest.contentPosts, trend: pctChange(latest.contentPosts, prev.contentPosts) },
-              { icon: Send, tone: "bg-sky-50 text-sky-700", label: "Outreach", value: latest.outreachSent, trend: pctChange(latest.outreachSent, prev.outreachSent) },
-              { icon: Phone, tone: "bg-amber-50 text-amber-700", label: "Calls", value: latest.callsBooked, trend: pctChange(latest.callsBooked, prev.callsBooked) },
+              { icon: FileText, tone: "bg-violet-50 text-violet-700", label: "Content", value: contentPublishedThisMonth, sub: "this month" },
+              { icon: Send, tone: "bg-sky-50 text-sky-700", label: "Outreach", value: last7.linkedinConnectionsSent + last7.emailSent, sub: "last 7d" },
+              { icon: Phone, tone: "bg-amber-50 text-amber-700", label: "Calls", value: last7.linkedinCallsBooked + last7.emailCallsBooked, sub: "last 7d" },
             ].map((s) => {
               const Icon = s.icon;
               return (
@@ -255,9 +275,7 @@ export default function HomeDashboard({ data, setView, setSelectedClient, onAddT
                     <div className="text-[11px] text-stone-400">{s.label}</div>
                     <div className="flex items-baseline gap-1.5">
                       <span className="text-base font-bold text-stone-900 tnum">{s.value ?? 0}</span>
-                      <span className={`text-[10px] tnum ${s.trend >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
-                        {s.trend >= 0 ? "+" : ""}{s.trend}%
-                      </span>
+                      <span className="text-[10px] text-stone-400">{s.sub}</span>
                     </div>
                   </div>
                 </div>

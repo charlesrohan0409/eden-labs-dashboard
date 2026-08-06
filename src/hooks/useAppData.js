@@ -164,6 +164,8 @@ export function useAppData(token, onUnauthorized) {
 
     // ---- misc ----
     logGrowth: (entry) => update((d) => M.logGrowth(d, entry)),
+    logOutreachDay: (entry) => update((d) => M.logOutreachDay(d, entry)),
+    deleteOutreachDay: (id) => update((d) => M.deleteOutreachDay(d, id)),
     toggleIntegration: (id) => update((d) => M.toggleIntegration(d, id)),
     setFathomConnected: () => update((d) => M.setFathomConnected(d)),
     setFathomDisconnected: () => update((d) => M.setFathomDisconnected(d)),

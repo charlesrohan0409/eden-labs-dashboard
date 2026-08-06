@@ -154,7 +154,12 @@ export default function App() {
         )}
 
         {view === "growth-detail" && (
-          <GrowthDetail data={data} setView={setView} onLogGrowth={actions.logGrowth} />
+          <GrowthDetail
+            data={data}
+            setView={setView}
+            onLogOutreachDay={actions.logOutreachDay}
+            onDeleteOutreachDay={actions.deleteOutreachDay}
+          />
         )}
 
         {view === "finance-detail" && (

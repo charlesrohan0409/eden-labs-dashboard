@@ -309,6 +309,9 @@ export const seedData = () => ({
   // month starts at zero rather than shipping with a fake demo trend. Log
   // actual months via the Growth page as they happen.
   growthLog: MONTHS.map((month) => ({ month, contentPosts: 0, outreachSent: 0, callsBooked: 0 })),
+  // Day-by-day LinkedIn + email outreach funnel — see lib/outreach.js for the
+  // stage definitions and the chart/aggregation helpers built on top of this.
+  outreachLog: [],
   // Same story — this claims to be "sourced from CRM contact attribution"
   // but nothing computes it from data.contacts yet, so it shipped as a
   // static, fake breakdown. Empty until that's wired up for real.

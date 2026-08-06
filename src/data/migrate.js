@@ -10,7 +10,7 @@ export function migrateData(loaded) {
   // Ensure every top-level collection exists and is the right type.
   [
     "clients", "contacts", "tasks", "posts", "dms", "expenses", "invoices",
-    "growthLog", "channelPerf", "integrations", "calls", "outreachByChannel",
+    "growthLog", "outreachLog", "channelPerf", "integrations", "calls", "outreachByChannel",
     "comments", "swipeFile", "activityLog",
   ].forEach((key) => {
     if (!Array.isArray(merged[key])) merged[key] = defaults[key];

@@ -262,6 +262,21 @@ export function logGrowth(d, entry) {
   d.growthLog.push(entry);
   return d;
 }
+// ---- daily outreach tracking (LinkedIn + email funnels) ----
+// One row per calendar day — logging again for a day that already has an
+// entry overwrites it rather than adding a second row, since the whole
+// point is a day-to-day running log, not a pile of same-day duplicates.
+export function logOutreachDay(d, entry) {
+  if (!Array.isArray(d.outreachLog)) d.outreachLog = [];
+  const idx = d.outreachLog.findIndex((x) => x.date === entry.date);
+  if (idx >= 0) d.outreachLog[idx] = { ...d.outreachLog[idx], ...entry };
+  else d.outreachLog.push({ id: uid(), ...entry });
+  return d;
+}
+export function deleteOutreachDay(d, id) {
+  d.outreachLog = (d.outreachLog || []).filter((x) => x.id !== id);
+  return d;
+}
 export function toggleIntegration(d, id) {
   const i = d.integrations.find((x) => x.id === id);
   if (i) i.connected = !i.connected;

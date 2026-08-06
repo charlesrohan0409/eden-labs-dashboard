@@ -196,6 +196,7 @@ export default function App() {
             onDeletePost={actions.deletePost}
             onAddDM={actions.addDM}
             onDeleteDM={actions.deleteDM}
+            onUpdateClient={actions.updateClient}
             onUpdateContract={actions.updateContract}
             onUpdateDelivery={actions.updateDelivery}
             onAddDeliveryMetric={actions.addDeliveryMetric}

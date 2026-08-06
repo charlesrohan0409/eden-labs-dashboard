@@ -16,12 +16,13 @@ import PostComposer from "../ui/PostComposer";
 import PostPreview from "../ui/PostPreview";
 import TaskList from "../ui/TaskList";
 import Modal from "../ui/Modal";
+import ImagePicker from "../ui/ImagePicker";
 import {
   MONTHS, computeHealthScore, healthTone, relativeDays, formatDateTime, escapeHtml, isMetricOnTrack, metricProgressPct, portalLinkFor,
   contractValueLabel, billingTypeLabel, computeCommissionTotal, commissionInstallment,
 } from "../../lib/utils";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
-import { CLIENT_TYPES, DEFAULT_CLIENT_TYPE } from "../../data/seed";
+import { CLIENT_TYPES, DEFAULT_CLIENT_TYPE, INDUSTRIES } from "../../data/seed";
 import { useCurrency } from "../../hooks/useCurrency";
 import { sendEmail } from "../../lib/email";
 import { fileToDocument } from "../../lib/media";
@@ -94,7 +95,7 @@ function ActivityTab({ clientId, activityLog }) {
 }
 
 export default function ClientDetail({
-  data, clientId, setView, onAddPost, onUpdatePost, onDeletePost, onAddDM, onDeleteDM, onUpdateContract, onUpdateDelivery,
+  data, clientId, setView, onAddPost, onUpdatePost, onDeletePost, onAddDM, onDeleteDM, onUpdateClient, onUpdateContract, onUpdateDelivery,
   onAddDeliveryMetric, onUpdateDeliveryMetric, onDeleteDeliveryMetric,
   onUpdatePostStatus, onEndContract, onDeleteClient, onAddTask, onToggleTask, onDeleteTask, onUpdateTask,
   onUpdateClientNotes, onLogActivity,
@@ -111,6 +112,8 @@ export default function ClientDetail({
   const [reportLoading, setReportLoading] = useState(false);
   const [reportStatus, setReportStatus] = useState("");
   const [copied, setCopied] = useState(false);
+  const [editClientOpen, setEditClientOpen] = useState(false);
+  const [editClientForm, setEditClientForm] = useState(null);
   const [endOpen, setEndOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -161,6 +164,30 @@ export default function ClientDetail({
   const health = computeHealthScore(client, data.invoices);
   const totalPaid = clientRevenue.reduce((s, m) => s + m.revenue, 0);
   const openTasks = data.tasks.filter((t) => t.clientId === clientId && !t.done).length;
+
+  // Name/company/email/industry/type/photo/logo — the profile fields set at
+  // creation that, until now, had no way to be edited afterward.
+  const openEditClient = () => {
+    setEditClientForm({
+      name: client.name, company: client.company === "—" ? "" : client.company,
+      email: client.email || "", industry: client.industry || "", type: client.type || DEFAULT_CLIENT_TYPE,
+      photoUrl: client.photoUrl || "", logoUrl: client.logoUrl || "",
+    });
+    setEditClientOpen(true);
+  };
+  const saveEditClient = () => {
+    if (!editClientForm?.name?.trim()) return;
+    onUpdateClient?.(client.id, {
+      name: editClientForm.name.trim(),
+      company: editClientForm.company.trim() || "—",
+      email: editClientForm.email.trim(),
+      industry: editClientForm.industry,
+      type: editClientForm.type,
+      photoUrl: editClientForm.photoUrl,
+      logoUrl: editClientForm.logoUrl,
+    });
+    setEditClientOpen(false);
+  };
 
   const clientType = CLIENT_TYPES[client.type] || CLIENT_TYPES[DEFAULT_CLIENT_TYPE];
   const TAB_LABELS = { overview: "Overview", content: "Content", dms: "DMs", contract: "Contract", activity: "Activity", report: "Report" };
@@ -353,7 +380,17 @@ export default function ClientDetail({
           <div className="flex items-center gap-3.5">
             <Avatar name={client.name} photoUrl={client.photoUrl} logoUrl={client.logoUrl} size={52} />
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-stone-900">{client.name}</h1>
+              <div className="flex items-center gap-1.5">
+                <h1 className="text-2xl font-bold tracking-tight text-stone-900">{client.name}</h1>
+                <button
+                  onClick={openEditClient}
+                  aria-label="Edit client details"
+                  title="Edit client details"
+                  className="text-stone-300 hover:text-emerald-700 p-1 -m-1 rounded-full transition-colors"
+                >
+                  <Pencil size={14} />
+                </button>
+              </div>
               <div className="text-sm text-stone-400">{client.company}</div>
             </div>
           </div>
@@ -1139,6 +1176,91 @@ export default function ClientDetail({
             poll={viewingPost.poll}
             timeLabel={viewingPost.scheduledAt ? formatDateTime(viewingPost.scheduledAt) : "Draft"}
           />
+        )}
+      </Modal>
+
+      {/* Edit client — name, company, email, industry, type, photo, logo.
+          Contract terms have their own editor on the Contract tab; this is
+          just the profile fields set at creation, which previously had no
+          way to be changed afterward. */}
+      <Modal
+        open={editClientOpen}
+        onClose={() => setEditClientOpen(false)}
+        title="Edit client details"
+        width="sm"
+        footer={
+          <>
+            <PrimaryButton variant="ghost" onClick={() => setEditClientOpen(false)}>Cancel</PrimaryButton>
+            <PrimaryButton onClick={saveEditClient} disabled={!editClientForm?.name?.trim()}>Save</PrimaryButton>
+          </>
+        }
+      >
+        {editClientForm && (
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="text-xs text-stone-500 font-medium">Name</label>
+                <input
+                  value={editClientForm.name}
+                  onChange={(e) => setEditClientForm({ ...editClientForm, name: e.target.value })}
+                  className={`${inputCls} w-full mt-1`}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-xs text-stone-500 font-medium">Company</label>
+                <input
+                  value={editClientForm.company}
+                  onChange={(e) => setEditClientForm({ ...editClientForm, company: e.target.value })}
+                  className={`${inputCls} w-full mt-1`}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-stone-500 font-medium">Email</label>
+              <input
+                type="email"
+                value={editClientForm.email}
+                onChange={(e) => setEditClientForm({ ...editClientForm, email: e.target.value })}
+                className={`${inputCls} w-full mt-1`}
+              />
+            </div>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="text-xs text-stone-500 font-medium">Industry</label>
+                <select
+                  value={editClientForm.industry}
+                  onChange={(e) => setEditClientForm({ ...editClientForm, industry: e.target.value })}
+                  className={`${inputCls} w-full mt-1`}
+                >
+                  <option value="">—</option>
+                  {INDUSTRIES.map((i) => <option key={i} value={i}>{i}</option>)}
+                </select>
+              </div>
+              <div className="flex-1">
+                <label className="text-xs text-stone-500 font-medium">Client type</label>
+                <select
+                  value={editClientForm.type}
+                  onChange={(e) => setEditClientForm({ ...editClientForm, type: e.target.value })}
+                  className={`${inputCls} w-full mt-1`}
+                >
+                  {Object.values(CLIENT_TYPES).map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-6 pt-1">
+              <ImagePicker
+                round
+                label="Client photo"
+                value={editClientForm.photoUrl}
+                onChange={(photoUrl) => setEditClientForm({ ...editClientForm, photoUrl })}
+              />
+              <ImagePicker
+                label="Company logo"
+                value={editClientForm.logoUrl}
+                onChange={(logoUrl) => setEditClientForm({ ...editClientForm, logoUrl })}
+              />
+            </div>
+          </div>
         )}
       </Modal>
 

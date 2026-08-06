@@ -41,6 +41,14 @@ export function addClient(d, client) {
   d.clients.push(client);
   return d;
 }
+// The client's own profile fields (name, company, email, industry, service
+// type, photo/logo) — separate from updateContract, which only ever touches
+// the contract sub-object. There was no way to edit these after creation.
+export function updateClient(d, id, patch) {
+  const c = d.clients.find((x) => x.id === id);
+  if (c) Object.assign(c, patch);
+  return d;
+}
 export function updateContract(d, id, contract) {
   const c = d.clients.find((x) => x.id === id);
   if (c) c.contract = contract;

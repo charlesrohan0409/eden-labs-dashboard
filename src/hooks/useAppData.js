@@ -99,6 +99,7 @@ export function useAppData(token, onUnauthorized) {
         }).catch(() => {});
       }
     },
+    updateClient: (id, patch) => update((d) => M.updateClient(d, id, patch)),
     updateContract: (id, contract) => update((d) => M.updateContract(d, id, contract)),
     updateDelivery: (id, idx, val) => update((d) => M.updateDelivery(d, id, idx, val)),
     addDeliveryMetric: (id, metric) => update((d) => M.addDeliveryMetric(d, id, metric)),

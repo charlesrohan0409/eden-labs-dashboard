@@ -1,3 +1,5 @@
+import { MONTHS } from "../lib/utils.js";
+
 // ---------- Client types ----------
 // Each service line gets its own delivery-metric template and its own set of
 // dashboard tabs, because what "on track" means for a book edit has nothing to
@@ -10,9 +12,13 @@ export const CLIENT_TYPES = {
     // Tabs shown on the owner's Client Detail page and in the client portal.
     tabs: ["overview", "content", "dms", "contract", "activity", "report"],
     portalTabs: ["overview", "content", "outreach", "crm", "transcripts", "dms", "contract"],
+    // Calls booked leads — it's the metric that actually indicates the
+    // retainer is working. Target is a placeholder; the KPI editor on the
+    // client page lets it be set per client, since that's owner judgment,
+    // not a one-size-fits-all number.
     defaultDelivery: [
-      { metric: "Posts per week", target: 3, current: 0 },
-      { metric: "Outreach sent / wk", target: 20, current: 0 },
+      { metric: "Calls booked", target: 4, current: 0 },
+      { metric: "Posts per week", target: 5, current: 0 },
     ],
   },
   book: {
@@ -298,19 +304,15 @@ export const seedData = () => ({
     { id: "i5", clientId: "c2", amount: 2800, status: "pending", date: "2026-08-01", period: "2026-08" },
     { id: "i6", clientId: "c3", amount: 1200, status: "overdue", date: "2026-07-01", period: "2026-07" },
   ],
-  growthLog: [
-    { month: "Mar", contentPosts: 14, outreachSent: 210, callsBooked: 3 },
-    { month: "Apr", contentPosts: 16, outreachSent: 245, callsBooked: 4 },
-    { month: "May", contentPosts: 15, outreachSent: 260, callsBooked: 5 },
-    { month: "Jun", contentPosts: 18, outreachSent: 290, callsBooked: 6 },
-    { month: "Jul", contentPosts: 20, outreachSent: 310, callsBooked: 7 },
-  ],
-  channelPerf: [
-    { channel: "LinkedIn organic", value: 42 },
-    { channel: "Apollo", value: 28 },
-    { channel: "Lemlist", value: 18 },
-    { channel: "Referral", value: 12 },
-  ],
+  // Real numbers only — nothing here is tracked automatically yet (there's
+  // no pipeline that rolls posts/DMs/calls up into a monthly log), so every
+  // month starts at zero rather than shipping with a fake demo trend. Log
+  // actual months via the Growth page as they happen.
+  growthLog: MONTHS.map((month) => ({ month, contentPosts: 0, outreachSent: 0, callsBooked: 0 })),
+  // Same story — this claims to be "sourced from CRM contact attribution"
+  // but nothing computes it from data.contacts yet, so it shipped as a
+  // static, fake breakdown. Empty until that's wired up for real.
+  channelPerf: [],
   calls: [
     { id: "cl1", clientId: "c1", direction: "inbound", date: "2026-07-20", notes: "Discovery call — referral from existing client" },
     { id: "cl2", clientId: "c1", direction: "outbound", date: "2026-07-25", notes: "Follow-up call after LinkedIn DM thread" },

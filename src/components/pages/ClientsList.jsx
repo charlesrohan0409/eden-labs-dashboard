@@ -14,7 +14,16 @@ const EMPTY_FORM = {
   serviceType: "content", startDate: "", photoUrl: "", logoUrl: "",
 };
 
-export default function ClientsList({ data, setView, setSelectedClient, onAddClient }) {
+// Every new LinkedIn client starts with the same three onboarding items —
+// nothing to configure, just the standing checklist before real work
+// (posting, outreach) begins.
+const LINKEDIN_ONBOARDING_TASKS = [
+  "Sign contract",
+  "Optimise LinkedIn profile",
+  "Create ICP, offer & positioning doc",
+];
+
+export default function ClientsList({ data, setView, setSelectedClient, onAddClient, onAddTask }) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [onboardStatus, setOnboardStatus] = useState("");
@@ -26,6 +35,11 @@ export default function ClientsList({ data, setView, setSelectedClient, onAddCli
     if (!form.name) return;
     const newClient = buildNewClient(form);
     onAddClient(newClient);
+    if (newClient.type === "linkedin") {
+      LINKEDIN_ONBOARDING_TASKS.forEach((title) => {
+        onAddTask({ title, clientId: newClient.id, priority: "high", dueDate: "" });
+      });
+    }
     setForm(EMPTY_FORM);
     setShowForm(false);
     if (newClient.email) {

@@ -177,6 +177,7 @@ export default function App() {
             setView={setView}
             setSelectedClient={setSelectedClient}
             onAddClient={actions.addClient}
+            onAddTask={actions.addTask}
           />
         )}
 

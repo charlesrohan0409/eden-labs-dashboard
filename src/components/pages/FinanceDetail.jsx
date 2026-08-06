@@ -691,6 +691,9 @@ export default function FinanceDetail({ data, setView, onAddExpense, onUpdateExp
                     <span className="text-xs font-medium text-stone-600 w-9 text-right tnum">{ch.value}%</span>
                   </div>
                 ))}
+                {data.channelPerf.length === 0 && (
+                  <div className="text-xs text-stone-400 py-4 text-center">No channel data yet.</div>
+                )}
               </div>
             </Card>
           </div>

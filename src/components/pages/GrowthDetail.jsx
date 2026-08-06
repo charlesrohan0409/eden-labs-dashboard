@@ -235,6 +235,9 @@ export default function GrowthDetail({ data, setView, onLogGrowth }) {
                 <span className="text-xs text-stone-500 w-9 text-right tnum">{ch.value}%</span>
               </div>
             ))}
+            {data.channelPerf.length === 0 && (
+              <div className="text-xs text-stone-400 py-4 text-center">No channel data yet.</div>
+            )}
           </div>
           <div className="text-xs text-stone-400 mt-4">
             Will sync automatically once the Apollo and Lemlist integrations are live.

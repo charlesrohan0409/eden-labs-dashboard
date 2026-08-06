@@ -37,16 +37,36 @@ if (!window.__edenLabsCRMInjected) {
   // Deliberately not tied to a specific class name — LinkedIn's markup is
   // auto-generated and changes without notice, so a hard-coded selector
   // would break silently sooner or later. Instead: every profile photo is
-  // served from LinkedIn's media CDN, so among images pointing there, the
-  // largest on-screen one is almost always the profile picture itself (every
-  // other licdn.com image on a profile page — connection avatars, company
-  // logos in the feed — renders considerably smaller). Falls back to no
-  // photo at all if the page isn't LinkedIn or nothing matches; the rest of
-  // the save flow works identically either way.
+  // served from LinkedIn's media CDN, so we look for images pointing there.
+  //
+  // Previously this just grabbed the single largest licdn.com image
+  // anywhere on the page — fine on a lone profile page, but wrong any time
+  // the page shows more than one person (search results, connection lists,
+  // a feed post, comments): it kept handing back whichever photo happened
+  // to render biggest, regardless of whose name was actually selected.
+  // Now it first looks for a photo near the text the user right-clicked —
+  // walking up from the selection to the nearest ancestor that contains a
+  // licdn.com image, which on LinkedIn's list/card markup is reliably the
+  // same person's row/card. Falls back to the old "largest on page"
+  // heuristic only if there's no usable selection to anchor on.
   function findLinkedInPhoto() {
     // Matches linkedin.com and any subdomain (www., mobile., etc.) — but not
     // some unrelated domain that merely ends in the same letters.
     if (!/(^|\.)linkedin\.com$/.test(location.hostname)) return null;
+
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+      let el = selection.anchorNode;
+      if (el && el.nodeType === Node.TEXT_NODE) el = el.parentElement;
+      // Climb a bounded number of ancestors — far enough to reach a search
+      // result's <li> or a comment's container, not so far we end up back
+      // at "whole page" (which would defeat the point).
+      for (let hops = 0; el && hops < 10; hops++, el = el.parentElement) {
+        const img = el.querySelector?.('img[src*="media.licdn.com"]');
+        if (img && img.naturalWidth > 24 && img.naturalHeight > 24) return img.src;
+      }
+    }
+
     const candidates = Array.from(document.querySelectorAll('img[src*="media.licdn.com"]'))
       .filter((img) => img.naturalWidth > 60 && img.naturalHeight > 60); // skip small icons/logos
     if (!candidates.length) return null;

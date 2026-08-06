@@ -39,24 +39,31 @@ if (!window.__edenLabsCRMInjected) {
   // would break silently sooner or later. Instead: every profile photo is
   // served from LinkedIn's media CDN, so we look for images pointing there.
   //
-  // "Any media.licdn.com image" isn't a safe filter on its own, though —
-  // that CDN also serves every company/school logo shown on a profile (the
-  // little "Current: Acme Inc" / "Education: X University" badges next to
-  // the name), and those kept getting grabbed instead of the actual
-  // headshot once we started looking near the selected text. LinkedIn's
-  // own asset path tells the two apart: real headshots are always served
-  // under a "profile-displayphoto" path; logos/backgrounds use different
-  // path segments (company-logo, school-logo, profile-displaybackground-
-  // image for the cover banner). Filtering on that path is what actually
-  // distinguishes "person's face" from "any nearby licdn.com image."
+  // "Any media.licdn.com image" isn't a safe filter on its own — that CDN
+  // also serves every company/school logo on a profile (the "Current: Acme
+  // Inc" / "Education: X University" badges) and the cover banner, none of
+  // which are the person's face. LinkedIn's own asset path tells those
+  // apart: real headshots are served under a "profile-displayphoto" path;
+  // logos and the banner use other path segments.
   //
-  // Search strategy: climb from the text the user right-clicked looking
-  // specifically for a headshot match (skipping past ancestors that only
-  // contain logos, rather than stopping at the first image of any kind) —
-  // this is what makes it pick the right PERSON on pages with several
-  // people (search results, connection lists, feed, comments). Falls back
-  // to the largest headshot anywhere on the page if there's no selection
-  // to anchor on.
+  // Filtering to headshots still isn't enough on a profile page, though —
+  // "Dean, Rich and 11 other mutual connections" renders tiny real
+  // headshots of THOSE people, and they sit closer in the DOM to the name/
+  // headline than the subject's own big photo does. Proximity was picking
+  // one of them (confirmed live: selecting "Chris S. Alman" returned a
+  // mutual connection's photo, not his). DOM position just isn't a
+  // reliable signal here.
+  //
+  // What is reliable: LinkedIn renders the subject's own photo dramatically
+  // larger than every other headshot on that same page — mutual-connection
+  // avatars, "people you may know" thumbnails, your own tiny nav-bar photo
+  // are all served small. So: look for one headshot at least 2x the pixel
+  // area of the next-largest; if there's a clear size leader like that,
+  // it's the subject, full stop, regardless of where it sits in the DOM.
+  // Only when sizes are all similar — a search-results/connections list,
+  // where everyone's avatar renders about the same — does that signal go
+  // away, and proximity to the actually-selected text is what's left to
+  // disambiguate between the several different people on screen.
   function findLinkedInPhoto() {
     // Matches linkedin.com and any subdomain (www., mobile., etc.) — but not
     // some unrelated domain that merely ends in the same letters.
@@ -65,6 +72,16 @@ if (!window.__edenLabsCRMInjected) {
     const isLogo = (img) => /company-logo|school-logo|org-logo/i.test(img.src);
     const isHeadshot = (img) => /profile-displayphoto/i.test(img.src) && !isLogo(img);
     const bigEnough = (img) => img.naturalWidth > 24 && img.naturalHeight > 24;
+    const area = (img) => img.naturalWidth * img.naturalHeight;
+
+    const headshots = Array.from(document.querySelectorAll('img[src*="media.licdn.com"]'))
+      .filter((img) => bigEnough(img) && isHeadshot(img));
+
+    if (headshots.length) {
+      const bySize = [...headshots].sort((a, b) => area(b) - area(a));
+      const [biggest, runnerUp] = bySize;
+      if (!runnerUp || area(biggest) >= area(runnerUp) * 2) return biggest.src;
+    }
 
     const selection = window.getSelection();
     if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
@@ -72,10 +89,7 @@ if (!window.__edenLabsCRMInjected) {
       if (el && el.nodeType === Node.TEXT_NODE) el = el.parentElement;
       // Climb a bounded number of ancestors — far enough to reach a search
       // result's <li> or a comment's container, not so far we end up back
-      // at "whole page" (which would defeat the point). Each hop looks for
-      // an actual headshot, not just any image, so a company-logo badge
-      // sitting one level closer than the real photo doesn't win by
-      // proximity alone.
+      // at "whole page" (which would defeat the point).
       for (let hops = 0; el && hops < 12; hops++, el = el.parentElement) {
         const headshot = Array.from(el.querySelectorAll?.('img[src*="media.licdn.com"]') || [])
           .find((img) => bigEnough(img) && isHeadshot(img));
@@ -83,12 +97,11 @@ if (!window.__edenLabsCRMInjected) {
       }
     }
 
-    const all = Array.from(document.querySelectorAll('img[src*="media.licdn.com"]')).filter(bigEnough);
-    const headshots = all.filter(isHeadshot);
-    const pool = headshots.length ? headshots : all.filter((img) => !isLogo(img));
-    if (!pool.length) return null;
-    pool.sort((a, b) => (b.naturalWidth * b.naturalHeight) - (a.naturalWidth * a.naturalHeight));
-    return pool[0].src;
+    if (headshots.length) {
+      headshots.sort((a, b) => area(b) - area(a));
+      return headshots[0].src;
+    }
+    return null;
   }
 
   function showWidget(lead) {

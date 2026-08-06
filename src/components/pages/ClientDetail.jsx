@@ -16,7 +16,10 @@ import PostComposer from "../ui/PostComposer";
 import PostPreview from "../ui/PostPreview";
 import TaskList from "../ui/TaskList";
 import Modal from "../ui/Modal";
-import { MONTHS, computeHealthScore, healthTone, relativeDays, formatDateTime, escapeHtml, isMetricOnTrack, metricProgressPct, portalLinkFor } from "../../lib/utils";
+import {
+  MONTHS, computeHealthScore, healthTone, relativeDays, formatDateTime, escapeHtml, isMetricOnTrack, metricProgressPct, portalLinkFor,
+  contractValueLabel, billingTypeLabel, computeCommissionTotal, commissionInstallment,
+} from "../../lib/utils";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { CLIENT_TYPES, DEFAULT_CLIENT_TYPE } from "../../data/seed";
 import { useCurrency } from "../../hooks/useCurrency";
@@ -364,8 +367,13 @@ export default function ClientDetail({
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-5 pt-5 border-t border-stone-100">
           <div>
-            <div className="text-[11px] text-stone-400">Monthly value</div>
+            <div className="text-[11px] text-stone-400">{contractValueLabel(client.contract)}</div>
             <div className="text-xl font-bold text-stone-900 tnum">{money(client.contract.value)}</div>
+            {client.contract.billingType === "commission" && client.contract.payoutMonths > 0 && (
+              <div className="text-[11px] text-stone-400 mt-0.5">
+                {money(commissionInstallment(client.contract.value, client.contract.payoutMonths))}/mo × {client.contract.payoutMonths}mo
+              </div>
+            )}
           </div>
           <div>
             <div className="text-[11px] text-stone-400">Total paid</div>
@@ -743,16 +751,89 @@ export default function ClientDetail({
 
           <Card className="p-5">
             <CardTitle sub="Terms shown to the client in their portal">Contract terms</CardTitle>
-            <div className="grid sm:grid-cols-3 gap-3">
-              <div>
-                <label className="text-xs text-stone-400">Monthly value ($)</label>
+
+            <div className="mb-3">
+              <label className="text-xs text-stone-400">Billing type</label>
+              <select
+                value={client.contract.billingType || "retainer"}
+                onChange={(e) => {
+                  const billingType = e.target.value;
+                  const patch = { ...client.contract, billingType };
+                  // Moving into commission for the first time — give the new
+                  // fields a real number instead of undefined so the % and $
+                  // inputs below aren't uncontrolled.
+                  if (billingType === "commission") {
+                    patch.commissionPct = client.contract.commissionPct || 0;
+                    patch.commissionBasis = client.contract.commissionBasis || 0;
+                    patch.payoutMonths = client.contract.payoutMonths || 0;
+                  }
+                  onUpdateContract(client.id, patch);
+                }}
+                className={`${inputCls} w-full sm:w-56 mt-1`}
+              >
+                <option value="retainer">Monthly retainer</option>
+                <option value="oneTime">One-time project</option>
+                <option value="commission">Commission</option>
+              </select>
+            </div>
+
+            {client.contract.billingType === "commission" ? (
+              <div className="grid sm:grid-cols-3 gap-3 mb-1">
+                <div>
+                  <label className="text-xs text-stone-400">Commission %</label>
+                  <input
+                    type="number"
+                    value={client.contract.commissionPct || 0}
+                    onChange={(e) => {
+                      const commissionPct = Number(e.target.value);
+                      const value = computeCommissionTotal(commissionPct, client.contract.commissionBasis);
+                      onUpdateContract(client.id, { ...client.contract, commissionPct, value });
+                    }}
+                    className={`${inputCls} w-full mt-1`}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-stone-400">Deal / basis value ($)</label>
+                  <input
+                    type="number"
+                    value={client.contract.commissionBasis || 0}
+                    onChange={(e) => {
+                      const commissionBasis = Number(e.target.value);
+                      const value = computeCommissionTotal(client.contract.commissionPct, commissionBasis);
+                      onUpdateContract(client.id, { ...client.contract, commissionBasis, value });
+                    }}
+                    className={`${inputCls} w-full mt-1`}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-stone-400">Payout period (months)</label>
+                  <input
+                    type="number"
+                    value={client.contract.payoutMonths || 0}
+                    onChange={(e) => onUpdateContract(client.id, { ...client.contract, payoutMonths: Number(e.target.value) })}
+                    className={`${inputCls} w-full mt-1`}
+                  />
+                </div>
+                <div className="sm:col-span-3 text-xs text-stone-500">
+                  Total: <span className="font-semibold tnum text-stone-700">{money(client.contract.value)}</span>
+                  {client.contract.payoutMonths > 0 && (
+                    <> · <span className="tnum">{money(commissionInstallment(client.contract.value, client.contract.payoutMonths))}</span>/mo for {client.contract.payoutMonths}mo</>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="mb-1">
+                <label className="text-xs text-stone-400">{contractValueLabel(client.contract)} ($)</label>
                 <input
                   type="number"
                   value={client.contract.value}
                   onChange={(e) => onUpdateContract(client.id, { ...client.contract, value: Number(e.target.value) })}
-                  className={`${inputCls} w-full mt-1`}
+                  className={`${inputCls} w-full sm:w-56 mt-1`}
                 />
               </div>
+            )}
+
+            <div className="grid sm:grid-cols-2 gap-3 mt-3">
               <div>
                 <label className="text-xs text-stone-400">Status</label>
                 <select
@@ -793,7 +874,9 @@ export default function ClientDetail({
                     <AlertTriangle size={15} className="text-rose-500" /> End this contract
                   </div>
                   <div className="text-xs text-stone-500 mt-1 max-w-md">
-                    Marks {client.name} as ended and stops them counting toward recurring revenue.
+                    Marks {client.name} as ended{client.contract.billingType === "retainer" || !client.contract.billingType
+                      ? " and stops them counting toward recurring revenue"
+                      : client.contract.billingType === "commission" ? " and stops any remaining commission installments" : ""}.
                     Posts, invoices, and history are kept. Requires your password.
                   </div>
                 </div>
@@ -1082,8 +1165,13 @@ export default function ClientDetail({
           <div className="rounded-xl bg-rose-50 border border-rose-200 px-3.5 py-3 text-xs text-rose-700 flex gap-2">
             <AlertTriangle size={14} className="shrink-0 mt-0.5" />
             <span>
-              {client.name} drops out of recurring revenue (−{money(client.contract.value)}/mo)
-              and their status becomes <strong>ended</strong>. Their posts, invoices, and portal history stay.
+              {client.name}{" "}
+              {client.contract.billingType === "commission"
+                ? <>stops any remaining commission installments (of {money(client.contract.value)} total over {client.contract.payoutMonths || 0} months) from being billed</>
+                : client.contract.billingType === "oneTime"
+                ? <>wraps up their one-time engagement</>
+                : <>drops out of recurring revenue (−{money(client.contract.value)}/mo)</>}
+              {" "}and their status becomes <strong>ended</strong>. Their posts, invoices, and portal history stay.
             </span>
           </div>
 

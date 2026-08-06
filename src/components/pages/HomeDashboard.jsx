@@ -13,7 +13,7 @@ import Avatar from "../ui/Avatar";
 import TaskList from "../ui/TaskList";
 import MeetingRow from "../ui/MeetingRow";
 import WeatherGreeting from "../ui/WeatherGreeting";
-import { MONTHS, computeHealthScore, healthTone, STAGE_WEIGHTS, relativeDays, isMetricOnTrack, metricProgressPct } from "../../lib/utils";
+import { MONTHS, computeHealthScore, healthTone, STAGE_WEIGHTS, relativeDays, isMetricOnTrack, metricProgressPct, computeMRR } from "../../lib/utils";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { useBufferPerformance } from "../../hooks/useBufferPerformance";
 import { useCurrency } from "../../hooks/useCurrency";
@@ -41,9 +41,7 @@ export default function HomeDashboard({ data, setView, setSelectedClient, onAddT
   const profit = totalRevenue - totalCost;
   const margin = totalRevenue ? Math.round((profit / totalRevenue) * 100) : 0;
 
-  const mrr = data.clients
-    .filter((c) => c.status === "active")
-    .reduce((s, c) => s + (Number(c.contract?.value) || 0), 0);
+  const mrr = computeMRR(data.clients);
 
   const onTrackCount = data.clients.reduce(
     (acc, c) => acc + c.delivery.filter(isMetricOnTrack).length, 0

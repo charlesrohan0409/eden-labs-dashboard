@@ -14,7 +14,7 @@ import PendingApproval from "../ui/PendingApproval";
 import CommentThread from "../ui/CommentThread";
 import MiniCalendar from "../ui/MiniCalendar";
 import CrmBoard from "../ui/CrmBoard";
-import { MONTHS, isMetricOnTrack, metricProgressPct } from "../../lib/utils";
+import { MONTHS, isMetricOnTrack, metricProgressPct, contractValueLabel } from "../../lib/utils";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { listFathomMeetings, matchMeetingsToClient } from "../../lib/fathom";
 import { CLIENT_TYPES, DEFAULT_CLIENT_TYPE } from "../../data/seed";
@@ -467,7 +467,7 @@ export default function ClientPortal({
             <Card className="p-5">
               <div className="grid grid-cols-2 gap-4 pb-4 border-b border-stone-100">
                 <div>
-                  <div className="text-[11px] text-stone-400">Monthly value</div>
+                  <div className="text-[11px] text-stone-400">{contractValueLabel(client.contract)}</div>
                   <div className="text-xl font-bold text-stone-900 tnum">{money(client.contract.value)}</div>
                 </div>
                 <div>

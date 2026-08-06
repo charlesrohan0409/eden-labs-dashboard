@@ -44,7 +44,14 @@ export function migrateData(loaded) {
   merged.clients = merged.clients.map((c) => ({
     email: "", photoUrl: "", logoUrl: "", type: DEFAULT_CLIENT_TYPE, notes: "", industry: "",
     ...c,
-    contract: { value: 0, status: "active", cycle: "monthly", notes: "", serviceType: "content", startDate: "", renewalDate: "", history: [], bodyText: "", fileUrl: "", fileName: "", fileType: "", ...(c.contract || {}) },
+    contract: {
+      value: 0, status: "active", cycle: "monthly", notes: "", serviceType: "content",
+      startDate: "", renewalDate: "", history: [], bodyText: "", fileUrl: "", fileName: "", fileType: "",
+      // Clients saved before billing types existed are all flat monthly
+      // retainers — that was the only kind of engagement the app supported.
+      billingType: "retainer", payoutMonths: null, commissionPct: null, commissionBasis: null,
+      ...(c.contract || {}),
+    },
     delivery: Array.isArray(c.delivery) ? c.delivery : [],
   }));
 

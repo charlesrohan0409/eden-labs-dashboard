@@ -3,7 +3,7 @@ import { Plus, Download, Send, Loader2, CheckCircle2, FileText } from "lucide-re
 import Modal from "./Modal";
 import Badge from "./Badge";
 import PrimaryButton from "./PrimaryButton";
-import { today, addDays, uid } from "../../lib/utils";
+import { today, addDays, uid, commissionInstallment } from "../../lib/utils";
 import { invoiceNumber, buildInvoiceDocument, buildInvoiceEmailText } from "../../lib/invoice";
 import { sendEmail } from "../../lib/email";
 import { useCurrency } from "../../hooks/useCurrency";
@@ -40,13 +40,24 @@ export default function InvoiceModal({ open, onClose, clients, invoices, onCreat
 
   const pickClient = (clientId) => {
     const c = clients.find((x) => x.id === clientId);
+    const billingType = c?.contract?.billingType || "retainer";
     setForm((f) => ({
       ...f,
       clientId,
-      // Prefill from the retainer if the description/amount are still blank —
-      // never overwrite something the user already typed.
-      description: f.description || (c ? `${new Date().toLocaleDateString(undefined, { month: "long" })} retainer` : ""),
-      amount: f.amount || (c?.contract?.value ? String(c.contract.value) : f.amount),
+      // Prefill from the contract if the description/amount are still
+      // blank — never overwrite something the user already typed. A
+      // commission client's own invoices are installments, not the total,
+      // so it prefills the per-period amount, not contract.value itself.
+      description: f.description || (c ? (
+        billingType === "oneTime" ? "One-time project fee"
+        : billingType === "commission" ? "Commission installment"
+        : `${new Date().toLocaleDateString(undefined, { month: "long" })} retainer`
+      ) : ""),
+      amount: f.amount || (c ? String(
+        billingType === "commission"
+          ? commissionInstallment(c.contract.value, c.contract.payoutMonths)
+          : c.contract?.value || ""
+      ) : f.amount),
     }));
   };
 

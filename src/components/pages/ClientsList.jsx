@@ -6,12 +6,16 @@ import Avatar from "../ui/Avatar";
 import PrimaryButton from "../ui/PrimaryButton";
 import ImagePicker from "../ui/ImagePicker";
 import { buildNewClient, sendOnboardingEmail, CLIENT_TYPES, DEFAULT_CLIENT_TYPE, INDUSTRIES } from "../../data/seed";
-import { computeHealthScore, healthTone, downloadCSV, relativeDays, isMetricOnTrack } from "../../lib/utils";
+import {
+  computeHealthScore, healthTone, downloadCSV, relativeDays, isMetricOnTrack,
+  computeMRR, billingTypeLabel, computeCommissionTotal,
+} from "../../lib/utils";
 import { useCurrency } from "../../hooks/useCurrency";
 
 const EMPTY_FORM = {
   name: "", company: "", email: "", value: "", type: DEFAULT_CLIENT_TYPE, industry: "",
   serviceType: "content", startDate: "", photoUrl: "", logoUrl: "",
+  billingType: "retainer", commissionPct: "", commissionBasis: "", payoutMonths: "",
 };
 
 // Every new LinkedIn client starts with the same three onboarding items —
@@ -31,8 +35,17 @@ export default function ClientsList({ data, setView, setSelectedClient, onAddCli
   const [typeFilter, setTypeFilter] = useState("all");
   const { money } = useCurrency();
 
+  // Commission is the one billing type where leaving fields blank would
+  // silently create a $0 total (since the value is entirely derived from
+  // % × basis) — worth blocking on, unlike a retainer/one-time value of $0
+  // which was already allowed today and isn't a new footgun.
+  const canCreate = !!form.name && (
+    form.billingType !== "commission" ||
+    (Number(form.commissionPct) > 0 && Number(form.commissionBasis) > 0 && Number(form.payoutMonths) > 0)
+  );
+
   const handleCreate = async () => {
-    if (!form.name) return;
+    if (!canCreate) return;
     const newClient = buildNewClient(form);
     onAddClient(newClient);
     if (newClient.type === "linkedin") {
@@ -61,7 +74,7 @@ export default function ClientsList({ data, setView, setSelectedClient, onAddCli
   });
 
   const inputCls = "border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
-  const mrr = data.clients.filter((c) => c.status === "active").reduce((s, c) => s + (Number(c.contract?.value) || 0), 0);
+  const mrr = computeMRR(data.clients);
 
   return (
     <div className="space-y-5">
@@ -78,8 +91,11 @@ export default function ClientsList({ data, setView, setSelectedClient, onAddCli
             icon={FileDown}
             onClick={() => downloadCSV(
               "eden-labs-clients.csv",
-              ["Name", "Company", "Email", "Monthly value", "Status", "Health score"],
-              data.clients.map((c) => [c.name, c.company, c.email || "", c.contract.value, c.status, computeHealthScore(c, data.invoices)])
+              ["Name", "Company", "Email", "Billing type", "Contract value", "Status", "Health score"],
+              data.clients.map((c) => [
+                c.name, c.company, c.email || "", billingTypeLabel(c.contract?.billingType),
+                c.contract.value, c.status, computeHealthScore(c, data.invoices),
+              ])
             )}
           >
             Export
@@ -124,9 +140,6 @@ export default function ClientsList({ data, setView, setSelectedClient, onAddCli
           </div>
           <div className="flex gap-2 flex-wrap">
             <input placeholder="Client email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={`${inputCls} flex-1 min-w-[11rem]`} />
-            <input placeholder="Monthly value (USD)" type="number" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} className={`${inputCls} w-full sm:w-44`} />
-          </div>
-          <div className="flex gap-2 flex-wrap">
             <select value={form.industry} onChange={(e) => setForm({ ...form, industry: e.target.value })} className={`${inputCls} flex-1 min-w-[11rem]`}>
               <option value="">Industry (optional)</option>
               {INDUSTRIES.map((i) => (
@@ -134,6 +147,38 @@ export default function ClientsList({ data, setView, setSelectedClient, onAddCli
               ))}
             </select>
           </div>
+
+          {/* How this client actually gets paid — a flat monthly retainer,
+              a single project fee (a one-off book edit, say), or a % commission
+              paid out in installments over an agreed window. Only retainers
+              count toward recurring revenue and only they get auto-billed
+              every month by "Bill active clients". */}
+          <div className="flex gap-2 flex-wrap">
+            <select value={form.billingType} onChange={(e) => setForm({ ...form, billingType: e.target.value })} className={`${inputCls} flex-1 min-w-[11rem]`}>
+              <option value="retainer">Monthly retainer</option>
+              <option value="oneTime">One-time project</option>
+              <option value="commission">Commission</option>
+            </select>
+            {form.billingType === "retainer" && (
+              <input placeholder="Monthly value (USD)" type="number" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} className={`${inputCls} w-full sm:w-44`} />
+            )}
+            {form.billingType === "oneTime" && (
+              <input placeholder="Project fee, one-time (USD)" type="number" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} className={`${inputCls} w-full sm:w-52`} />
+            )}
+          </div>
+          {form.billingType === "commission" && (
+            <div className="flex gap-2 flex-wrap items-center">
+              <input placeholder="Commission %" type="number" value={form.commissionPct} onChange={(e) => setForm({ ...form, commissionPct: e.target.value })} className={`${inputCls} w-full sm:w-32`} />
+              <input placeholder="Deal / basis value (USD)" type="number" value={form.commissionBasis} onChange={(e) => setForm({ ...form, commissionBasis: e.target.value })} className={`${inputCls} w-full sm:w-48`} />
+              <input placeholder="Payout period (months)" type="number" value={form.payoutMonths} onChange={(e) => setForm({ ...form, payoutMonths: e.target.value })} className={`${inputCls} w-full sm:w-44`} />
+              <div className="text-xs text-stone-500">
+                Total: <span className="font-semibold tnum text-stone-700">{money(computeCommissionTotal(form.commissionPct, form.commissionBasis))}</span>
+                {Number(form.payoutMonths) > 0 && (
+                  <> · <span className="tnum">{money(computeCommissionTotal(form.commissionPct, form.commissionBasis) / Number(form.payoutMonths))}</span>/mo for {form.payoutMonths}mo</>
+                )}
+              </div>
+            </div>
+          )}
           <div className="flex gap-2 flex-wrap">
             {/* The LinkedIn service-tier picker only means something for
                 LinkedIn clients — the contract template is built around it. */}
@@ -165,7 +210,7 @@ export default function ClientsList({ data, setView, setSelectedClient, onAddCli
               onChange={(logoUrl) => setForm({ ...form, logoUrl })}
             />
           </div>
-          <PrimaryButton onClick={handleCreate}>Create client + generate contract</PrimaryButton>
+          <PrimaryButton onClick={handleCreate} disabled={!canCreate}>Create client + generate contract</PrimaryButton>
         </Card>
       )}
 
@@ -225,7 +270,7 @@ export default function ClientsList({ data, setView, setSelectedClient, onAddCli
 
               <div className="grid grid-cols-2 gap-3 mt-4">
                 <div>
-                  <div className="text-[11px] text-stone-400">Monthly</div>
+                  <div className="text-[11px] text-stone-400">{billingTypeLabel(c.contract?.billingType)}</div>
                   <div className="text-lg font-bold text-stone-900 tnum">{money(c.contract.value)}</div>
                 </div>
                 <div>

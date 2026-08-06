@@ -1,4 +1,4 @@
-import { MONTHS } from "../lib/utils.js";
+import { MONTHS, computeCommissionTotal, commissionInstallment } from "../lib/utils.js";
 
 // ---------- Client types ----------
 // Each service line gets its own delivery-metric template and its own set of
@@ -66,7 +66,31 @@ const SERVICE_LINES = {
     "- LinkedIn content strategy, writing, and scheduling (up to 4 posts/week)\n- Outbound outreach and DM management to qualified prospects\n- CRM tracking and monthly pipeline reporting",
 };
 
-export function buildContractTemplate({ name, company, email, value, cycle = "monthly", serviceType = "content", startDate }) {
+// Keyed by billingType, same convention as SERVICE_LINES above — a plain
+// string per key won't do here since the clause needs the actual deal
+// numbers interpolated in, so these are functions instead.
+const FEE_CLAUSES = {
+  retainer: ({ value, cycle }) =>
+    `Client agrees to pay Agency $${value}/${cycle === "monthly" ? "month" : cycle} for the services described above, due on the 1st of each billing cycle.`,
+  oneTime: ({ value }) =>
+    `Client agrees to pay Agency a one-time flat fee of $${value} for the services described above, due upon completion of the engagement.`,
+  commission: ({ value, payoutMonths, commissionPct, commissionBasis }) =>
+    `Client agrees to pay Agency a commission of ${commissionPct}% of $${commissionBasis} (totalling $${value}), payable in ${payoutMonths} equal monthly installments of $${commissionInstallment(value, payoutMonths).toFixed(2)}.`,
+};
+const TERM_CLAUSES = {
+  retainer: ({ startDate, cycle }) =>
+    `This agreement begins on ${startDate || "the effective date above"} and continues on a ${cycle} basis until terminated by either party.`,
+  oneTime: ({ startDate }) =>
+    `This agreement begins on ${startDate || "the effective date above"} and concludes upon delivery of the services and final payment of the fee described above.`,
+  commission: ({ startDate, payoutMonths }) =>
+    `This agreement begins on ${startDate || "the effective date above"} and concludes once all ${payoutMonths} commission installments have been paid.`,
+};
+
+export function buildContractTemplate({
+  name, company, email, value, cycle = "monthly", serviceType = "content", startDate,
+  billingType = "retainer", payoutMonths, commissionPct, commissionBasis,
+}) {
+  const clauseArgs = { value, cycle, startDate, payoutMonths, commissionPct, commissionBasis };
   return `SERVICE AGREEMENT
 
 Between: Eden Labs ("Agency")
@@ -80,10 +104,10 @@ Agency will provide the following services to Client:
 ${SERVICE_LINES[serviceType] || SERVICE_LINES.content}
 
 2. FEES
-Client agrees to pay Agency $${value}/${cycle === "monthly" ? "month" : cycle} for the services described above, due on the 1st of each billing cycle.
+${(FEE_CLAUSES[billingType] || FEE_CLAUSES.retainer)(clauseArgs)}
 
 3. TERM
-This agreement begins on ${startDate || "the effective date above"} and continues on a ${cycle} basis until terminated by either party.
+${(TERM_CLAUSES[billingType] || TERM_CLAUSES.retainer)(clauseArgs)}
 
 4. TERMINATION
 Either party may terminate this agreement with 30 days' written notice.
@@ -101,8 +125,17 @@ Eden Labs                       ${name}, ${company}`;
 }
 
 export function buildNewClient(c) {
-  const value = Number(c.value) || 0;
   const type = c.type || DEFAULT_CLIENT_TYPE;
+  const billingType = c.billingType || "retainer";
+  // A commission deal's total is derived from the % and basis the owner
+  // actually agreed to, not hand-typed — see computeCommissionTotal's own
+  // comment. Retainer/one-time just use whatever flat number was entered.
+  const payoutMonths = billingType === "commission" ? Number(c.payoutMonths) || 0 : null;
+  const commissionPct = billingType === "commission" ? Number(c.commissionPct) || 0 : null;
+  const commissionBasis = billingType === "commission" ? Number(c.commissionBasis) || 0 : null;
+  const value = billingType === "commission"
+    ? computeCommissionTotal(commissionPct, commissionBasis)
+    : Number(c.value) || 0;
   return {
     id: Date.now().toString(),
     name: c.name,
@@ -117,9 +150,11 @@ export function buildNewClient(c) {
     contract: {
       value, status: "active", cycle: "monthly", notes: "",
       serviceType: c.serviceType || "content", startDate: c.startDate || "",
+      billingType, payoutMonths, commissionPct, commissionBasis,
       bodyText: buildContractTemplate({
         name: c.name, company: c.company || "—", email: c.email, value,
         cycle: "monthly", serviceType: c.serviceType || "content", startDate: c.startDate,
+        billingType, payoutMonths, commissionPct, commissionBasis,
       }),
     },
     // Each service line starts with metrics that actually mean something for

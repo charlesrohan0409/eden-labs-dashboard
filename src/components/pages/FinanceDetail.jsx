@@ -16,7 +16,7 @@ import PillTabs from "../ui/PillTabs";
 import PrimaryButton from "../ui/PrimaryButton";
 import InvoiceModal from "../ui/InvoiceModal";
 import PrivacyToggle from "../ui/PrivacyToggle";
-import { MONTHS, downloadCSV, today } from "../../lib/utils";
+import { MONTHS, downloadCSV, today, computeMRR, billingTypeLabel } from "../../lib/utils";
 import { useCurrency } from "../../hooks/useCurrency";
 import { invoiceNumber } from "../../lib/invoice";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
@@ -55,9 +55,12 @@ export default function FinanceDetail({ data, setView, onAddExpense, onUpdateExp
   const pending = data.invoices.filter((i) => i.status === "pending").reduce((s, i) => s + i.amount, 0);
   const overdue = data.invoices.filter((i) => i.status === "overdue").reduce((s, i) => s + i.amount, 0);
 
-  const mrr = data.clients
-    .filter((c) => c.status === "active")
-    .reduce((s, c) => s + (Number(c.contract?.value) || 0), 0);
+  const mrr = computeMRR(data.clients);
+  // One-time and commission contracts don't belong in MRR, but their value
+  // shouldn't just vanish from the owner's view of total contracted business.
+  const recurringClients = data.clients.filter((c) => c.status === "active" && (c.contract?.billingType || "retainer") === "retainer");
+  const nonRecurringClients = data.clients.filter((c) => c.status === "active" && (c.contract?.billingType || "retainer") !== "retainer");
+  const nonRecurringTotal = nonRecurringClients.reduce((s, c) => s + (Number(c.contract?.value) || 0), 0);
 
   // Revenue and cost per month, the series behind every chart on this page.
   const finSeries = useMemo(() => {
@@ -171,7 +174,7 @@ export default function FinanceDetail({ data, setView, onAddExpense, onUpdateExp
           >
             <span className="hidden sm:inline">Export</span>
           </PrimaryButton>
-          <PrimaryButton variant="ghost" icon={Repeat} onClick={handleGenerate} title="Bill active clients for this month">
+          <PrimaryButton variant="ghost" icon={Repeat} onClick={handleGenerate} title="Bill retainer clients + due commission installments for this month — one-time projects are billed manually">
             <span className="hidden sm:inline">Bill active clients</span>
           </PrimaryButton>
           <PrimaryButton icon={Plus} onClick={() => setInvoiceModalOpen(true)}>
@@ -243,7 +246,7 @@ export default function FinanceDetail({ data, setView, onAddExpense, onUpdateExp
                   <span className="tnum">{money(mrr)}/mo</span>
                 </div>
                 <div className="space-y-2.5">
-                  {data.clients.map((c) => (
+                  {recurringClients.map((c) => (
                     <div key={c.id} className="flex items-center gap-2.5">
                       <Avatar name={c.name} photoUrl={c.photoUrl} logoUrl={c.logoUrl} size={26} />
                       <div className="min-w-0 flex-1">
@@ -255,7 +258,36 @@ export default function FinanceDetail({ data, setView, onAddExpense, onUpdateExp
                       </span>
                     </div>
                   ))}
+                  {!recurringClients.length && (
+                    <div className="text-xs text-white/35">No retainer clients yet.</div>
+                  )}
                 </div>
+
+                {/* One-time & commission contracts are real contracted value,
+                    just not recurring — kept visible here rather than
+                    silently dropped from the picture entirely. */}
+                {nonRecurringClients.length > 0 && (
+                  <div className="mt-4 pt-3 border-t border-white/10">
+                    <div className="flex items-center justify-between text-[11px] text-white/40 mb-3">
+                      <span>Other active contract value</span>
+                      <span className="tnum">{money(nonRecurringTotal)}</span>
+                    </div>
+                    <div className="space-y-2.5">
+                      {nonRecurringClients.map((c) => (
+                        <div key={c.id} className="flex items-center gap-2.5">
+                          <Avatar name={c.name} photoUrl={c.photoUrl} logoUrl={c.logoUrl} size={26} />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs text-white/90 truncate">{c.company}</div>
+                            <div className="text-[10px] text-white/35">{billingTypeLabel(c.contract?.billingType)}</div>
+                          </div>
+                          <span className="text-xs font-semibold tnum text-white/80">
+                            {money(c.contract?.value || 0)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </Card>
 

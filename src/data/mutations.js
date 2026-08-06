@@ -9,7 +9,7 @@
 // side, the same way api/_handlers.js is the one copy for third-party API
 // calls.
 
-import { today, uid } from "../lib/utils.js";
+import { today, uid, commissionInstallment } from "../lib/utils.js";
 
 const ensureActivityLog = (d) => {
   if (!Array.isArray(d.activityLog)) d.activityLog = [];
@@ -237,14 +237,45 @@ export function deleteInvoice(d, id) {
 // `d` itself — the one mutation here that has something to report back
 // beyond the new state, so callers invoke it inside their own draft callback
 // rather than through the uniform `M.fn(d, ...)` -> d pattern.
+// Retainers get billed every period, same as always. One-time projects are
+// billed manually (once, via "New invoice") — they're never picked up here.
+// Commission deals get billed in installments (value/payoutMonths per
+// period), counting the client's own invoices so far as "installments
+// already paid," and stop generating once payoutMonths is reached.
 export function generateInvoices(d, period) {
   const activeClients = d.clients.filter((c) => c.status === "active");
   const alreadyInvoiced = new Set(d.invoices.filter((i) => i.period === period).map((i) => i.clientId));
-  const toCreate = activeClients.filter((c) => !alreadyInvoiced.has(c.id));
-  toCreate.forEach((c) => {
-    d.invoices.push({ id: uid(), clientId: c.id, amount: c.contract.value, status: "pending", date: today(), period });
+  const month = new Date(`${period}-01`).toLocaleDateString(undefined, { month: "long" });
+
+  let created = 0;
+  activeClients.forEach((c) => {
+    if (alreadyInvoiced.has(c.id)) return;
+    const billingType = c.contract?.billingType || "retainer";
+
+    if (billingType === "oneTime") return; // manual-only
+
+    if (billingType === "commission") {
+      const payoutMonths = Number(c.contract?.payoutMonths) || 0;
+      const paidSoFar = d.invoices.filter((i) => i.clientId === c.id).length;
+      if (!payoutMonths || paidSoFar >= payoutMonths) return; // fully paid out
+      d.invoices.push({
+        id: uid(), clientId: c.id, amount: commissionInstallment(c.contract.value, payoutMonths),
+        status: "pending", date: today(), period,
+        description: `Commission installment ${paidSoFar + 1} of ${payoutMonths}`,
+      });
+      created++;
+      return;
+    }
+
+    // retainer (default)
+    d.invoices.push({
+      id: uid(), clientId: c.id, amount: c.contract.value, status: "pending", date: today(), period,
+      description: `${month} retainer`,
+    });
+    created++;
   });
-  return { created: toCreate.length, skipped: activeClients.length - toCreate.length };
+
+  return { created, skipped: activeClients.length - created };
 }
 
 // ---- profile & settings ----

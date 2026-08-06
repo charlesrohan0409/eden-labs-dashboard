@@ -85,6 +85,50 @@ export function healthTone(score) {
   return "rose";
 }
 
+// ---------- Contract billing types (retainer / one-time / commission) ----------
+// Retainers renew forever and get billed every period; one-time projects
+// (a single book edit, say) and commission deals (a % of some deal, paid out
+// as installments over a fixed window) both end — neither belongs in
+// "recurring revenue" even while the client is still active.
+
+// A commission deal's total is always derived from the % and the basis the
+// owner actually agreed to (e.g. "15% over 6 months") — never hand-typed —
+// so it can't silently drift out of sync with the terms of the deal.
+export function computeCommissionTotal(commissionPct, commissionBasis) {
+  const total = ((Number(commissionPct) || 0) / 100) * (Number(commissionBasis) || 0);
+  return Math.round(total * 100) / 100;
+}
+
+// The flat amount billed per period for a commission contract.
+export function commissionInstallment(value, payoutMonths) {
+  const n = Number(payoutMonths) || 0;
+  return n > 0 ? (Number(value) || 0) / n : 0;
+}
+
+// Replaces what used to be three duplicated inline calculations
+// (HomeDashboard, FinanceDetail, ClientsList) — only retainers are ongoing
+// recurring revenue; one-time and commission contracts are finite, however
+// large, and however "active" the client still is.
+export function computeMRR(clients) {
+  return clients
+    .filter((c) => c.status === "active" && (c.contract?.billingType || "retainer") === "retainer")
+    .reduce((s, c) => s + (Number(c.contract?.value) || 0), 0);
+}
+
+export function billingTypeLabel(billingType = "retainer") {
+  return { retainer: "Retainer", oneTime: "One-time", commission: "Commission" }[billingType] || "Retainer";
+}
+
+// What to call a contract's headline dollar figure — replaces every
+// hardcoded "Monthly value" label, which was wrong for anything that isn't
+// a retainer.
+export function contractValueLabel(contract = {}) {
+  const type = contract.billingType || "retainer";
+  if (type === "oneTime") return "Project fee";
+  if (type === "commission") return "Total commission";
+  return "Monthly value";
+}
+
 export const initials = (name = "") =>
   name.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
 

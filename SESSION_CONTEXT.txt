@@ -918,7 +918,7 @@ KNOWN ENVIRONMENT GOTCHA (cost real time, worth remembering):
   §11 BROWSER-TESTING NOTE above — prefer javascript_tool clicks over
   `computer` clicks for this app specifically, not just for screenshots.
 
-STILL OPEN / NEXT SESSION:
+STILL OPEN / NEXT SESSION (superseded by §13 below where it disagrees):
   - Team access UI: team_members table exists, nothing reads/writes it yet.
     Needs an owner-side "Team" page (invite by email, set role, PIN) and the
     session-token payload extended to check membership + role for anything
@@ -933,3 +933,303 @@ STILL OPEN / NEXT SESSION:
     the Vercel project's environment variables (same as every other secret
     in this app), or the deployed site's /api/* routes will 500 exactly the
     way local dev did before .env.local was fixed this session.
+
+================================================================================
+13. ADDENDUM (2026-08-06, later session) — DEPLOYED TO PRODUCTION + HUGE
+    FEATURE BATCH. Where this disagrees with §1-§12, THIS WINS.
+================================================================================
+The app is LIVE now: https://dashboard.theedenlabs.com (Vercel), git repo at
+github.com/charlesrohan0409/eden-labs-dashboard (private... then made public
+to unblock a Hobby-plan deploy restriction, see below — still fine security-
+wise since all real secrets live only in Vercel env vars, never in the repo).
+
+DEPLOYMENT — done this session, wasn't done as of §12.
+  - `gh` CLI installed to ~/.local/bin (no Homebrew on this Mac — downloaded
+    the official release .zip directly). Authenticated as charlesrohan0409
+    via device-code OAuth (browser approval, no password typed by Claude).
+  - Repo pushed, connected to an EXISTING Vercel project ("edenlabs-dashboard")
+    that already owned the domain dashboard.theedenlabs.com from a prior
+    failed attempt — repo swap kept the domain.
+  - Vercel Hobby plan blocks deploys when the commit author's email doesn't
+    match the account — hit this twice (repo was private AND git's configured
+    email was rohanantony29@gmail.com, not the GitHub account's
+    charles@theedenlabs.com). Fixed by making the repo public + fixing
+    `git config user.email` to match, then an empty commit to retrigger.
+  - REAL BUG FOUND + FIXED during deploy: src/data/migrate.js and
+    src/lib/invoice.js had extensionless relative imports (`from "./seed"`
+    instead of `"./seed.js"`). Vite/browser resolves these fine, but Node.js
+    ESM (what Vercel's serverless functions actually run) does NOT — this
+    is why /api/auth-owner 500'd in production while working locally. Fixed
+    both; this is a good thing to grep for (`from ['"]\./[a-zA-Z]+['"]`
+    with no `.js`) if a similar "works local, 500s on Vercel" bug ever
+    reappears in a new file.
+  - Env vars set in Vercel: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+    SESSION_SECRET, BUFFER_API_KEY, RESEND_API_KEY, RESEND_FROM,
+    GOOGLE_CALENDAR_ICAL_URL, FATHOM_API_KEY — all copied from .env.local.
+  - Owner PIN 041998 confirmed working against the live production URL.
+
+MOBILE RESPONSIVE FIXES.
+  Sidebar/MobileTopBar/MobileBottomNav breakpoint moved md(768px)->lg(1024px)
+  — sidebar was showing on iPhone landscape width. PillTabs now scrolls
+  horizontally instead of overflowing when a page has many tabs (client
+  detail's 6 tabs were overflowing on narrow screens). Finance header
+  buttons collapse to icon-only below `sm`.
+
+REAL LOGO — src/assets/eden-labs-wordmark.png (cropped from a provided
+  brand PNG, amber "Eden" + white "Labs" on its own dark card — self-
+  contained so it works on both dark sidebar and light login card with no
+  separate light/dark asset needed). Used in Logo.jsx, OwnerLogin.jsx,
+  index.html favicon (public/favicon.png), and the Chrome extension's
+  popup/settings headers + all icon sizes. Replaced a generated 3-bar SVG
+  mark and an unrelated placeholder favicon.svg that shipped with the
+  original Vite template.
+
+CHROME EXTENSION — chrome-extension/ (loaded unpacked, not published to the
+  Web Store — personal use only).
+  - manifest.json (MV3), background.js (context menu + message router),
+    popup/ (toolbar-icon manual add form), settings/ (PIN entry, same
+    /api/auth-owner as the main dashboard), content.js (the actual capture
+    UI — injected ONLY on right-click, not preloaded on every page).
+  - Right-click any selected text on any page -> a small floating card
+    (Shadow DOM, so host-page CSS can't leak in) slides in top-right,
+    pre-filled with the selection as the lead's name. Never a new window/
+    tab — that was the very first version and was replaced because it felt
+    disruptive; content.js is the fix.
+  - LinkedIn PHOTO capture: content.js's findLinkedInPhoto() scans for
+    `img[src*="media.licdn.com"]` and picks the largest on-screen match —
+    deliberately NOT a hard-coded CSS selector, since LinkedIn's class
+    names are auto-generated and rotate; this survives that. No-ops
+    cleanly on non-LinkedIn pages.
+  - Saves POST to /api/crm-lead (NEW endpoint, owner-token auth, CORS open
+    since the caller is a chrome-extension:// origin with no fixed
+    Origin header to allowlist) -> M.addContact via the same mutation
+    everything else uses.
+  - Real bugs hit + fixed while building this (both were me, not Charles):
+    (a) background.js used `export` but manifest didn't declare
+    `"type": "module"` on the service worker — classic-script syntax
+    error, extension silently never loaded. (b) even after adding
+    `type: module`, Chrome had a STALE service worker registration from
+    the broken version — fix was removing the unused `export` entirely
+    (nothing imported it) and reverting to a plain classic script, which
+    sidesteps the whole module-registration edge case. LESSON: when an
+    extension "hangs" with no visible error, check
+    chrome://extensions?errors=<id> directly — the real error (a
+    SyntaxError, in this case) was sitting there the whole time instead of
+    surfacing in the popup's own console.
+
+FEATURES BUILT (client notes, quick-add task, invoice reminders, activity
+log, content calendar) — all from an even earlier part of this same
+session, listed here for completeness since §1-§12 predate them:
+  - Client notes: `client.notes` free-text field, textarea on ClientDetail
+    Overview, saves onBlur.
+  - Quick-add task: floating + button (bottom-right, above mobile nav) +
+    Cmd/Ctrl-K shortcut, works from every owner page — src/components/ui/
+    QuickAddTask.jsx.
+  - Invoice reminders: "Remind" button on pending/overdue invoices in
+    FinanceDetail, sends via the existing Resend proxy.
+  - Activity log: `data.activityLog[]`, auto-logged on post
+    create/status-change, DM logged, contract ended. Activity tab on
+    ClientDetail. Fully Supabase-backed already (not a placeholder —
+    §1-§12's "we'll finish once Supabase lands" is done).
+  - Content calendar: monthly grid view on the Content page (Composer /
+    Calendar / Swipe file tabs), prev/next month nav, status-colored chips.
+
+PRIVACY TOGGLE — src/hooks/useCurrency.jsx now also owns `hideAmounts` +
+  `toggleHideAmounts` (localStorage-backed, per-device). money() returns a
+  fixed "••••••" mask when active instead of the formatted amount — since
+  literally every dollar figure in the app already goes through money(),
+  this one change masks all of them at once with no per-page wiring.
+  src/components/ui/PrivacyToggle.jsx is the eye/eye-off button, placed on
+  Dashboard's "Monthly recurring" tile and Finance's "Total collected"
+  tile. Client portal mounts its OWN separate CurrencyProvider instance so
+  a real client is never affected — only same-device owner "Preview client
+  portal" would inherit it, which is fine/expected.
+
+CLIENT PORTAL LINK — WAS COMPLETELY FAKE, NOW REAL. The "portal link" shown
+  on every client's page (`client.link`) was a hardcoded placeholder string
+  like "elabs.app/c/eq-cfo-9f3" — not a real domain, and the app had zero
+  routing logic to handle it even if it were. Copying/opening it did
+  nothing. Fixed:
+  - lib/utils.js `portalLinkFor(client)` computes
+    `${window.location.origin}/portal/${client.id}` at display time —
+    never stored, so it's automatically correct on localhost/prod/whatever.
+  - App.jsx checks `window.location.pathname` on mount (synchronous
+    useState initializer, no flash of the wrong screen) — a `/portal/...`
+    path routes straight to the client PIN screen, skipping the owner gate
+    entirely. Vercel's rewrite for this path and Vite's dev SPA fallback
+    both already existed from §12, just were never actually exercised.
+  - A real client arriving via their link no longer sees "Exit preview" /
+    "Back to the ops dashboard" — those only render when the OWNER opened
+    the portal via their own "Preview client portal" button
+    (`arrivedViaLink` flag in App.jsx gates this).
+  - Also fixed while in ClientDetail.jsx: the "End contract" button called
+    `setEndError(...)`, a setter for state that was never declared —
+    clicking it would have thrown. One-line fix, found via code review.
+
+CRM LEAD EDIT/DELETE — CrmBoard.jsx: clicking any lead card (not the ⋮
+  menu) opens a full edit modal (all fields) with delete-with-type-to-
+  confirm. `updateContact`/`deleteContact` mutations added. Client-portal's
+  own CrmBoard usage is unaffected (onEdit only activates when
+  onUpdateContact is passed as a prop, which the portal never does).
+
+CLIENT DELETE — src/data/mutations.js `deleteClient` — permanent, cascades
+  across every collection carrying that clientId (posts, dms, calls,
+  invoices, tasks, contacts, activityLog entries). Distinct from
+  endContract (reversible, keeps everything). Type-the-client's-name-to-
+  confirm modal on ClientDetail's Contract tab. Also wipes the client's row
+  out of Supabase's client_credentials table (new api/delete-client-pin.js)
+  so their old portal PIN stops authenticating immediately.
+
+KPIs PER CLIENT — CUSTOM, NOT JUST THE FIXED TEMPLATE. addDeliveryMetric/
+  updateDeliveryMetric/deleteDeliveryMetric in mutations.js. ClientDetail's
+  Delivery card has "Add KPI" + inline edit/delete per row. LinkedIn
+  clients' DEFAULT KPIs changed (per explicit spec) to "Calls booked"
+  (target 4, called out as "the main indicator") and "Posts per week"
+  (target 5, was 3) — replacing the old "Outreach sent / wk" default.
+  Every new LinkedIn client also auto-gets 3 onboarding tasks: Sign
+  contract / Optimise LinkedIn profile / Create ICP, offer & positioning
+  doc (high priority, scoped to that client) — ClientsList.jsx's
+  handleCreate.
+
+INDUSTRY FIELD — `client.industry`, a dropdown (INDUSTRIES list in seed.js:
+  SaaS, Finance & Fintech, Healthcare, E-commerce & Retail, Real Estate,
+  Consulting, Marketing & Advertising, Education, Legal, Manufacturing,
+  Media & Entertainment, Nonprofit, Other) in the Add Client form. Shown
+  under the client's name on their ClientsList card and as a badge on
+  ClientDetail's header.
+
+CONTRACT UPLOAD — a client's OWN document can replace the auto-generated
+  contract text entirely. lib/media.js `fileToDocument()` (5MB cap, same
+  data-URL pattern as fileToImage/fileToVideo). ClientDetail's Contract tab
+  has Upload/Replace/Remove; an uploaded file always wins over bodyText —
+  PDF previews inline via <iframe>, images show directly, anything else
+  gets a "use Download" notice. Download and Send-email both correctly
+  target the uploaded file (email attaches it via Resend, which already
+  supported attachments end-to-end — nothing had ever used that param
+  until now).
+
+FULL EDIT/DELETE AUDIT — found several mutations that already existed in
+  mutations.js/useAppData.js but had ZERO UI wired to them (dead code):
+  - Tasks: `onDelete` existed but was hover-only (opacity-0
+    group-hover:opacity-100) — invisible/unreachable on any touch device,
+    not just desktop-without-hovering. Now always visible below the `sm`
+    breakpoint. `onUpdate` (edit title/client/due date/priority) existed as
+    a mutation, had NO UI at all — added a full inline edit row.
+  - Posts: `deletePost` existed, called from nowhere — added a delete
+    button next to each "Recent" post (editing already existed via
+    click-to-load into the composer).
+  - Expenses, invoices, swipe file entries, DMs: NONE of these had a
+    delete mutation at all before this session. Added
+    updateExpense/deleteExpense, deleteInvoice, deleteSwipe, deleteDM, and
+    wired delete (+ edit, for expenses) buttons into their lists.
+  - Verified afterward: every key in useAppData.js's `actions` object is
+    now referenced somewhere in App.jsx — ran a script confirming this,
+    zero dead actions remain.
+
+DUMMY DATA — FOUND AND ZEROED, BOTH IN CODE AND LIVE PRODUCTION DATA.
+  `data.growthLog` (Dashboard's Growth chart) and `data.channelPerf`
+  ("Channel performance" cards on Growth/Finance pages) were 100%
+  hardcoded seed numbers with ZERO real tracking behind them — confirmed
+  by reading the literal values out of seed.js (growthLog's "Jul" entry
+  was hardcoded outreachSent:310, which is exactly the number Charles
+  noticed and asked about). channelPerf even claimed "sourced from CRM
+  contact attribution" in its own UI copy while being a static array.
+  Fixed in seed.js (growthLog now zeros for all 6 months, channelPerf now
+  `[]`) AND directly via SQL against the live Supabase app_data row, since
+  seed.js changes only apply to brand-new installs, not an already-seeded
+  account. Added a "No channel data yet" empty state so the now-empty
+  channelPerf list doesn't render a blank card.
+
+DAILY OUTREACH TRACKING — the growthLog/channelPerf removal above cleared
+  the way for what Charles actually asked to track: a real day-by-day
+  LinkedIn + email outreach funnel.
+  - `data.outreachLog[]` — one row per calendar day, upserted by date
+    (logging the same day twice UPDATES it, never creates a duplicate).
+    Fields: linkedinConnectionsSent/Accepted/ConversationsStarted/Replied/
+    CallsBooked/DealsClosed, emailSent/Replied/CallsBooked.
+  - src/lib/outreach.js — stage order for both funnels, sumEntries
+    (rolling N-day totals), buildDailySeries/buildWeeklySeries/
+    buildMonthlySeries (same rows, three granularities for the chart).
+  - GrowthDetail.jsx rebuilt: two funnel cards (LinkedIn 6-stage, email
+    3-stage) showing conversion % between every consecutive stage — "calls
+    booked" called out in the LinkedIn funnel's subtitle as the main
+    indicator, per explicit instruction. A trend chart with a metric
+    picker (any of the 9 fields) and a Daily/Weekly/Monthly toggle. A log-
+    a-day form (date + all 9 number inputs, grouped by channel) and a
+    recent-entries list with click-to-edit + delete. Removed the old
+    monthly growthLog-based "Momentum" chart + manual log form entirely.
+  - HomeDashboard's mini Growth card now sources from this same real data
+    (last-14-day combined LI+email-sent chart, last-7-day totals for the
+    Outreach/Calls stats) instead of the dead growthLog. "Content
+    published" stat is now a real count from data.posts (status ===
+    "published", this calendar month) instead of a manually-logged number.
+
+WEATHER GREETING HEADER — src/hooks/useWeather.js + src/components/ui/
+  WeatherGreeting.jsx, replacing HomeDashboard's static "Good
+  morning/afternoon/evening" text.
+  - Geolocates once (browser permission prompt, user grants/denies
+    themselves), then polls Open-Meteo's forecast API DIRECTLY from the
+    browser — no API key, no signup needed, and Open-Meteo's CORS headers
+    are explicitly meant for client-side use. This is the ONE deliberate
+    exception to the "always proxy through /api/*" rule in this codebase —
+    there's no secret to protect here, unlike every other integration.
+  - Maps WMO weather codes to 6 categories (clear/cloudy/fog/rain/snow/
+    thunderstorm), picks a varied phrase per category+day-night that only
+    re-rolls when the condition actually changes (not on every 20-min
+    poll), animates a matching scene: sun with a soft glow (day) or
+    moon+twinkling stars (night) for clear, drifting cloud blobs, falling
+    rain/snow, occasional lightning flash for storms.
+  - Falls back to a plain neutral dark banner if geolocation is denied/
+    unavailable — decoration must never block the dashboard from
+    rendering.
+  - Also fixed the actual bug behind "always says good morning even in the
+    afternoon" — the greeting used to be computed once per render with
+    nothing forcing a re-render; now ticks every minute via a small
+    internal clock hook.
+  - REDESIGNED once already this session per a reference screenshot (real
+    Apple Weather app): richer multi-stop gradients per condition (was
+    flat 2-colour), a soft blurred radial-gradient atmospheric glow layer
+    instead of a flat colour block, sun redone as a glowing disc with a
+    blurred halo instead of a cartoon 8-ray icon. Also shortened the
+    card's vertical padding (py-7/8 -> py-4/5) on request ("shorten
+    height, not length").
+  - Charles then asked for it to go further — "hyperrealistic... real
+    rain, real snow" — THIS IS IN PROGRESS AS THIS FILE IS BEING WRITTEN,
+    see the live conversation / git log for whether a canvas-based
+    particle system (vs. the current fixed set of ~20 CSS-animated divs)
+    landed by the time you're reading this. Check
+    src/components/ui/WeatherGreeting.jsx and look for a
+    WeatherCanvas.jsx sibling file to know which version shipped.
+
+DATA RETENTION — Charles asked "how long will this data be saved?" this
+  session. Documenting the accurate answer here since it's a fact worth
+  not re-deriving: data lives in ONE Supabase Postgres row
+  (project yjfxzycszlwrhtzxqrtx, table app_data) and persists indefinitely
+  as long as the Supabase project itself stays active. The real risk is
+  Supabase's FREE PLAN auto-pausing a project after a stretch of no API
+  activity (historically ~7 days of zero requests) — pausing does NOT
+  delete data and un-pausing restores it, but Charles should check this
+  project's current plan/billing status in the Supabase dashboard directly
+  (Claude did not have a tool this session to read billing/plan tier, only
+  project status/schema) and consider upgrading off the free tier if he
+  wants zero risk of an auto-pause during a long gap between logins —
+  worth revisiting next session if he hasn't checked.
+
+CURRENT ENV VAR STATE (adds to §12's list):
+  Vercel production now has ALL of: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+  SESSION_SECRET, BUFFER_API_KEY, RESEND_API_KEY, RESEND_FROM,
+  GOOGLE_CALENDAR_ICAL_URL, FATHOM_API_KEY — copied from .env.local, set for
+  Production (confirm Preview environment has them too if branch previews
+  matter later).
+  FATHOM_API_KEY was still returning 401 as of §12 and has not been
+  re-verified this session — likely still needs regenerating.
+
+STILL OPEN / NEXT SESSION:
+  - Weather hyperrealism upgrade — see above, check current file state.
+  - Team access UI (unchanged from §12 — team_members table exists, no UI).
+  - No "regenerate PIN" flow for an existing client.
+  - Fathom key likely still broken (401) — not re-checked this session.
+  - Confirm Vercel Preview-environment env vars if preview deploys matter.
+  - The delivery-metric `direction: "lower"` field (§8/§11) is STILL only
+    half-wired — computeHealthScore and "on track" UI mostly use
+    `current >= target` uniformly. Not fixed this session either.

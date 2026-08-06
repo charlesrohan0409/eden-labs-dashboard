@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useWeather } from "../../hooks/useWeather";
+import WeatherCanvas from "./WeatherCanvas";
 
 // Ticks once a minute so "Good morning" doesn't silently go stale into the
 // afternoon if the tab's just left open — the old version computed this
@@ -36,19 +37,10 @@ const GRADIENTS = {
 };
 
 // Fixed positions for decorative elements — randomizing on every render
-// would make rain/snow/stars visibly jump around each time React re-renders
-// for an unrelated reason (the clock tick, a data update, etc).
-const RAINDROPS = Array.from({ length: 24 }, (_, i) => ({
-  left: (i * 4.3) % 100,
-  delay: (i * 0.15) % 2,
-  duration: 0.6 + (i % 5) * 0.1,
-}));
-const SNOWFLAKES = Array.from({ length: 18 }, (_, i) => ({
-  left: (i * 5.7) % 100,
-  delay: (i * 0.4) % 5,
-  duration: 4 + (i % 4),
-  size: 3 + (i % 3),
-}));
+// would make stars visibly jump around each time React re-renders for an
+// unrelated reason (the clock tick, a data update, etc). Rain/snow moved to
+// WeatherCanvas.jsx — a canvas particle system reads far more like real
+// weather than a fixed set of identical CSS-animated divs.
 const STARS = Array.from({ length: 20 }, (_, i) => ({
   left: (i * 4.9 + 2) % 100,
   top: (i * 7.3) % 70,
@@ -80,8 +72,6 @@ export default function WeatherGreeting({ name = "Charles" }) {
         @keyframes edenGlowDrift { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(-3%, 2%) scale(1.08); } }
         @keyframes edenTwinkle { 0%, 100% { opacity: .15; } 50% { opacity: 1; } }
         @keyframes edenDrift { from { transform: translateX(-20%); } to { transform: translateX(120%); } }
-        @keyframes edenFall { from { transform: translateY(-10%); opacity: 0; } 10% { opacity: 1; } to { transform: translateY(340%); opacity: .2; } }
-        @keyframes edenSway { 0%, 100% { margin-left: 0; } 50% { margin-left: 10px; } }
         @keyframes edenFlash { 0%, 96%, 100% { opacity: 0; } 97%, 99% { opacity: .5; } }
       `}</style>
 
@@ -152,41 +142,13 @@ export default function WeatherGreeting({ name = "Charles" }) {
         </div>
       )}
 
-      {/* ---- rain / thunderstorm: falling drops ---- */}
-      {(category === "rain" || category === "thunderstorm") && (
-        <div className="absolute inset-0 overflow-hidden">
-          {RAINDROPS.map((r, i) => (
-            <div
-              key={i}
-              className="absolute w-px h-3 bg-sky-100/70 rounded-full"
-              style={{
-                left: `${r.left}%`, top: "-10%",
-                animation: `edenFall ${r.duration}s linear ${r.delay}s infinite`,
-              }}
-            />
-          ))}
-        </div>
-      )}
+      {/* ---- rain / snow / thunderstorm: real canvas particles, not a
+          fixed set of repeating CSS-animated divs ---- */}
+      <WeatherCanvas category={category} />
 
       {/* ---- thunderstorm: occasional flash ---- */}
       {category === "thunderstorm" && (
         <div className="absolute inset-0 bg-white" style={{ animation: "edenFlash 7s ease-in-out infinite" }} />
-      )}
-
-      {/* ---- snow: falling flakes ---- */}
-      {category === "snow" && (
-        <div className="absolute inset-0 overflow-hidden">
-          {SNOWFLAKES.map((s, i) => (
-            <div
-              key={i}
-              className="absolute rounded-full bg-white/85"
-              style={{
-                left: `${s.left}%`, top: "-8%", width: s.size, height: s.size,
-                animation: `edenFall ${s.duration}s linear ${s.delay}s infinite, edenSway ${s.duration / 2}s ease-in-out ${s.delay}s infinite`,
-              }}
-            />
-          ))}
-        </div>
       )}
 
       {/* ---- text ---- */}

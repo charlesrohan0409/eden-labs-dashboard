@@ -39,20 +39,32 @@ if (!window.__edenLabsCRMInjected) {
   // would break silently sooner or later. Instead: every profile photo is
   // served from LinkedIn's media CDN, so we look for images pointing there.
   //
-  // Previously this just grabbed the single largest licdn.com image
-  // anywhere on the page — fine on a lone profile page, but wrong any time
-  // the page shows more than one person (search results, connection lists,
-  // a feed post, comments): it kept handing back whichever photo happened
-  // to render biggest, regardless of whose name was actually selected.
-  // Now it first looks for a photo near the text the user right-clicked —
-  // walking up from the selection to the nearest ancestor that contains a
-  // licdn.com image, which on LinkedIn's list/card markup is reliably the
-  // same person's row/card. Falls back to the old "largest on page"
-  // heuristic only if there's no usable selection to anchor on.
+  // "Any media.licdn.com image" isn't a safe filter on its own, though —
+  // that CDN also serves every company/school logo shown on a profile (the
+  // little "Current: Acme Inc" / "Education: X University" badges next to
+  // the name), and those kept getting grabbed instead of the actual
+  // headshot once we started looking near the selected text. LinkedIn's
+  // own asset path tells the two apart: real headshots are always served
+  // under a "profile-displayphoto" path; logos/backgrounds use different
+  // path segments (company-logo, school-logo, profile-displaybackground-
+  // image for the cover banner). Filtering on that path is what actually
+  // distinguishes "person's face" from "any nearby licdn.com image."
+  //
+  // Search strategy: climb from the text the user right-clicked looking
+  // specifically for a headshot match (skipping past ancestors that only
+  // contain logos, rather than stopping at the first image of any kind) —
+  // this is what makes it pick the right PERSON on pages with several
+  // people (search results, connection lists, feed, comments). Falls back
+  // to the largest headshot anywhere on the page if there's no selection
+  // to anchor on.
   function findLinkedInPhoto() {
     // Matches linkedin.com and any subdomain (www., mobile., etc.) — but not
     // some unrelated domain that merely ends in the same letters.
     if (!/(^|\.)linkedin\.com$/.test(location.hostname)) return null;
+
+    const isLogo = (img) => /company-logo|school-logo|org-logo/i.test(img.src);
+    const isHeadshot = (img) => /profile-displayphoto/i.test(img.src) && !isLogo(img);
+    const bigEnough = (img) => img.naturalWidth > 24 && img.naturalHeight > 24;
 
     const selection = window.getSelection();
     if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
@@ -60,18 +72,23 @@ if (!window.__edenLabsCRMInjected) {
       if (el && el.nodeType === Node.TEXT_NODE) el = el.parentElement;
       // Climb a bounded number of ancestors — far enough to reach a search
       // result's <li> or a comment's container, not so far we end up back
-      // at "whole page" (which would defeat the point).
-      for (let hops = 0; el && hops < 10; hops++, el = el.parentElement) {
-        const img = el.querySelector?.('img[src*="media.licdn.com"]');
-        if (img && img.naturalWidth > 24 && img.naturalHeight > 24) return img.src;
+      // at "whole page" (which would defeat the point). Each hop looks for
+      // an actual headshot, not just any image, so a company-logo badge
+      // sitting one level closer than the real photo doesn't win by
+      // proximity alone.
+      for (let hops = 0; el && hops < 12; hops++, el = el.parentElement) {
+        const headshot = Array.from(el.querySelectorAll?.('img[src*="media.licdn.com"]') || [])
+          .find((img) => bigEnough(img) && isHeadshot(img));
+        if (headshot) return headshot.src;
       }
     }
 
-    const candidates = Array.from(document.querySelectorAll('img[src*="media.licdn.com"]'))
-      .filter((img) => img.naturalWidth > 60 && img.naturalHeight > 60); // skip small icons/logos
-    if (!candidates.length) return null;
-    candidates.sort((a, b) => (b.naturalWidth * b.naturalHeight) - (a.naturalWidth * a.naturalHeight));
-    return candidates[0].src;
+    const all = Array.from(document.querySelectorAll('img[src*="media.licdn.com"]')).filter(bigEnough);
+    const headshots = all.filter(isHeadshot);
+    const pool = headshots.length ? headshots : all.filter((img) => !isLogo(img));
+    if (!pool.length) return null;
+    pool.sort((a, b) => (b.naturalWidth * b.naturalHeight) - (a.naturalWidth * a.naturalHeight));
+    return pool[0].src;
   }
 
   function showWidget(lead) {

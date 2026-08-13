@@ -60,7 +60,16 @@ function SaveErrorBanner({ message, onDismiss }) {
 
 export default function App() {
   const ownerAuth = useOwnerAuth();
-  const handleOwnerUnauthorized = useCallback(() => ownerAuth.logout(), [ownerAuth]);
+  // Depend on the specific stable function, not the whole ownerAuth object —
+  // useOwnerAuth returns a fresh object literal every render, so depending
+  // on `ownerAuth` itself gave this callback a new identity every render,
+  // which fed straight into useAppData's effect deps below and caused it to
+  // refetch on every single render, forever (setData → re-render → new
+  // ownerAuth object → new callback → effect deps changed → refetch → setData
+  // → ...). Confirmed live: 4,415 GET /rest/v1/app_data in 24h with the tab
+  // open and nobody touching it — this loop, not payload size, was the real
+  // driver of the Vercel/Supabase bandwidth blowout.
+  const handleOwnerUnauthorized = useCallback(() => ownerAuth.logout(), [ownerAuth.logout]);
   const { data, actions, saveError, dismissSaveError } = useAppData(ownerAuth.token, handleOwnerUnauthorized);
 
   const [view, setView] = useState("home");

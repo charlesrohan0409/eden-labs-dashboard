@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 const TOKEN_KEY = "eden-labs-owner-token";
 
@@ -44,5 +44,12 @@ export function useOwnerAuth() {
     setToken("");
   }, []);
 
-  return { token, login, logout, loading, error };
+  // Memoized so callers can safely depend on the whole returned object (or
+  // just the stable login/logout functions) without it changing identity on
+  // every render — an unmemoized object literal here fed a useCallback in
+  // App.jsx whose changing identity caused useAppData's fetch effect to
+  // refire on every single render, in an unbounded loop, the entire time the
+  // dashboard was open. See App.jsx's handleOwnerUnauthorized for the fix on
+  // the consuming side; this is the belt-and-suspenders fix at the source.
+  return useMemo(() => ({ token, login, logout, loading, error }), [token, login, logout, loading, error]);
 }

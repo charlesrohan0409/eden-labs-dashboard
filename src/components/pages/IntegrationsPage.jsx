@@ -170,7 +170,7 @@ function FathomCard({ integration, onConnected, onDisconnected }) {
  * ContentPage.jsx, which meant the preview never looked like Charles's
  * actual LinkedIn presence.
  */
-function ProfileCard({ profile, onUpdateProfile }) {
+function ProfileCard({ profile, onUpdateProfile, token }) {
   const [form, setForm] = useState(profile);
   const [saved, setSaved] = useState(false);
 
@@ -196,6 +196,7 @@ function ProfileCard({ profile, onUpdateProfile }) {
           hint="Appears on every post preview"
           value={form.photoUrl}
           onChange={(photoUrl) => setForm({ ...form, photoUrl })}
+          token={token}
         />
         <div className="flex-1 min-w-[14rem] space-y-2">
           <div>
@@ -267,7 +268,7 @@ function CurrencyCard({ currency, onSetCurrency }) {
 
 export default function IntegrationsPage({
   data, onToggle, onBufferChannels, onBufferDisconnected,
-  onFathomConnected, onFathomDisconnected, onUpdateProfile, onSetCurrency,
+  onFathomConnected, onFathomDisconnected, onUpdateProfile, onSetCurrency, token,
 }) {
   const connected = data.integrations.filter((i) => i.connected).length;
   const others = data.integrations.filter((i) => i.id !== "buffer" && i.id !== "fathom");
@@ -284,7 +285,7 @@ export default function IntegrationsPage({
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4">
-        <ProfileCard profile={data.profile} onUpdateProfile={onUpdateProfile} />
+        <ProfileCard profile={data.profile} onUpdateProfile={onUpdateProfile} token={token} />
         <CurrencyCard currency={data.settings?.currency || "USD"} onSetCurrency={onSetCurrency} />
       </div>
 

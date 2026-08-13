@@ -170,7 +170,7 @@ function ContentCalendar({ posts, clients }) {
   );
 }
 
-export default function ContentPage({ data, onAddPost, onUpdatePost, onDeletePost, onAddSwipe, onDeleteSwipe, onSetAgencyBufferChannel }) {
+export default function ContentPage({ data, onAddPost, onUpdatePost, onDeletePost, onAddSwipe, onDeleteSwipe, onSetAgencyBufferChannel, token }) {
   const [view, setView] = useState("composer");
   const [note, setNote] = useState("");
   const [source, setSource] = useState("");
@@ -230,6 +230,7 @@ export default function ContentPage({ data, onAddPost, onUpdatePost, onDeletePos
               bufferChannels={bufferIntegration.channels || []}
               bufferChannelId={bufferIntegration.agencyChannelId}
               onSetBufferChannel={onSetAgencyBufferChannel}
+              token={token}
             />
           </Card>
 

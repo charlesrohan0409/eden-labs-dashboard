@@ -3,6 +3,8 @@
 // page component so the field list, funnel order, and date-bucketing math
 // aren't duplicated between the log form, the funnel view, and the chart.
 
+import { weekStart } from "./utils.js";
+
 // Each stage in the order it happens — the funnel view walks this list and
 // shows the conversion % from one stage to the next.
 export const LINKEDIN_STAGES = [
@@ -57,15 +59,6 @@ export function buildDailySeries(outreachLog, days = 30) {
 export function conversionPct(from, to) {
   if (!from) return null;
   return Math.round((to / from) * 100);
-}
-
-// Monday-start week key (YYYY-MM-DD of that week's Monday) — used to bucket
-// daily rows into weeks without pulling in a date library.
-function weekStart(date) {
-  const d = new Date(date + "T12:00:00");
-  const dow = (d.getDay() + 6) % 7; // 0 = Monday
-  d.setDate(d.getDate() - dow);
-  return d.toISOString().slice(0, 10);
 }
 
 // Same shape as buildDailySeries but bucketed into Mon-Sun weeks, summed —

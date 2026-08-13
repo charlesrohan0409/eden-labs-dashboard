@@ -86,3 +86,34 @@ export async function setClientCredential(clientId, pinHash, pinSalt) {
 export async function deleteClientCredential(clientId) {
   await rest(`/client_credentials?client_id=eq.${encodeURIComponent(clientId)}`, { method: "DELETE" });
 }
+
+// ------------------------------------------------------------------ storage ---
+// Uploads to the "media" bucket (public read, created once up front — see
+// the one-off setup script, not part of the app). Same "no supabase-js
+// needed" philosophy as the rest of this file: a plain fetch against
+// Supabase's Storage REST API, same service-role-key auth as `rest()`
+// above, just a different base path (/storage/v1 instead of /rest/v1) and a
+// binary body instead of JSON.
+//
+// This is what actually fixes the runaway bandwidth: a photo used to sit
+// inline in the one JSON blob that's re-sent in full on every single page
+// load and every single mutation. Uploaded once here, it's referenced
+// afterward by a ~80-byte URL instead of hundreds of KB of base64.
+export async function uploadToStorage(path, bytes, contentType) {
+  const { url: SUPABASE_URL, key: SERVICE_KEY } = config();
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/media/${path}`, {
+    method: "POST",
+    headers: {
+      apikey: SERVICE_KEY,
+      Authorization: `Bearer ${SERVICE_KEY}`,
+      "Content-Type": contentType || "application/octet-stream",
+      "x-upsert": "true",
+    },
+    body: bytes,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Storage upload failed (${res.status}): ${text.slice(0, 300)}`);
+  }
+  return `${SUPABASE_URL}/storage/v1/object/public/media/${path}`;
+}

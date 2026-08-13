@@ -27,7 +27,7 @@ const TAB_LABELS = {
 
 export default function ClientPortal({
   data, clientId, onExit, onAddPost, onUpdatePost, onAddContact, onUpdateStage,
-  onAddComment, onUpdatePostStatus,
+  onAddComment, onUpdatePostStatus, token,
 }) {
   const [tab, setTab] = useState("overview");
   const [contentView, setContentView] = useState("list");
@@ -247,6 +247,7 @@ export default function ClientPortal({
                 author={client.name}
                 headline={client.company}
                 avatarUrl={client.photoUrl}
+                token={token}
               />
             </Card>
 

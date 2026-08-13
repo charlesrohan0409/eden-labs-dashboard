@@ -32,6 +32,7 @@ export default function PostComposer({
   clientId, posts, onAddPost, onUpdatePost, onDeletePost, onPushForApproval,
   author = "Eden Labs", headline = "LinkedIn content & client acquisition", avatarUrl = "",
   bufferConnected = false, bufferChannels = [], bufferChannelId = null, onSetBufferChannel = null,
+  token,
 }) {
   const [text, setText] = useState("");
   const [type, setType] = useState("text");
@@ -91,10 +92,10 @@ export default function PostComposer({
     setBusy(true);
     try {
       if (type === "video") {
-        const v = await fileToVideo(files[0]);
+        const v = await fileToVideo(files[0], token);
         setMedia({ type: "video", items: [v] });
       } else {
-        const imgs = await Promise.all(files.map(fileToImage));
+        const imgs = await Promise.all(files.map((f) => fileToImage(f, token)));
         setMedia((prev) => {
           const existing = prev && prev.type === type ? prev.items : [];
           const items = type === "carousel" ? [...existing, ...imgs].slice(0, 20) : [...existing, ...imgs].slice(0, 9);

@@ -10,6 +10,7 @@
 // calls.
 
 import { today, uid, commissionInstallment } from "../lib/utils.js";
+import { periodStartFor } from "../lib/recurrence.js";
 
 const ensureActivityLog = (d) => {
   if (!Array.isArray(d.activityLog)) d.activityLog = [];
@@ -18,7 +19,16 @@ const ensureActivityLog = (d) => {
 
 // ---- tasks ----
 export function addTask(d, t) {
-  d.tasks.push({ id: uid(), done: false, createdAt: today(), priority: "medium", clientId: null, dueDate: "", ...t });
+  const recurrence = t.recurrence || "none";
+  d.tasks.push({
+    id: uid(), done: false, createdAt: today(), priority: "medium", clientId: null, dueDate: "",
+    recurrence: "none", periodStart: "",
+    ...t,
+    // Seeded correctly now, rather than waiting for the next load's
+    // applyRecurringResets to compute it — a just-created recurring task
+    // shouldn't need a reload to be in the right state.
+    periodStart: t.periodStart || periodStartFor(recurrence),
+  });
   return d;
 }
 export function toggleTask(d, id) {
@@ -66,7 +76,16 @@ export function updateDelivery(d, id, idx, val) {
 // matters for that specific engagement.
 export function addDeliveryMetric(d, id, metric) {
   const c = d.clients.find((x) => x.id === id);
-  if (c) c.delivery.push({ metric: metric.metric, target: Number(metric.target) || 0, current: 0, direction: metric.direction || "higher" });
+  const cadence = metric.cadence || "none";
+  if (c) {
+    c.delivery.push({
+      metric: metric.metric, target: Number(metric.target) || 0, current: 0, direction: metric.direction || "higher",
+      cadence,
+      // Seeded now for the same reason addTask seeds periodStart — correct
+      // immediately, not just after the next load's applyRecurringResets.
+      periodStart: periodStartFor(cadence),
+    });
+  }
   return d;
 }
 export function updateDeliveryMetric(d, id, idx, patch) {

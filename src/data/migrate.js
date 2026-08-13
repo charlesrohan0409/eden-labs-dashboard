@@ -52,7 +52,13 @@ export function migrateData(loaded) {
       billingType: "retainer", payoutMonths: null, commissionPct: null, commissionBasis: null,
       ...(c.contract || {}),
     },
-    delivery: Array.isArray(c.delivery) ? c.delivery : [],
+    delivery: (Array.isArray(c.delivery) ? c.delivery : []).map((m) => ({
+      // Delivery entries never got per-field backfilling before — a metric
+      // saved before recurring cadence existed just accumulates forever,
+      // same as it always has, unless the owner opts a KPI into resetting.
+      cadence: "none", periodStart: "",
+      ...m,
+    })),
   }));
 
   // Ensure older contacts have deal/contact fields, and move any saved on the
@@ -89,7 +95,11 @@ export function migrateData(loaded) {
   }));
 
   // Tasks are newer than the first saved shape — fill in their defaults.
-  merged.tasks = merged.tasks.map((t) => ({ clientId: null, dueDate: "", priority: "medium", done: false, createdAt: "", ...t }));
+  merged.tasks = merged.tasks.map((t) => ({
+    clientId: null, dueDate: "", priority: "medium", done: false, createdAt: "",
+    recurrence: "none", periodStart: "",
+    ...t,
+  }));
 
   return merged;
 }

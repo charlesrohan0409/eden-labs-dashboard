@@ -1,4 +1,5 @@
 import { MONTHS, computeCommissionTotal, commissionInstallment } from "../lib/utils.js";
+import { periodStartFor } from "../lib/recurrence.js";
 
 // ---------- Client types ----------
 // Each service line gets its own delivery-metric template and its own set of
@@ -18,7 +19,10 @@ export const CLIENT_TYPES = {
     // not a one-size-fits-all number.
     defaultDelivery: [
       { metric: "Calls booked", target: 4, current: 0 },
-      { metric: "Posts per week", target: 5, current: 0 },
+      // Content is the one deliverable that's explicitly cadence-based (5x
+      // a week, resetting every week) rather than an ongoing cumulative
+      // count — matches how this actually gets tracked in practice.
+      { metric: "Posts per week", target: 5, current: 0, cadence: "weekly" },
     ],
   },
   book: {
@@ -158,8 +162,14 @@ export function buildNewClient(c) {
       }),
     },
     // Each service line starts with metrics that actually mean something for
-    // that kind of work — a book edit has no "posts per week".
-    delivery: (CLIENT_TYPES[type] || CLIENT_TYPES[DEFAULT_CLIENT_TYPE]).defaultDelivery.map((d) => ({ ...d })),
+    // that kind of work — a book edit has no "posts per week". Cadenced
+    // metrics (e.g. "Posts per week") get a real periodStart now, rather
+    // than waiting for the next load's applyRecurringResets to compute one.
+    delivery: (CLIENT_TYPES[type] || CLIENT_TYPES[DEFAULT_CLIENT_TYPE]).defaultDelivery.map((d) => ({
+      cadence: "none",
+      ...d,
+      periodStart: periodStartFor(d.cadence || "none"),
+    })),
   };
 }
 

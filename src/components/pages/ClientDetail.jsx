@@ -98,7 +98,7 @@ export default function ClientDetail({
   data, clientId, setView, onAddPost, onUpdatePost, onDeletePost, onAddDM, onDeleteDM, onUpdateClient, onUpdateContract, onUpdateDelivery,
   onAddDeliveryMetric, onUpdateDeliveryMetric, onDeleteDeliveryMetric,
   onUpdatePostStatus, onEndContract, onDeleteClient, onAddTask, onToggleTask, onDeleteTask, onUpdateTask,
-  onUpdateClientNotes, onLogActivity,
+  onUpdateClientNotes, onLogActivity, token,
 }) {
   const [tab, setTab] = useState("overview");
   const [dmForm, setDmForm] = useState({ direction: "sent", content: "" });
@@ -121,7 +121,7 @@ export default function ClientDetail({
   const [viewingPost, setViewingPost] = useState(null);
   const [notesText, setNotesText] = useState("");
   const [addingKpi, setAddingKpi] = useState(false);
-  const [kpiForm, setKpiForm] = useState({ metric: "", target: "", direction: "higher" });
+  const [kpiForm, setKpiForm] = useState({ metric: "", target: "", direction: "higher", cadence: "none" });
   const [editingKpiIdx, setEditingKpiIdx] = useState(null);
   const { money } = useCurrency();
 
@@ -200,12 +200,30 @@ export default function ClientDetail({
   // A self-uploaded contract (client.contract.fileUrl) always wins over the
   // auto-generated bodyText — download opens/saves the actual uploaded file
   // rather than printing the generated text as a PDF.
-  const handleDownloadPdf = () => {
+  const handleDownloadPdf = async () => {
     if (client.contract.fileUrl) {
-      const a = document.createElement("a");
-      a.href = client.contract.fileUrl;
-      a.download = client.contract.fileName || "contract";
-      a.click();
+      // A data: URL (only possible for a not-yet-migrated older upload)
+      // downloads directly; a Storage URL needs fetching first — a plain
+      // <a download> on a cross-origin URL isn't reliably honored.
+      if (client.contract.fileUrl.startsWith("data:")) {
+        const a = document.createElement("a");
+        a.href = client.contract.fileUrl;
+        a.download = client.contract.fileName || "contract";
+        a.click();
+        return;
+      }
+      try {
+        const res = await fetch(client.contract.fileUrl);
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = client.contract.fileName || "contract";
+        a.click();
+        URL.revokeObjectURL(blobUrl);
+      } catch {
+        window.open(client.contract.fileUrl, "_blank");
+      }
       return;
     }
     window.print();
@@ -216,7 +234,7 @@ export default function ClientDetail({
     setContractUploadError("");
     setContractUploading(true);
     try {
-      const doc = await fileToDocument(file);
+      const doc = await fileToDocument(file, token);
       onUpdateContract(client.id, { ...client.contract, fileUrl: doc.url, fileName: doc.name, fileType: file.type });
     } catch (e) {
       setContractUploadError(e.message);
@@ -248,18 +266,30 @@ export default function ClientDetail({
     setEmailStatus("");
     try {
       const hasFile = !!client.contract.fileUrl;
-      // Resend wants attachment content as bare base64 — no "data:...;base64,"
-      // prefix — so strip that off the stored data URL.
-      const attachments = hasFile
+      // A leftover data: URL (pre-Storage-migration) still attaches inline —
+      // Resend wants that as bare base64, no "data:...;base64," prefix. A
+      // Storage-hosted file is linked instead of attached: fetching and
+      // re-encoding it to base64 just to email it would reintroduce the
+      // exact "huge payload" problem this migration exists to fix, just in
+      // the email-send path instead of the data blob.
+      const fileIsDataUrl = hasFile && client.contract.fileUrl.startsWith("data:");
+      const attachments = fileIsDataUrl
         ? [{ filename: client.contract.fileName || "contract", content: client.contract.fileUrl.split(",")[1] }]
         : undefined;
+      const bodyHtml = !hasFile
+        ? `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#1c1917;white-space:pre-wrap;line-height:1.6;max-width:640px">${escapeHtml(client.contract.bodyText)}</div>`
+        : fileIsDataUrl
+        ? `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#1c1917">Your service agreement is attached.</div>`
+        : `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#1c1917">Your service agreement is ready: <a href="${client.contract.fileUrl}">download it here</a>.</div>`;
       await sendEmail({
         to: client.email,
         subject: "Your Eden Labs Service Agreement",
-        text: hasFile ? "Your service agreement is attached." : client.contract.bodyText,
-        html: hasFile
-          ? `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#1c1917">Your service agreement is attached.</div>`
-          : `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#1c1917;white-space:pre-wrap;line-height:1.6;max-width:640px">${escapeHtml(client.contract.bodyText)}</div>`,
+        text: !hasFile
+          ? client.contract.bodyText
+          : fileIsDataUrl
+          ? "Your service agreement is attached."
+          : `Your service agreement is ready: ${client.contract.fileUrl}`,
+        html: bodyHtml,
         attachments,
       });
       setEmailStatus(`Sent to ${client.email}.`);
@@ -346,7 +376,7 @@ export default function ClientDetail({
   const submitAddKpi = () => {
     if (!kpiForm.metric.trim()) return;
     onAddDeliveryMetric(client.id, kpiForm);
-    setKpiForm({ metric: "", target: "", direction: "higher" });
+    setKpiForm({ metric: "", target: "", direction: "higher", cadence: "none" });
     setAddingKpi(false);
   };
   const submitEditKpi = (idx) => {
@@ -355,11 +385,12 @@ export default function ClientDetail({
       metric: kpiForm.metric.trim(),
       target: Number(kpiForm.target) || 0,
       direction: kpiForm.direction,
+      cadence: kpiForm.cadence,
     });
     setEditingKpiIdx(null);
   };
   const startEditKpi = (idx, d) => {
-    setKpiForm({ metric: d.metric, target: String(d.target), direction: d.direction || "higher" });
+    setKpiForm({ metric: d.metric, target: String(d.target), direction: d.direction || "higher", cadence: d.cadence || "none" });
     setEditingKpiIdx(idx);
     setAddingKpi(false);
   };
@@ -490,7 +521,7 @@ export default function ClientDetail({
               action={
                 !addingKpi && (
                   <button
-                    onClick={() => { setAddingKpi(true); setEditingKpiIdx(null); setKpiForm({ metric: "", target: "", direction: "higher" }); }}
+                    onClick={() => { setAddingKpi(true); setEditingKpiIdx(null); setKpiForm({ metric: "", target: "", direction: "higher", cadence: "none" }); }}
                     className="flex items-center gap-1 text-xs font-medium text-emerald-700 hover:text-emerald-800"
                   >
                     <Plus size={13} /> Add KPI
@@ -530,6 +561,15 @@ export default function ClientDetail({
                         <option value="higher">Higher is better</option>
                         <option value="lower">Lower is better</option>
                       </select>
+                      <select
+                        value={kpiForm.cadence}
+                        onChange={(e) => setKpiForm({ ...kpiForm, cadence: e.target.value })}
+                        className={`${inputCls} w-40`}
+                      >
+                        <option value="none">Never resets</option>
+                        <option value="daily">Resets daily</option>
+                        <option value="weekly">Resets weekly</option>
+                      </select>
                       <PrimaryButton size="sm" onClick={() => submitEditKpi(idx)}>Save</PrimaryButton>
                       <button onClick={() => setEditingKpiIdx(null)} className="text-stone-400 hover:text-stone-700 p-1.5">
                         <X size={15} />
@@ -541,6 +581,9 @@ export default function ClientDetail({
                   <div key={idx} className="group flex items-center gap-3 flex-wrap">
                     <span className="text-sm text-stone-600 w-full sm:w-48">
                       {d.metric}{d.direction === "lower" && <span className="text-stone-400"> (lower is better)</span>}
+                      {d.cadence && d.cadence !== "none" && (
+                        <span className="block text-[11px] text-stone-400">resets {d.cadence}</span>
+                      )}
                     </span>
                     <input
                       type="number"
@@ -595,6 +638,15 @@ export default function ClientDetail({
                   >
                     <option value="higher">Higher is better</option>
                     <option value="lower">Lower is better</option>
+                  </select>
+                  <select
+                    value={kpiForm.cadence}
+                    onChange={(e) => setKpiForm({ ...kpiForm, cadence: e.target.value })}
+                    className={`${inputCls} w-40`}
+                  >
+                    <option value="none">Never resets</option>
+                    <option value="daily">Resets daily</option>
+                    <option value="weekly">Resets weekly</option>
                   </select>
                   <PrimaryButton size="sm" icon={Plus} onClick={submitAddKpi}>Add</PrimaryButton>
                   <button onClick={() => setAddingKpi(false)} className="text-stone-400 hover:text-stone-700 p-1.5">
@@ -676,6 +728,7 @@ export default function ClientDetail({
               author={client.name}
               headline={client.company}
               avatarUrl={client.photoUrl}
+              token={token}
             />
           </Card>
 
@@ -1253,11 +1306,13 @@ export default function ClientDetail({
                 label="Client photo"
                 value={editClientForm.photoUrl}
                 onChange={(photoUrl) => setEditClientForm({ ...editClientForm, photoUrl })}
+                token={token}
               />
               <ImagePicker
                 label="Company logo"
                 value={editClientForm.logoUrl}
                 onChange={(logoUrl) => setEditClientForm({ ...editClientForm, logoUrl })}
+                token={token}
               />
             </div>
           </div>

@@ -142,6 +142,18 @@ export function colorForName(name = "") {
 
 export const today = () => new Date().toISOString().slice(0, 10);
 
+// Monday-start week key (YYYY-MM-DD of that week's Monday) — used to bucket
+// daily rows into weeks without pulling in a date library. Originally lived
+// in lib/outreach.js (weekly outreach charts); promoted here once
+// lib/recurrence.js needed the same "what week is this" logic for resetting
+// weekly-cadence KPIs/tasks — one definition instead of two.
+export function weekStart(date) {
+  const d = new Date(date + "T12:00:00");
+  const dow = (d.getDay() + 6) % 7; // 0 = Monday
+  d.setDate(d.getDate() - dow);
+  return d.toISOString().slice(0, 10);
+}
+
 // Shared id generator so every part of the app (the data hook, modals that
 // need the id before the store round-trips) produces ids the same way.
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);

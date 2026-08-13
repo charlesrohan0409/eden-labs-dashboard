@@ -9,7 +9,13 @@ const PRIORITY_OPTIONS = [
   { value: "low", label: "Low priority" },
 ];
 
-const BLANK = { title: "", clientId: "", dueDate: "", priority: "medium" };
+const RECURRENCE_OPTIONS = [
+  { value: "none", label: "Doesn't repeat" },
+  { value: "daily", label: "Repeats daily" },
+  { value: "weekly", label: "Repeats weekly" },
+];
+
+const BLANK = { title: "", clientId: "", dueDate: "", priority: "medium", recurrence: "none" };
 
 /**
  * Floating quick-add task button visible on every owner page.
@@ -42,6 +48,7 @@ export default function QuickAddTask({ clients = [], onAdd }) {
       clientId: form.clientId || null,
       dueDate: form.dueDate || "",
       priority: form.priority,
+      recurrence: form.recurrence,
     });
     setForm(BLANK);
     setOpen(false);
@@ -94,14 +101,28 @@ export default function QuickAddTask({ clients = [], onAdd }) {
             </select>
           </div>
 
-          <div>
-            <label className="text-xs text-stone-400 font-medium">Due date (optional)</label>
-            <input
-              type="date"
-              value={form.dueDate}
-              onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
-              className={`${inputCls} mt-1`}
-            />
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs text-stone-400 font-medium">Due date (optional)</label>
+              <input
+                type="date"
+                value={form.dueDate}
+                onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
+                className={`${inputCls} mt-1`}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-stone-400 font-medium">Repeats</label>
+              <select
+                value={form.recurrence}
+                onChange={(e) => setForm({ ...form, recurrence: e.target.value })}
+                className="w-full border border-line rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none mt-1"
+              >
+                {RECURRENCE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <PrimaryButton

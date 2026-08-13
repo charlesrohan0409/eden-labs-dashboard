@@ -27,7 +27,7 @@ const LINKEDIN_ONBOARDING_TASKS = [
   "Create ICP, offer & positioning doc",
 ];
 
-export default function ClientsList({ data, setView, setSelectedClient, onAddClient, onAddTask }) {
+export default function ClientsList({ data, setView, setSelectedClient, onAddClient, onAddTask, token }) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [onboardStatus, setOnboardStatus] = useState("");
@@ -202,12 +202,14 @@ export default function ClientsList({ data, setView, setSelectedClient, onAddCli
               hint="Shows on their avatar"
               value={form.photoUrl}
               onChange={(photoUrl) => setForm({ ...form, photoUrl })}
+              token={token}
             />
             <ImagePicker
               label="Company logo"
               hint="Badges the avatar"
               value={form.logoUrl}
               onChange={(logoUrl) => setForm({ ...form, logoUrl })}
+              token={token}
             />
           </div>
           <PrimaryButton onClick={handleCreate} disabled={!canCreate}>Create client + generate contract</PrimaryButton>

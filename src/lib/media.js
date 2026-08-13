@@ -1,10 +1,13 @@
 // Turning uploaded files into something we can store and preview.
 //
-// Everything here produces a data URL, which is fine while the app persists to
-// localStorage but will not scale — a handful of full-size photos blows past
-// the ~5MB quota. Images are therefore downscaled and re-encoded before they
-// are stored. When Supabase lands, `fileToImage` becomes an upload to Supabase
-// Storage and these functions return the public URL instead.
+// Images/videos/documents are downscaled and re-encoded client-side (same as
+// before), then uploaded to Supabase Storage via /api/upload — callers get
+// back a public URL, not a data: URL. This used to just return the data URL
+// itself for storage directly in the app_data JSON blob, which is exactly
+// why that blob ballooned to ~1MB for 3 clients' photos alone, re-sent in
+// full on every page load and every single mutation. A Storage URL is a
+// couple dozen bytes; the actual image bytes now live in Storage and get
+// fetched once, by the browser, only when something actually renders it.
 
 const MAX_DIMENSION = 1400;
 const JPEG_QUALITY = 0.82;
@@ -21,16 +24,36 @@ export function readFileAsDataUrl(file) {
   });
 }
 
+// Posts a data: URL to /api/upload and hands back the Storage URL that
+// replaces it everywhere it's stored. `token` is whichever session the
+// caller has — the owner's, or a client's own portal session (a client can
+// attach post media through their portal, so the upload endpoint accepts
+// either role — see api/_dataHandlers.js's handleUpload).
+async function uploadDataUrl(dataUrl, filename, token) {
+  if (!token) throw new Error("Not signed in — can't upload.");
+  const res = await fetch("/api/upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ dataUrl, filename }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || `Upload failed (${res.status}).`);
+  return json.url;
+}
+
 /**
- * Downscale an image to at most MAX_DIMENSION on its long edge and re-encode
- * it, so a 6MB phone photo becomes a couple of hundred KB.
+ * Downscale an image to at most MAX_DIMENSION on its long edge, re-encode
+ * it, and upload it — so a 6MB phone photo becomes a couple hundred KB in
+ * Storage instead of sitting inline in every request.
  */
-export async function fileToImage(file) {
+export async function fileToImage(file, token) {
   if (!file.type.startsWith("image/")) throw new Error("That file isn't an image.");
   const dataUrl = await readFileAsDataUrl(file);
 
-  // SVGs have no meaningful pixel size to scale to; keep them as-is.
-  if (file.type === "image/svg+xml") return { url: dataUrl, name: file.name };
+  // SVGs have no meaningful pixel size to scale to; upload as-is.
+  if (file.type === "image/svg+xml") {
+    return { url: await uploadDataUrl(dataUrl, file.name, token), name: file.name };
+  }
 
   const img = await new Promise((resolve, reject) => {
     const el = new Image();
@@ -55,33 +78,33 @@ export async function fileToImage(file) {
   }
   ctx.drawImage(img, 0, 0, w, h);
 
+  const resizedDataUrl = canvas.toDataURL(keepPng ? "image/png" : "image/jpeg", JPEG_QUALITY);
   return {
-    url: canvas.toDataURL(keepPng ? "image/png" : "image/jpeg", JPEG_QUALITY),
+    url: await uploadDataUrl(resizedDataUrl, file.name, token),
     name: file.name,
     width: w,
     height: h,
   };
 }
 
-export async function fileToVideo(file) {
+export async function fileToVideo(file, token) {
   if (!file.type.startsWith("video/")) throw new Error("That file isn't a video.");
   if (file.size > MAX_VIDEO_BYTES) {
-    throw new Error("Video is over 8MB. Keep it small until file storage is wired up.");
+    throw new Error("Video is over 8MB — keep it small.");
   }
-  return { url: await readFileAsDataUrl(file), name: file.name, mime: file.type };
+  const dataUrl = await readFileAsDataUrl(file);
+  return { url: await uploadDataUrl(dataUrl, file.name, token), name: file.name, mime: file.type };
 }
 
-// A signed contract, scanned and uploaded as a PDF/DOCX/image — stored the
-// same way as everything else here (a data URL sitting inside the one JSON
-// blob), so the same size concern applies, just tighter: this row already
-// carries every client's data, not just one photo.
+// A signed contract, scanned and uploaded as a PDF/DOCX/image.
 export const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
 
-export async function fileToDocument(file) {
+export async function fileToDocument(file, token) {
   if (file.size > MAX_DOCUMENT_BYTES) {
     throw new Error(`File is ${humanSize(file.size)} — keep uploaded contracts under 5MB.`);
   }
-  return { url: await readFileAsDataUrl(file), name: file.name, mime: file.type };
+  const dataUrl = await readFileAsDataUrl(file);
+  return { url: await uploadDataUrl(dataUrl, file.name, token), name: file.name, mime: file.type };
 }
 
 export const humanSize = (bytes) =>

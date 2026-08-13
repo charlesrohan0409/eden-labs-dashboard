@@ -5,8 +5,9 @@
 import { migrateData } from "../src/data/migrate.js";
 import { seedData } from "../src/data/seed.js";
 import * as M from "../src/data/mutations.js";
-import { getOwnerAuth, getAllClientCredentials, setClientCredential, deleteClientCredential, getAppData, upsertAppData } from "./_supabaseAdmin.js";
+import { getOwnerAuth, getAllClientCredentials, setClientCredential, deleteClientCredential, getAppData, upsertAppData, uploadToStorage } from "./_supabaseAdmin.js";
 import { verifyPin, hashPin, genSalt, signToken, verifyToken, bearerFrom } from "./_crypto.js";
+import { applyRecurringResets } from "../src/lib/recurrence.js";
 
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days — "log in once, use from anywhere"
 
@@ -52,6 +53,50 @@ function requireClient(headers) {
   return payload?.role === "client" && payload.clientId ? payload : null;
 }
 
+// Upload is the one endpoint either session type can call — the owner
+// uploads client photos/logos/contracts, but a client also attaches post
+// media through their own portal session (PostComposer is shared).
+function requireOwnerOrClient(headers) {
+  const payload = verifyToken(bearerFrom(headers), secret());
+  if (payload?.role === "owner") return payload;
+  if (payload?.role === "client" && payload.clientId) return payload;
+  return null;
+}
+
+// ------------------------------------------------------------------ upload ---
+// Takes a data: URL (the client already downscales/re-encodes the file
+// before sending it here — see src/lib/media.js), uploads the raw bytes to
+// Supabase Storage, and hands back a public URL. Every caller in src/
+// stores that URL in the app_data blob instead of the data: URL itself —
+// this is the fix for the blob having been ~1MB of inline base64 images
+// re-sent on every single load and mutation.
+const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+
+export async function handleUpload(headers, body) {
+  if (!requireOwnerOrClient(headers)) return { status: 401, body: { error: "Unauthorized" } };
+  const { dataUrl, filename } = body || {};
+  if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:")) {
+    return { status: 400, body: { error: "`dataUrl` must be a data: URL." } };
+  }
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return { status: 400, body: { error: "Malformed data URL." } };
+  const [, contentType, base64] = match;
+  const bytes = Buffer.from(base64, "base64");
+  if (bytes.length > MAX_UPLOAD_BYTES) {
+    return { status: 413, body: { error: "File is too large to upload." } };
+  }
+  const ext = filename && filename.includes(".")
+    ? filename.split(".").pop().replace(/[^a-zA-Z0-9]/g, "").slice(0, 10)
+    : (contentType.split("/")[1] || "bin").replace(/[^a-zA-Z0-9]/g, "").slice(0, 10);
+  const path = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.${ext || "bin"}`;
+  try {
+    const url = await uploadToStorage(path, bytes, contentType);
+    return { status: 200, body: { url } };
+  } catch (e) {
+    return { status: 502, body: { error: e.message } };
+  }
+}
+
 // ------------------------------------------------------------- app data ---
 async function loadData() {
   const row = await getAppData();
@@ -60,7 +105,14 @@ async function loadData() {
     await upsertAppData(fresh);
     return fresh;
   }
-  return migrateData(row.data);
+  const migrated = migrateData(row.data);
+  // Self-healing reset for weekly/daily-cadence KPIs and recurring tasks —
+  // see lib/recurrence.js. Persisted immediately when it actually changes
+  // anything, so the reset survives past this one response instead of only
+  // existing in-memory for this request.
+  const { data, changed } = applyRecurringResets(migrated);
+  if (changed) await upsertAppData(data);
+  return data;
 }
 
 export async function handleDataGet(headers) {
@@ -222,4 +274,5 @@ export const DATA_ROUTES = {
   },
   "/api/portal-data": { method: "GET", handler: ({ headers }) => handlePortalDataGet(headers) },
   "/api/portal-action": { method: "POST", handler: ({ headers, body }) => handlePortalAction(headers, body) },
+  "/api/upload": { method: "POST", handler: ({ headers, body }) => handleUpload(headers, body) },
 };

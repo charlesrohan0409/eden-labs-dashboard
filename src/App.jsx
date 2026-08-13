@@ -113,6 +113,7 @@ export default function App() {
           onUpdateStage={portal.actions.updateStage}
           onAddComment={portal.actions.addComment}
           onUpdatePostStatus={portal.actions.updatePostStatus}
+          token={portalSession.token}
         />
       </CurrencyProvider>
     );
@@ -183,6 +184,7 @@ export default function App() {
             setSelectedClient={setSelectedClient}
             onAddClient={actions.addClient}
             onAddTask={actions.addTask}
+            token={ownerAuth.token}
           />
         )}
 
@@ -191,6 +193,7 @@ export default function App() {
             data={data}
             clientId={selectedClient}
             setView={setView}
+            token={ownerAuth.token}
             onAddPost={actions.addPost}
             onUpdatePost={actions.updatePost}
             onDeletePost={actions.deletePost}
@@ -233,6 +236,7 @@ export default function App() {
             onAddSwipe={actions.addSwipe}
             onDeleteSwipe={actions.deleteSwipe}
             onSetAgencyBufferChannel={actions.setAgencyBufferChannel}
+            token={ownerAuth.token}
           />
         )}
 
@@ -250,6 +254,7 @@ export default function App() {
             onFathomDisconnected={actions.setFathomDisconnected}
             onUpdateProfile={actions.updateProfile}
             onSetCurrency={actions.setCurrency}
+            token={ownerAuth.token}
           />
         )}
       </Suspense>

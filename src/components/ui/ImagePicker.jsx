@@ -4,10 +4,11 @@ import { fileToImage } from "../../lib/media";
 
 /**
  * Pick an image from the machine and hand back a stored URL. Files are
- * downscaled on the way in; when Supabase Storage lands, `fileToImage`
- * uploads and this component keeps the same shape.
+ * downscaled on the way in, then uploaded to Supabase Storage — `token` is
+ * whichever session is active (owner or client-portal) and is required for
+ * the upload to authenticate.
  */
-export default function ImagePicker({ label, hint, value, onChange, round = false, size = 64 }) {
+export default function ImagePicker({ label, hint, value, onChange, round = false, size = 64, token }) {
   const inputRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -17,7 +18,7 @@ export default function ImagePicker({ label, hint, value, onChange, round = fals
     setError("");
     setBusy(true);
     try {
-      const img = await fileToImage(file);
+      const img = await fileToImage(file, token);
       onChange(img.url);
     } catch (e) {
       setError(e.message);

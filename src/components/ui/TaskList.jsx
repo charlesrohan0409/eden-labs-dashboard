@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, Plus, Trash2, CalendarDays, X, Pencil } from "lucide-react";
+import { Check, Plus, Trash2, CalendarDays, X, Pencil, Repeat } from "lucide-react";
 import Card from "./Card";
 import Badge from "./Badge";
 import PillTabs from "./PillTabs";
@@ -23,9 +23,9 @@ export default function TaskList({ tasks, clients, onAdd, onToggle, onDelete, on
   const scoped = clientId === undefined ? tasks : tasks.filter((t) => t.clientId === clientId);
   const [filter, setFilter] = useState("open");
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ title: "", clientId: clientId ?? "", dueDate: "", priority: "medium" });
+  const [form, setForm] = useState({ title: "", clientId: clientId ?? "", dueDate: "", priority: "medium", recurrence: "none" });
   const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({ title: "", clientId: "", dueDate: "", priority: "medium" });
+  const [editForm, setEditForm] = useState({ title: "", clientId: "", dueDate: "", priority: "medium", recurrence: "none" });
 
   const clientName = (id) => clients.find((c) => c.id === id)?.name;
 
@@ -62,13 +62,14 @@ export default function TaskList({ tasks, clients, onAdd, onToggle, onDelete, on
       clientId: form.clientId || null,
       dueDate: form.dueDate,
       priority: form.priority,
+      recurrence: form.recurrence,
     });
-    setForm({ title: "", clientId: clientId ?? "", dueDate: "", priority: "medium" });
+    setForm({ title: "", clientId: clientId ?? "", dueDate: "", priority: "medium", recurrence: "none" });
     setAdding(false);
   };
 
   const startEdit = (t) => {
-    setEditForm({ title: t.title, clientId: t.clientId || "", dueDate: t.dueDate || "", priority: t.priority || "medium" });
+    setEditForm({ title: t.title, clientId: t.clientId || "", dueDate: t.dueDate || "", priority: t.priority || "medium", recurrence: t.recurrence || "none" });
     setEditingId(t.id);
     setAdding(false);
   };
@@ -79,6 +80,7 @@ export default function TaskList({ tasks, clients, onAdd, onToggle, onDelete, on
       clientId: editForm.clientId || null,
       dueDate: editForm.dueDate,
       priority: editForm.priority,
+      recurrence: editForm.recurrence,
     });
     setEditingId(null);
   };
@@ -154,6 +156,15 @@ export default function TaskList({ tasks, clients, onAdd, onToggle, onDelete, on
               <option value="medium">Medium</option>
               <option value="low">Low</option>
             </select>
+            <select
+              value={form.recurrence}
+              onChange={(e) => setForm({ ...form, recurrence: e.target.value })}
+              className={`${inputCls} w-36`}
+            >
+              <option value="none">Doesn't repeat</option>
+              <option value="daily">Repeats daily</option>
+              <option value="weekly">Repeats weekly</option>
+            </select>
             <PrimaryButton onClick={submit}>Add task</PrimaryButton>
           </div>
         </div>
@@ -202,6 +213,15 @@ export default function TaskList({ tasks, clients, onAdd, onToggle, onDelete, on
                     <option value="medium">Medium</option>
                     <option value="low">Low</option>
                   </select>
+                  <select
+                    value={editForm.recurrence}
+                    onChange={(e) => setEditForm({ ...editForm, recurrence: e.target.value })}
+                    className={`${inputCls} w-36`}
+                  >
+                    <option value="none">Doesn't repeat</option>
+                    <option value="daily">Repeats daily</option>
+                    <option value="weekly">Repeats weekly</option>
+                  </select>
                   <PrimaryButton onClick={submitEdit}>Save</PrimaryButton>
                   <PrimaryButton variant="ghost" onClick={() => setEditingId(null)}>Cancel</PrimaryButton>
                 </div>
@@ -227,8 +247,11 @@ export default function TaskList({ tasks, clients, onAdd, onToggle, onDelete, on
               </button>
 
               <div className="min-w-0 flex-1">
-                <div className={`text-sm leading-snug ${t.done ? "text-stone-400 line-through" : "text-stone-800"}`}>
+                <div className={`text-sm leading-snug flex items-center gap-1.5 ${t.done ? "text-stone-400 line-through" : "text-stone-800"}`}>
                   {t.title}
+                  {t.recurrence && t.recurrence !== "none" && (
+                    <Repeat size={11} className="text-stone-300 shrink-0" title={`Repeats ${t.recurrence}`} />
+                  )}
                 </div>
                 <div className="flex items-center gap-2 mt-1 flex-wrap">
                   {!t.done && <span className={`w-1.5 h-1.5 rounded-full ${p.dot}`} title={`${p.label} priority`} />}

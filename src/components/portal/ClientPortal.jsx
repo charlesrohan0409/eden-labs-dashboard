@@ -264,7 +264,7 @@ export default function ClientPortal({
                 <div className="space-y-1">
                   {clientPosts.map((p) => (
                     <div key={p.id} className="flex justify-between items-start gap-3 text-sm border-b border-stone-100 last:border-0 py-2.5">
-                      <span className="text-stone-600 line-clamp-1">{p.content}</span>
+                      <span className="text-stone-600 line-clamp-1 whitespace-pre-wrap">{p.content}</span>
                       <div className="flex items-center gap-2 shrink-0">
                         <span className="text-xs text-stone-400 tnum">{p.date}</span>
                         <Badge tone={p.status === "published" ? "emerald" : p.status === "scheduled" ? "teal" : "stone"} dot>

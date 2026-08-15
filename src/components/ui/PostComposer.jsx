@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Bold, Italic, Send, Image as ImageIcon, Film, LayoutGrid, BarChart3,
   Type, X, Plus, Clock, UserCheck, Save, Loader2, Radio, Pencil, Trash2,
@@ -46,6 +46,18 @@ export default function PostComposer({
   const [editingId, setEditingId] = useState(null);
   const taRef = useRef(null);
   const fileRef = useRef(null);
+
+  // Grows with the text instead of staying pinned at a small fixed height —
+  // LinkedIn's own composer does this, and a cramped fixed box was exactly
+  // the complaint: no room to actually write a full post before scrolling
+  // inside a tiny window. Runs on every text change, including the
+  // programmatic ones from loadForEditing/reset, not just typing.
+  useEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 560)}px`;
+  }, [text]);
 
   const selectedChannel = bufferChannels.find((c) => c.id === bufferChannelId);
   const editingPost = editingId ? posts.find((p) => p.id === editingId) : null;
@@ -236,7 +248,7 @@ export default function PostComposer({
         </div>
 
         {/* Formatting */}
-        <div className="flex items-center gap-1 mb-2">
+        <div className="flex items-center gap-1 mb-2.5">
           <button onClick={() => applyFormat("bold")} className="p-1.5 rounded-lg hover:bg-stone-100 border border-line" title="Bold selection">
             <Bold size={13} />
           </button>
@@ -251,7 +263,7 @@ export default function PostComposer({
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="What do you want to talk about?"
-          className="w-full h-44 border border-line rounded-xl p-3.5 text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-700/20 resize-y"
+          className="w-full min-h-[260px] border border-line rounded-xl p-4 text-[15px] leading-relaxed text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-700/20 resize-none"
         />
         <div className="flex justify-between text-[11px] text-stone-400 mt-1">
           <span className="tnum">{text.length} characters</span>
@@ -464,7 +476,12 @@ export default function PostComposer({
               }`}
             >
               <button onClick={() => loadForEditing(p)} className="min-w-0 flex-1 text-left">
-                <span className="line-clamp-2 block">{p.content || "(media only)"}</span>
+                {/* whitespace-pre-wrap is the fix here — without it the
+                    browser collapses every line break in the saved post
+                    into a single space, so anything with paragraph breaks
+                    rendered as one run-on wall of text instead of the
+                    actual post. */}
+                <span className="line-clamp-3 block whitespace-pre-wrap">{p.content || "(media only)"}</span>
               </button>
               <div className="flex items-center gap-1.5 shrink-0">
                 <Badge tone={p.status === "published" ? "emerald" : p.status === "scheduled" ? "teal" : p.status === "pending_review" ? "amber" : "stone"}>

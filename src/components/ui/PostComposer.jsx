@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Bold, Italic, Send, Image as ImageIcon, Film, LayoutGrid, BarChart3,
-  Type, X, Plus, Clock, UserCheck, Save, Loader2, Radio, Pencil, Trash2,
+  Type, X, Plus, Clock, UserCheck, Save, Loader2, Radio, Pencil, Trash2, FileText,
 } from "lucide-react";
 import Badge from "./Badge";
 import PrimaryButton from "./PrimaryButton";
 import PostPreview from "./PostPreview";
 import { toUnicodeBold, toUnicodeItalic, nowLocalISO, formatDateTime } from "../../lib/utils";
-import { fileToImage, fileToVideo } from "../../lib/media";
+import { fileToImage, fileToVideo, fileToDocument } from "../../lib/media";
 import { createBufferPost } from "../../lib/buffer";
 
 const POST_TYPES = [
@@ -94,7 +94,9 @@ export default function PostComposer({
     setText(text.slice(0, start) + transformed + text.slice(end));
   };
 
-  const acceptFor = { image: "image/*", carousel: "image/*", video: "video/*" }[type];
+  // Carousel accepts a PDF as well as images — LinkedIn's own carousel IS a
+  // document post, and exporting every page to PNG first was busywork.
+  const acceptFor = { image: "image/*", carousel: "image/*,application/pdf", video: "video/*" }[type];
   const multiple = type === "carousel";
 
   const handleFiles = async (fileList) => {
@@ -106,9 +108,20 @@ export default function PostComposer({
       if (type === "video") {
         const v = await fileToVideo(files[0], token);
         setMedia({ type: "video", items: [v] });
+      } else if (type === "carousel" && files[0]?.type === "application/pdf") {
+        // A PDF is the whole carousel, not one slide among many — it
+        // replaces rather than appends, and stores as media.type
+        // "document" so PostPreview renders it in a viewer instead of
+        // trying to draw it as an <img>. fileToImage would reject it
+        // outright ("that file isn't an image"), which is what used to
+        // make this feel broken.
+        const doc = await fileToDocument(files[0], token);
+        setMedia({ type: "document", items: [{ ...doc, mime: files[0].type }] });
       } else {
         const imgs = await Promise.all(files.map((f) => fileToImage(f, token)));
         setMedia((prev) => {
+          // Switching from a PDF back to images starts fresh rather than
+          // mixing a document item into an image carousel.
           const existing = prev && prev.type === type ? prev.items : [];
           const items = type === "carousel" ? [...existing, ...imgs].slice(0, 20) : [...existing, ...imgs].slice(0, 9);
           return { type, items };
@@ -134,7 +147,12 @@ export default function PostComposer({
     setError("");
     // Media and polls are mutually exclusive on LinkedIn, so clear on switch.
     if (next === "poll" || next === "text") setMedia(null);
-    else if (media && media.type !== next && !(next === "carousel" && media.type === "image")) setMedia(null);
+    else if (
+      media && media.type !== next &&
+      // Both an image set and a PDF are valid carousel payloads, so neither
+      // should be discarded just because Carousel got re-selected.
+      !(next === "carousel" && (media.type === "image" || media.type === "document"))
+    ) setMedia(null);
   };
 
   const pollReady = poll.question.trim() && poll.options.filter((o) => o.text.trim()).length >= 2;
@@ -292,10 +310,10 @@ export default function PostComposer({
                 <>
                   <Plus size={18} className="mx-auto text-stone-400" />
                   <div className="text-xs text-stone-500 mt-1.5">
-                    {type === "video" ? "Upload a video" : type === "carousel" ? "Add carousel slides (images)" : "Add photos"}
+                    {type === "video" ? "Upload a video" : type === "carousel" ? "Add a PDF or carousel slides" : "Add photos"}
                   </div>
                   <div className="text-[11px] text-stone-400 mt-0.5">
-                    {type === "carousel" ? "Up to 20 slides · export your PDF pages as images" : type === "video" ? "MP4 up to 8MB" : "Up to 9 images"}
+                    {type === "carousel" ? "Drop a PDF, or up to 20 images" : type === "video" ? "MP4 up to 8MB" : "Up to 9 images"}
                   </div>
                 </>
               )}
@@ -307,6 +325,13 @@ export default function PostComposer({
                   <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden border border-line bg-stone-50">
                     {media.type === "video" ? (
                       <div className="w-full h-full flex items-center justify-center"><Film size={16} className="text-stone-400" /></div>
+                    ) : media.type === "document" ? (
+                      // A PDF has no image to show — an <img> here just
+                      // renders broken.
+                      <div className="w-full h-full flex flex-col items-center justify-center gap-0.5 px-1">
+                        <FileText size={15} className="text-stone-400" />
+                        <span className="text-[8px] text-stone-400 truncate w-full text-center">{it.name || "PDF"}</span>
+                      </div>
                     ) : (
                       <img src={it.url} alt="" className="w-full h-full object-cover" />
                     )}

@@ -245,6 +245,7 @@ export default function App() {
             onAddPost={actions.addPost}
             onUpdatePost={actions.updatePost}
             onDeletePost={actions.deletePost}
+            onUpdatePostStatus={actions.updatePostStatus}
             onAddSwipe={actions.addSwipe}
             onDeleteSwipe={actions.deleteSwipe}
             onSetAgencyBufferChannel={actions.setAgencyBufferChannel}

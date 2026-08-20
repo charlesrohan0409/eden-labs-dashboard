@@ -13,6 +13,8 @@ import Avatar from "../ui/Avatar";
 import PillTabs from "../ui/PillTabs";
 import PrimaryButton from "../ui/PrimaryButton";
 import PostComposer from "../ui/PostComposer";
+import ContentBoard from "../ui/ContentBoard";
+import { normalizeStatus } from "../../lib/content";
 import PostPreview from "../ui/PostPreview";
 import TaskList from "../ui/TaskList";
 import Modal from "../ui/Modal";
@@ -396,7 +398,14 @@ export default function ClientDetail({
   };
 
   const inputCls = "border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
-  const reviewQueue = data.posts.filter((p) => p.clientId === client.id && (p.status === "draft" || p.status === "pending_review"));
+  // normalizeStatus so the legacy "draft" status and the board's "writing"
+  // column both land here — hardcoding raw strings is what made a post
+  // silently disappear from a view once a new status existed.
+  const reviewQueue = data.posts.filter((p) => {
+    if (p.clientId !== client.id) return false;
+    const st = normalizeStatus(p.status);
+    return st === "writing" || st === "pending_review";
+  });
   const contractEnded = client.contract.status === "ended";
 
   return (
@@ -713,6 +722,29 @@ export default function ClientDetail({
       {/* ══ Content ══ */}
       {activeTab === "content" && (
         <div className="space-y-4">
+          {/* Client boards carry the extra "In review" column — the post
+              goes to their portal and they approve or ask for changes, which
+              is a real handoff rather than a status you set yourself. */}
+          <Card className="p-4 sm:p-5">
+            <CardTitle sub="Drag a post between columns — or use the ⋮ menu on touch">
+              Content pipeline
+            </CardTitle>
+            <ContentBoard
+              posts={data.posts.filter((p) => p.clientId === client.id)}
+              clients={data.clients}
+              clientId={client.id}
+              onUpdateStatus={onUpdatePostStatus}
+              onDelete={onDeletePost}
+              onAddIdea={(content) =>
+                onAddPost({
+                  clientId: client.id, content, status: "idea", type: "text",
+                  media: null, poll: null, scheduledAt: null,
+                  date: new Date().toISOString().slice(0, 10),
+                })
+              }
+            />
+          </Card>
+
           <Card className="p-4 sm:p-5">
             {/* No Buffer wiring here on purpose: Buffer is connected under
                 Charles's own account (see Integrations), and its channels are
@@ -742,7 +774,7 @@ export default function ClientDetail({
                 <div key={p.id} className="border border-line rounded-xl overflow-hidden">
                   <div className="flex items-center gap-2 px-3.5 py-2.5 bg-stone-50 border-b border-stone-100 flex-wrap">
                     <Badge tone={p.status === "pending_review" ? "amber" : "stone"} dot>
-                      {p.status === "pending_review" ? "awaiting client" : "draft"}
+                      {normalizeStatus(p.status) === "pending_review" ? "awaiting client" : "writing"}
                     </Badge>
                     {p.scheduledAt && (
                       <span className="inline-flex items-center gap-1 text-[11px] text-stone-500">

@@ -27,6 +27,11 @@ function ReactionIcons() {
 }
 
 // ---------- Media renderers ----------
+// mime is set at upload time; the extension check covers anything stored
+// before that field existed.
+const isPdf = (item) =>
+  item?.mime === "application/pdf" || /\.pdf($|\?)/i.test(item?.url || "");
+
 function Carousel({ items }) {
   const [idx, setIdx] = useState(0);
   const safe = Math.min(idx, items.length - 1);
@@ -34,10 +39,20 @@ function Carousel({ items }) {
   return (
     <div className="relative bg-[#F4F2EE] border-y border-black/[0.08]">
       <div className="aspect-[4/3] flex items-center justify-center overflow-hidden">
-        {items[safe]?.url ? (
-          <img src={items[safe].url} alt="" className="w-full h-full object-contain" />
-        ) : (
+        {!items[safe]?.url ? (
           <FileText size={28} className="text-stone-300" />
+        ) : isPdf(items[safe]) ? (
+          // A PDF carousel renders in the browser's own viewer — the same
+          // approach the uploaded-contract preview uses. An <img> here would
+          // just be a broken icon. #toolbar=0 keeps it looking like a slide
+          // rather than a document window.
+          <iframe
+            title={items[safe].name || "Carousel PDF"}
+            src={`${items[safe].url}#toolbar=0&navpanes=0&view=FitH`}
+            className="w-full h-full bg-white"
+          />
+        ) : (
+          <img src={items[safe].url} alt="" className="w-full h-full object-contain" />
         )}
       </div>
 
@@ -60,10 +75,14 @@ function Carousel({ items }) {
         </>
       )}
 
-      {/* LinkedIn shows documents as a page counter pill, bottom-left. */}
-      <div className="absolute bottom-2 left-2 bg-black/70 text-white text-[11px] px-2 py-0.5 rounded">
-        {safe + 1} / {items.length}
-      </div>
+      {/* LinkedIn shows documents as a page counter pill, bottom-left. A
+          single PDF has its own page count inside the viewer, so showing
+          "1 / 1" over it would just be wrong-looking. */}
+      {!(items.length === 1 && isPdf(items[0])) && (
+        <div className="absolute bottom-2 left-2 bg-black/70 text-white text-[11px] px-2 py-0.5 rounded">
+          {safe + 1} / {items.length}
+        </div>
+      )}
     </div>
   );
 }

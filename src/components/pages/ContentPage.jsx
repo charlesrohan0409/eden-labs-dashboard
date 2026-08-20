@@ -7,8 +7,11 @@ import PillTabs from "../ui/PillTabs";
 import PostComposer from "../ui/PostComposer";
 import CommentsInbox from "../ui/CommentsInbox";
 import Modal from "../ui/Modal";
+import ContentBoard from "../ui/ContentBoard";
+import SavedContent from "../ui/SavedContent";
 import { useBufferPerformance } from "../../hooks/useBufferPerformance";
 import { formatDateTime } from "../../lib/utils";
+import { normalizeStatus } from "../../lib/content";
 
 const MONTH_NAMES = [
   "January","February","March","April","May","June",
@@ -170,19 +173,13 @@ function ContentCalendar({ posts, clients }) {
   );
 }
 
-export default function ContentPage({ data, onAddPost, onUpdatePost, onDeletePost, onAddSwipe, onDeleteSwipe, onSetAgencyBufferChannel, token }) {
-  const [view, setView] = useState("composer");
-  const [note, setNote] = useState("");
-  const [source, setSource] = useState("");
-  const [tag, setTag] = useState("hook");
-  const [search, setSearch] = useState("");
+export default function ContentPage({ data, onAddPost, onUpdatePost, onDeletePost, onUpdatePostStatus, onAddSwipe, onDeleteSwipe, onSetAgencyBufferChannel, token }) {
+  const [view, setView] = useState("board");
 
-  const filtered = data.swipeFile.filter((s) => {
-    const q = search.trim().toLowerCase();
-    return !q || s.note.toLowerCase().includes(q) || (s.source || "").toLowerCase().includes(q) || (s.tag || "").toLowerCase().includes(q);
-  });
-
-  const byStatus = (status) => data.posts.filter((p) => p.status === status).length;
+  // Agency content only — a client's posts live on their own page, where the
+  // board additionally shows the approval column.
+  const agencyPosts = data.posts.filter((p) => !p.clientId);
+  const byStage = (stage) => agencyPosts.filter((p) => normalizeStatus(p.status) === stage).length;
   const inputCls = "border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
   const bufferIntegration = data.integrations.find((i) => i.id === "buffer") || { connected: false, channels: [] };
   // 90 days keeps the comment list to conversations still worth joining.
@@ -194,7 +191,7 @@ export default function ContentPage({ data, onAddPost, onUpdatePost, onDeletePos
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-stone-900">Content</h1>
           <p className="text-sm text-stone-500 mt-1">
-            {byStatus("published")} published · {byStatus("scheduled")} scheduled · {byStatus("draft")} drafts
+            {byStage("idea")} ideas · {byStage("writing")} writing · {byStage("scheduled")} scheduled · {byStage("published")} published
           </p>
         </div>
       </div>
@@ -204,11 +201,36 @@ export default function ContentPage({ data, onAddPost, onUpdatePost, onDeletePos
         value={view}
         onChange={setView}
         options={[
+          { value: "board", label: "Board" },
           { value: "composer", label: "Composer" },
           { value: "calendar", label: "Calendar" },
-          { value: "swipe", label: "Swipe file" },
+          { value: "saved", label: "Saved content" },
         ]}
       />
+
+      {/* ══ Board ══ */}
+      {view === "board" && (
+        <Card className="p-4 sm:p-5">
+          <CardTitle sub="Drag a post between columns — or use the ⋮ menu on touch">
+            Content pipeline
+          </CardTitle>
+          <ContentBoard
+            posts={agencyPosts}
+            clients={data.clients}
+            clientId={null}
+            onUpdateStatus={onUpdatePostStatus}
+            onDelete={onDeletePost}
+            onOpen={() => setView("composer")}
+            onAddIdea={(content) =>
+              onAddPost({
+                clientId: null, content, status: "idea", type: "text",
+                media: null, poll: null, scheduledAt: null,
+                date: new Date().toISOString().slice(0, 10),
+              })
+            }
+          />
+        </Card>
+      )}
 
       {/* ══ Composer ══ */}
       {view === "composer" && (
@@ -250,73 +272,11 @@ export default function ContentPage({ data, onAddPost, onUpdatePost, onDeletePos
         <ContentCalendar posts={data.posts} clients={data.clients} />
       )}
 
-      {/* ══ Swipe file ══ */}
-      {view === "swipe" && (
-        <Card className="p-5">
-          <CardTitle
-            sub="Hooks and structures worth stealing"
-            action={<Sparkles size={15} className="text-amber-500 shrink-0" />}
-          >
-            Swipe file
-          </CardTitle>
-
-          <div className="relative mb-4">
-            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-300" />
-            <input
-              placeholder="Search by source, tag, or note..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-white border border-line rounded-full pl-10 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700/20"
-            />
-          </div>
-
-          <div className="space-y-1 mb-4">
-            {filtered.map((s) => (
-              <div key={s.id} className="group text-sm text-stone-600 border-b border-stone-100 last:border-0 py-2.5 flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <span className="font-semibold text-stone-800">{s.source}</span>
-                  <span className="text-stone-400"> — </span>
-                  {s.note}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {s.tag && <Badge tone="stone">{s.tag}</Badge>}
-                  <button
-                    onClick={() => onDeleteSwipe(s.id)}
-                    aria-label="Delete swipe file entry"
-                    className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-stone-300 hover:text-rose-500 transition p-1"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              </div>
-            ))}
-            {filtered.length === 0 && <div className="text-xs text-stone-400 py-6 text-center">No matches.</div>}
-          </div>
-
-          <div className="flex gap-2 flex-wrap pt-4 border-t border-stone-100">
-            <input placeholder="Source (e.g. Justin Welsh)" value={source} onChange={(e) => setSource(e.target.value)} className={`${inputCls} flex-1 min-w-[9rem]`} />
-            <input placeholder="Save a hook or pattern you liked..." value={note} onChange={(e) => setNote(e.target.value)} className={`${inputCls} flex-1 min-w-[11rem]`} />
-            <select value={tag} onChange={(e) => setTag(e.target.value)} className={`${inputCls} w-28`}>
-              <option value="hook">hook</option>
-              <option value="structure">structure</option>
-              <option value="cta">cta</option>
-              <option value="story">story</option>
-            </select>
-            <PrimaryButton
-              icon={Plus}
-              variant="dark"
-              onClick={() => {
-                if (!note.trim()) return;
-                onAddSwipe({ source: source.trim() || "Saved", note, tag });
-                setNote("");
-                setSource("");
-              }}
-            >
-              Save
-            </PrimaryButton>
-          </div>
-        </Card>
+      {/* ══ Saved content ══ */}
+      {view === "saved" && (
+        <SavedContent items={data.swipeFile} onAdd={onAddSwipe} onDelete={onDeleteSwipe} />
       )}
+
     </div>
   );
 }

@@ -240,6 +240,27 @@ export function deletePost(d, id) {
   d.posts = d.posts.filter((x) => x.id !== id);
   return d;
 }
+
+// Reconciles scheduled posts against what Buffer says actually went out.
+// `sent` is [{ bufferPostId, sentAt }] built from Buffer's own post list.
+//
+// Only ever moves scheduled -> published, never the reverse: Buffer is
+// authoritative about "did this go out", but NOT about anything the owner
+// subsequently did in this app, so a post manually marked published must not
+// be dragged back because Buffer hasn't caught up.
+export function syncPublishedFromBuffer(d, sent = []) {
+  const byId = new Map(sent.filter((s) => s.bufferPostId).map((s) => [String(s.bufferPostId), s]));
+  let changed = 0;
+  d.posts.forEach((p) => {
+    if (!p.bufferPostId || p.status === "published") return;
+    const hit = byId.get(String(p.bufferPostId));
+    if (!hit) return;
+    p.status = "published";
+    if (hit.sentAt) p.date = String(hit.sentAt).slice(0, 10);
+    changed += 1;
+  });
+  return { data: d, changed };
+}
 export function addSwipe(d, s) {
   d.swipeFile.push({ id: uid(), ...s });
   return d;

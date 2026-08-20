@@ -1,12 +1,12 @@
 import { useRef, useState } from "react";
 import {
   Type, Image as ImageIcon, LayoutGrid, Film, BarChart3, FileText,
-  MoreVertical, Clock, MessageSquare, ThumbsUp, Eye, Trash2, Plus,
+  MoreVertical, Clock, MessageSquare, ThumbsUp, Eye, Trash2, Plus, SlidersHorizontal,
 } from "lucide-react";
 import Avatar from "./Avatar";
 import {
   stagesFor, STAGE_META, normalizeStatus, POST_TYPE_META,
-  LINKEDIN_CHAR_LIMIT, hookOf,
+  LINKEDIN_CHAR_LIMIT, hookOf, contentTypeLabel, topicsInUse,
 } from "../../lib/content";
 import { formatDateTime } from "../../lib/utils";
 
@@ -146,6 +146,7 @@ function PostCard({ post, client, onOpen, onMove, onDelete, stages, onDragStart,
  */
 export default function ContentBoard({
   posts, clients, clientId = null, onUpdateStatus, onOpen, onDelete, onAddIdea,
+  onRequestSchedule, filters, onFiltersChange,
 }) {
   const [draggingId, setDraggingId] = useState(null);
   const [dragOverStage, setDragOverStage] = useState(null);
@@ -165,7 +166,13 @@ export default function ContentBoard({
     const id = e.dataTransfer.getData("text/plain") || draggingId;
     const post = posts.find((p) => p.id === id);
     setDraggingId(null);
-    if (post && normalizeStatus(post.status) !== stage) onUpdateStatus(id, stage);
+    if (!post || normalizeStatus(post.status) === stage) return;
+    // "Scheduled" used to be just a label change, which meant the board could
+    // claim a post was scheduled when nothing was queued anywhere. Moving
+    // into that column now has to go through the schedule flow (pick a time,
+    // push to Buffer) and only lands if that succeeds.
+    if (stage === "scheduled" && onRequestSchedule) onRequestSchedule(post);
+    else onUpdateStatus(id, stage);
   };
 
   const submitIdea = () => {
@@ -176,12 +183,37 @@ export default function ContentBoard({
     setAddingIdea(false);
   };
 
+  // Filters live above the board rather than as chips on every card. The
+  // board answers "what do I write next"; type/topic answer a different
+  // question, and putting both on the card is how a clean board turns into
+  // the Notion-lookalike this was explicitly meant not to be.
+  const f = filters || {};
+  const matchesFilters = (p) => {
+    if (f.format && (p.type || "text") !== f.format) return false;
+    if (f.contentType && p.contentType !== f.contentType) return false;
+    if (f.topic && (p.topic || "").toLowerCase() !== f.topic.toLowerCase()) return false;
+    return true;
+  };
+  const filtered = posts.filter(matchesFilters);
+  const activeCount = [f.format, f.contentType, f.topic].filter(Boolean).length;
+
   return (
+    <>
+      {onFiltersChange && (
+        <ContentFilters
+          posts={posts}
+          filters={f}
+          onChange={onFiltersChange}
+          activeCount={activeCount}
+          showing={filtered.length}
+          total={posts.length}
+        />
+      )}
     <div className="overflow-x-auto -mx-4 px-4 md:-mx-5 md:px-5 pb-3">
       <div className="flex gap-3 min-w-max">
         {stages.map((stage) => {
           const meta = STAGE_META[stage];
-          const inStage = posts.filter((p) => normalizeStatus(p.status) === stage);
+          const inStage = filtered.filter((p) => normalizeStatus(p.status) === stage);
           const isOver = dragOverStage === stage;
           return (
             <div
@@ -250,7 +282,11 @@ export default function ContentBoard({
                     client={p.clientId ? clientOf(p.clientId) : null}
                     stages={stages}
                     onOpen={onOpen}
-                    onMove={onUpdateStatus}
+                    onMove={(pid, stage) => {
+                      const p = posts.find((x) => x.id === pid);
+                      if (stage === "scheduled" && onRequestSchedule && p) onRequestSchedule(p);
+                      else onUpdateStatus(pid, stage);
+                    }}
                     onDelete={onDelete}
                     onDragStart={setDraggingId}
                     onDragEnd={() => { setDraggingId(null); setDragOverStage(null); }}
@@ -270,6 +306,58 @@ export default function ContentBoard({
           );
         })}
       </div>
+    </div>
+    </>
+  );
+}
+
+/**
+ * Filter bar. Deliberately the home for type/topic instead of the cards —
+ * see the note in ContentBoard. Only offers values that actually exist in
+ * the data, so it never presents a filter that returns nothing.
+ */
+function ContentFilters({ posts, filters, onChange, activeCount, showing, total }) {
+  const usedFormats = [...new Set(posts.map((p) => p.type || "text"))];
+  const usedTypes = [...new Set(posts.map((p) => p.contentType).filter(Boolean))];
+  const topics = topicsInUse(posts);
+  const set = (key) => (e) => onChange({ ...filters, [key]: e.target.value });
+  const sel = "border border-line rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
+
+  if (!usedFormats.length) return null;
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap mb-3">
+      <SlidersHorizontal size={13} className="text-stone-400 shrink-0" />
+      <select className={sel} value={filters.format || ""} onChange={set("format")}>
+        <option value="">All formats</option>
+        {usedFormats.map((t) => (
+          <option key={t} value={t}>{POST_TYPE_META[t]?.label || t}</option>
+        ))}
+      </select>
+      {usedTypes.length > 0 && (
+        <select className={sel} value={filters.contentType || ""} onChange={set("contentType")}>
+          <option value="">All types</option>
+          {usedTypes.map((t) => <option key={t} value={t}>{contentTypeLabel(t)}</option>)}
+        </select>
+      )}
+      {topics.length > 0 && (
+        <select className={sel} value={filters.topic || ""} onChange={set("topic")}>
+          <option value="">All topics</option>
+          {topics.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+      )}
+      {activeCount > 0 && (
+        <>
+          <span className="text-[11px] text-stone-400">{showing} of {total}</span>
+          <button
+            onClick={() => onChange({})}
+            className={`text-[11px] text-stone-500 hover:text-stone-800 underline underline-offset-2
+              transition-transform duration-150 ${EASE} active:scale-[0.97]`}
+          >
+            Clear
+          </button>
+        </>
+      )}
     </div>
   );
 }

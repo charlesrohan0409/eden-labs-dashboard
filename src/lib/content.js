@@ -97,6 +97,43 @@ export const POST_TYPE_META = {
   poll:     { label: "Poll",     accent: "text-amber-600",   chip: "bg-amber-50 text-amber-700" },
 };
 
+// ---- content type (the ANGLE, not the format) ----
+//
+// Deliberately a separate axis from `type` (text/carousel/image/poll), which
+// is the FORMAT. Format answers "what does this look like in the feed";
+// contentType answers "what kind of writing is it". Both matter, but only one
+// belongs on the card face — see ContentBoard: format is the icon, because an
+// icon costs no attention to read, while contentType lives in the filter bar
+// and in analytics, which is where the question it answers actually gets
+// asked. Putting both on every card is how a clean board turns into noise.
+export const CONTENT_TYPES = [
+  { id: "short",       label: "Short form" },
+  { id: "long",        label: "Long form" },
+  { id: "listicle",    label: "Listicle" },
+  { id: "howto",       label: "How-to" },
+  { id: "story",       label: "Personal story" },
+  { id: "educational", label: "Educational" },
+  { id: "infographic", label: "Infographic" },
+  { id: "opinion",     label: "Opinion / hot take" },
+  { id: "casestudy",   label: "Case study" },
+];
+export const contentTypeLabel = (id) =>
+  CONTENT_TYPES.find((t) => t.id === id)?.label || "";
+
+// Topics are the owner's own vocabulary rather than a fixed list — what
+// "pricing" or "hiring" means is specific to who's writing, and a generic
+// taxonomy would be worse than useless for spotting what to double down on.
+// Stored as a free string per post; the known set is derived from what's
+// actually been used, so the dropdown grows on its own.
+export function topicsInUse(posts = []) {
+  const seen = new Map();
+  posts.forEach((p) => {
+    const t = (p.topic || "").trim();
+    if (t) seen.set(t.toLowerCase(), t);
+  });
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+}
+
 export const LINKEDIN_CHAR_LIMIT = 3000;
 
 // The hook — LinkedIn truncates around 210 characters on desktop, so the

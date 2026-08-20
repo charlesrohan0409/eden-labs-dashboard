@@ -56,7 +56,54 @@ function localToUtcISO(localDatetime) {
  * concept of "draft in our app" — this is only called once a post is actually
  * being sent to Buffer's queue.
  */
-export async function createBufferPost({ text, channelId, scheduledAt }) {
+/**
+ * Turns this app's `media` object into Buffer's `assets` array.
+ *
+ * Buffer has no file-upload endpoint — you host the file and hand it a
+ * publicly reachable URL, which it fetches when the post goes out. That
+ * happens to be exactly what we already have: media was migrated off inline
+ * base64 onto Supabase Storage public URLs in an earlier pass, so nothing
+ * needs uploading again here.
+ *
+ * Two consequences worth knowing:
+ *  - The URL must stay reachable until the post PUBLISHES, not just until
+ *    it's scheduled. Deleting a Storage object for a queued post breaks it.
+ *  - Polls have no Buffer equivalent, so they can't be scheduled remotely.
+ */
+export function mediaToAssets(media) {
+  if (!media?.items?.length) return [];
+  const urls = media.items.map((i) => i.url).filter(Boolean);
+  if (!urls.length) return [];
+
+  switch (media.type) {
+    case "video":
+      return [{ video: { url: urls[0] } }];
+    case "document":
+      return [{ document: { url: urls[0] } }];
+    case "image":
+    case "carousel":
+      // An ordered array of images IS a carousel to Buffer — same shape,
+      // one entry per slide.
+      return urls.map((url) => ({ image: { url } }));
+    default:
+      return [];
+  }
+}
+
+export function bufferSupportsMedia(media) {
+  if (!media) return true;              // text-only always works
+  if (media.type === "poll") return false;
+  return mediaToAssets(media).length > 0;
+}
+
+/**
+ * Schedules a post to a specific channel and moment, with media if present.
+ * Buffer has no concept of "draft in our app" — this is only called once a
+ * post is actually being sent to Buffer's queue.
+ */
+export async function createBufferPost({ text, channelId, scheduledAt, media = null }) {
+  const assets = mediaToAssets(media);
+
   const data = await bufferGraphQL(
     `mutation CreatePost($input: CreatePostInput!) {
       createPost(input: $input) {
@@ -71,6 +118,7 @@ export async function createBufferPost({ text, channelId, scheduledAt }) {
         schedulingType: "automatic",
         mode: "customScheduled",
         dueAt: localToUtcISO(scheduledAt),
+        ...(assets.length ? { assets } : {}),
       },
     }
   );

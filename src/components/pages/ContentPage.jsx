@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Sparkles, Search, Plus, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import Card, { CardTitle } from "../ui/Card";
 import Badge from "../ui/Badge";
@@ -9,6 +9,8 @@ import CommentsInbox from "../ui/CommentsInbox";
 import Modal from "../ui/Modal";
 import ContentBoard from "../ui/ContentBoard";
 import SavedContent from "../ui/SavedContent";
+import ScheduleModal from "../ui/ScheduleModal";
+import ContentAnalytics from "../ui/ContentAnalytics";
 import { useBufferPerformance } from "../../hooks/useBufferPerformance";
 import { formatDateTime } from "../../lib/utils";
 import { normalizeStatus } from "../../lib/content";
@@ -173,8 +175,13 @@ function ContentCalendar({ posts, clients }) {
   );
 }
 
-export default function ContentPage({ data, onAddPost, onUpdatePost, onDeletePost, onUpdatePostStatus, onAddSwipe, onDeleteSwipe, onSetAgencyBufferChannel, token }) {
+export default function ContentPage({
+  data, onAddPost, onUpdatePost, onDeletePost, onUpdatePostStatus,
+  onAddSwipe, onDeleteSwipe, onSetAgencyBufferChannel, onSyncPublished, token,
+}) {
   const [view, setView] = useState("board");
+  const [filters, setFilters] = useState({});
+  const [scheduling, setScheduling] = useState(null);
 
   // Agency content only — a client's posts live on their own page, where the
   // board additionally shows the approval column.
@@ -184,6 +191,29 @@ export default function ContentPage({ data, onAddPost, onUpdatePost, onDeletePos
   const bufferIntegration = data.integrations.find((i) => i.id === "buffer") || { connected: false, channels: [] };
   // 90 days keeps the comment list to conversations still worth joining.
   const perf = useBufferPerformance({ enabled: bufferIntegration.connected, range: "90" });
+
+  // Auto-move scheduled -> published once Buffer says the post actually went
+  // out. Runs on whatever Buffer data is already loaded rather than polling,
+  // so it costs no extra requests. The ref guards against re-firing the same
+  // reconciliation on every render — the mutation is idempotent, but each
+  // call rewrites the whole blob, which is exactly the write amplification
+  // that got the bandwidth budget blown once already.
+  const syncedRef = useRef("");
+  useEffect(() => {
+    if (!onSyncPublished || !perf.data?.posts?.length) return;
+    const sent = perf.data.posts
+      .filter((bp) => bp.status === "sent" || bp.sentAt)
+      .map((bp) => ({ bufferPostId: bp.id, sentAt: bp.sentAt }));
+    const pending = data.posts.filter(
+      (p) => p.bufferPostId && p.status !== "published" &&
+             sent.some((s) => String(s.bufferPostId) === String(p.bufferPostId))
+    );
+    if (!pending.length) return;
+    const key = pending.map((p) => p.id).sort().join(",");
+    if (syncedRef.current === key) return;
+    syncedRef.current = key;
+    onSyncPublished(sent);
+  }, [perf.data, data.posts, onSyncPublished]);
 
   return (
     <div className="space-y-5">
@@ -204,6 +234,7 @@ export default function ContentPage({ data, onAddPost, onUpdatePost, onDeletePos
           { value: "board", label: "Board" },
           { value: "composer", label: "Composer" },
           { value: "calendar", label: "Calendar" },
+          { value: "analytics", label: "Analytics" },
           { value: "saved", label: "Saved content" },
         ]}
       />
@@ -221,6 +252,9 @@ export default function ContentPage({ data, onAddPost, onUpdatePost, onDeletePos
             onUpdateStatus={onUpdatePostStatus}
             onDelete={onDeletePost}
             onOpen={() => setView("composer")}
+            onRequestSchedule={setScheduling}
+            filters={filters}
+            onFiltersChange={setFilters}
             onAddIdea={(content) =>
               onAddPost({
                 clientId: null, content, status: "idea", type: "text",
@@ -272,11 +306,33 @@ export default function ContentPage({ data, onAddPost, onUpdatePost, onDeletePos
         <ContentCalendar posts={data.posts} clients={data.clients} />
       )}
 
+      {/* ══ Analytics ══ */}
+      {view === "analytics" && (
+        <ContentAnalytics
+          posts={data.posts}
+          bufferPosts={perf.data?.posts || []}
+          loading={perf.loading}
+          error={bufferIntegration.connected ? perf.error : "Connect Buffer on the Integrations page to see what's working."}
+          onRefresh={perf.refresh}
+        />
+      )}
+
       {/* ══ Saved content ══ */}
       {view === "saved" && (
         <SavedContent items={data.swipeFile} onAdd={onAddSwipe} onDelete={onDeleteSwipe} />
       )}
 
+      <ScheduleModal
+        open={!!scheduling}
+        post={scheduling}
+        channels={bufferIntegration.channels || []}
+        channelId={bufferIntegration.agencyChannelId}
+        bufferConnected={bufferIntegration.connected}
+        onClose={() => setScheduling(null)}
+        onConfirm={({ scheduledAt, bufferPostId }) => {
+          onUpdatePost(scheduling.id, { status: "scheduled", scheduledAt, bufferPostId });
+        }}
+      />
     </div>
   );
 }

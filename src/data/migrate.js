@@ -155,6 +155,15 @@ export function migrateData(loaded) {
     merged.settings = { ...merged.settings, currency: "INR", currencyDefaultApplied: true };
   }
 
+  // Posts gained an angle (contentType), a topic, and the Buffer post id that
+  // lets metrics be joined back exactly rather than by fuzzy text match.
+  // All blank by default — guessing an angle for historical posts would put
+  // fabricated data straight into the analytics this is meant to inform.
+  merged.posts = merged.posts.map((p) => ({
+    contentType: "", topic: "", bufferPostId: null,
+    ...p,
+  }));
+
   // ---- personal finance ----
   merged.accounts = merged.accounts.map((a) => ({
     name: "", type: "main", balance: 0, currency: "INR", note: "",

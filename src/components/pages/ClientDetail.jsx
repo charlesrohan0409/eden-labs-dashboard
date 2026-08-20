@@ -103,6 +103,7 @@ export default function ClientDetail({
   onUpdateClientNotes, onLogActivity, token,
 }) {
   const [tab, setTab] = useState("overview");
+  const [boardFilters, setBoardFilters] = useState({});
   const [dmForm, setDmForm] = useState({ direction: "sent", content: "" });
   const [contractInput, setContractInput] = useState("");
   const [contractUploading, setContractUploading] = useState(false);
@@ -735,6 +736,8 @@ export default function ClientDetail({
               clientId={client.id}
               onUpdateStatus={onUpdatePostStatus}
               onDelete={onDeletePost}
+              filters={boardFilters}
+              onFiltersChange={setBoardFilters}
               onAddIdea={(content) =>
                 onAddPost({
                   clientId: client.id, content, status: "idea", type: "text",

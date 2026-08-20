@@ -9,7 +9,7 @@ import PostPreview from "./PostPreview";
 import { toUnicodeBold, toUnicodeItalic, nowLocalISO, formatDateTime } from "../../lib/utils";
 import { fileToImage, fileToVideo, fileToDocument } from "../../lib/media";
 import { createBufferPost } from "../../lib/buffer";
-import { normalizeStatus, STAGE_META, POST_TYPE_META, hookOf } from "../../lib/content";
+import { normalizeStatus, STAGE_META, POST_TYPE_META, hookOf, CONTENT_TYPES, topicsInUse } from "../../lib/content";
 
 // Icon per post type, reusing the same vocabulary POST_TYPES below is built
 // from — "document" (PDF carousels) has no entry there since it's not a
@@ -44,6 +44,8 @@ export default function PostComposer({
   const [type, setType] = useState("text");
   const [media, setMedia] = useState(null);
   const [poll, setPoll] = useState(EMPTY_POLL);
+  const [contentType, setContentType] = useState("");
+  const [topic, setTopic] = useState("");
   const [scheduledAt, setScheduledAt] = useState(nowLocalISO(60));
   const [busy, setBusy] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -65,16 +67,18 @@ export default function PostComposer({
     el.style.height = `${Math.min(el.scrollHeight, 560)}px`;
   }, [text]);
 
+  const knownTopics = topicsInUse(posts);
   const selectedChannel = bufferChannels.find((c) => c.id === bufferChannelId);
   const editingPost = editingId ? posts.find((p) => p.id === editingId) : null;
   // Once a post is actually live in Buffer, re-saving here must never fire a
   // second createPost — that would duplicate it on LinkedIn. Editing text
   // still updates our own record; it just can't touch what's already queued.
   const alreadyOnBuffer = !!editingPost?.bufferPostId;
-  // Buffer's public API only takes plain text on createPost — no polls, no
-  // media attach yet — so that's the only combination we publish directly.
-  // Everything else still schedules, just locally, until that's built out.
-  const canPublishToBuffer = bufferConnected && !!bufferChannelId && type === "text" && !alreadyOnBuffer;
+  // Buffer accepts media by URL rather than upload, and this app already
+  // stores media as public Supabase Storage URLs, so images/carousels/PDFs
+  // publish directly now. Polls are the one exception — Buffer has no
+  // equivalent, so they stay local-only.
+  const canPublishToBuffer = bufferConnected && !!bufferChannelId && type !== "poll" && !alreadyOnBuffer;
 
   const loadForEditing = (p) => {
     setEditingId(p.id);
@@ -82,6 +86,8 @@ export default function PostComposer({
     setType(p.type || "text");
     setMedia(p.media || null);
     setPoll(p.poll || EMPTY_POLL);
+    setContentType(p.contentType || "");
+    setTopic(p.topic || "");
     setScheduledAt(p.scheduledAt || nowLocalISO(60));
     setError("");
     setStatus("");
@@ -171,6 +177,11 @@ export default function PostComposer({
     type,
     media: type === "poll" ? null : media,
     poll: type === "poll" && pollReady ? poll : null,
+    // The ANGLE and SUBJECT, as opposed to `type` above which is the format.
+    // Both are what the analytics board groups by — a post saved without them
+    // simply won't appear in those breakdowns rather than being guessed at.
+    contentType,
+    topic: topic.trim(),
     scheduledAt: postStatus === "scheduled" ? scheduledAt : null,
     date: (postStatus === "scheduled" ? scheduledAt : new Date().toISOString()).slice(0, 10),
   });
@@ -180,6 +191,8 @@ export default function PostComposer({
     setMedia(null);
     setPoll(EMPTY_POLL);
     setType("text");
+    setContentType("");
+    setTopic("");
     setEditingId(null);
   };
 
@@ -203,7 +216,7 @@ export default function PostComposer({
     if (postStatus === "scheduled" && canPublishToBuffer) {
       setPublishing(true);
       try {
-        const bufferPost = await createBufferPost({ text, channelId: bufferChannelId, scheduledAt });
+        const bufferPost = await createBufferPost({ text, channelId: bufferChannelId, scheduledAt, media: type === "poll" ? null : media });
         post.bufferPostId = bufferPost.id;
         successMessage = `Scheduled for ${formatDateTime(scheduledAt)} on ${selectedChannel?.name || "Buffer"} — live in your Buffer queue.`;
       } catch (e) {
@@ -414,6 +427,40 @@ export default function PostComposer({
             </div>
           </div>
         )}
+
+        {/* Angle + topic. Separate from the format buttons above on purpose:
+            format is what the post LOOKS like, these are what it IS. Only
+            these two feed the analytics breakdowns, which is why they're
+            worth one dropdown each at write time rather than being
+            backfilled (or guessed) later. */}
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-[10px] font-semibold text-stone-400 uppercase tracking-wide mb-1">
+              Type
+            </label>
+            <select value={contentType} onChange={(e) => setContentType(e.target.value)} className={`${inputCls} w-full`}>
+              <option value="">Not set</option>
+              {CONTENT_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] font-semibold text-stone-400 uppercase tracking-wide mb-1">
+              Topic
+            </label>
+            <input
+              list="eden-topics"
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              placeholder="e.g. pricing, hiring"
+              className={`${inputCls} w-full`}
+            />
+            {/* Grows from what's already been used rather than a fixed list —
+                the right topics are specific to who's writing. */}
+            <datalist id="eden-topics">
+              {knownTopics.map((t) => <option key={t} value={t} />)}
+            </datalist>
+          </div>
+        </div>
 
         {/* Schedule */}
         <div className="mt-3 flex items-center gap-2 flex-wrap">

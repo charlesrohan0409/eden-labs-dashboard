@@ -18,29 +18,91 @@ chrome.runtime.onInstalled.addListener(() => {
     title: 'Save "%s" to Eden Labs CRM',
     contexts: ["selection"],
   });
+
+  // Right-click ANY profile link — a name in the feed, a connections-list
+  // row, a sidebar "People also viewed" card, a search result — and add it
+  // to the comment list. Not restricted to being ON a profile page, unlike
+  // overlay.js's pinned "+ Add this profile" button, which only knows about
+  // the page you're currently viewing.
+  chrome.contextMenus.create({
+    id: "add-comment-target",
+    title: "Add to Eden Labs comment list",
+    contexts: ["link"],
+    documentUrlPatterns: ["*://*.linkedin.com/*"],
+    targetUrlPatterns: ["*://*.linkedin.com/in/*"],
+  });
+
+  // Right-click selected post text on LinkedIn to save it to the content
+  // library (data.swipeFile) — the extension-capture half of Phase 3's
+  // saved-content upgrade, which previously only had a manual add form on
+  // the dashboard itself.
+  chrome.contextMenus.create({
+    id: "save-swipe",
+    title: 'Save "%s" to Eden Labs content',
+    contexts: ["selection"],
+    documentUrlPatterns: ["*://*.linkedin.com/*"],
+  });
 });
 
+// Chrome's contextMenus API hands the click handler a linkUrl but never the
+// link's visible TEXT — so overlay.js listens for the native `contextmenu`
+// event itself (fires synchronously right before the menu opens) and ships
+// its best guess at the name/photo over here ahead of time. Keyed by tab,
+// since multiple LinkedIn tabs can be open at once.
+const contextTargets = new Map();
+chrome.tabs.onRemoved.addListener((tabId) => contextTargets.delete(tabId));
+
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId !== "save-lead" || !tab?.id) return;
+  if (!tab?.id) return;
 
-  const lead = {
-    name:    (info.selectionText || "").trim(),
-    pageUrl: tab.url || "",
-  };
+  if (info.menuItemId === "save-lead") {
+    const lead = {
+      name:    (info.selectionText || "").trim(),
+      pageUrl: tab.url || "",
+    };
 
-  // Inject the floating-card content script into the current tab — a plain
-  // classic script guarded against double-injection at the top of the file,
-  // so right-clicking a second name just re-populates the existing card
-  // instead of registering duplicate listeners. This replaces the old
-  // chrome.windows.create() flow, which used to open a whole new OS window
-  // and yank focus off whatever page (LinkedIn, etc.) the user was on.
-  try {
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
-    chrome.tabs.sendMessage(tab.id, { type: "SHOW_LEAD_WIDGET", lead });
-  } catch (err) {
-    // Fails on pages Chrome doesn't allow script injection into (chrome://,
-    // the Web Store, etc.) — nothing useful to do but log it.
-    console.error("Eden Labs CRM: couldn't inject into this page.", err);
+    // Inject the floating-card content script into the current tab — a
+    // plain classic script guarded against double-injection at the top of
+    // the file, so right-clicking a second name just re-populates the
+    // existing card instead of registering duplicate listeners. This
+    // replaces the old chrome.windows.create() flow, which used to open a
+    // whole new OS window and yank focus off whatever page the user was on.
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
+      chrome.tabs.sendMessage(tab.id, { type: "SHOW_LEAD_WIDGET", lead });
+    } catch (err) {
+      // Fails on pages Chrome doesn't allow script injection into
+      // (chrome://, the Web Store, etc.) — nothing useful to do but log it.
+      console.error("Eden Labs CRM: couldn't inject into this page.", err);
+    }
+    return;
+  }
+
+  if (info.menuItemId === "add-comment-target") {
+    const target = contextTargets.get(tab.id);
+    if (!target) {
+      chrome.tabs.sendMessage(tab.id, {
+        type: "TOAST", error: true,
+        text: "Couldn't find a profile there — try right-clicking directly on their name.",
+      });
+      return;
+    }
+    extensionAction("addCommentTarget", target)
+      .then(() => chrome.tabs.sendMessage(tab.id, { type: "TOAST", text: `✓ Added ${target.name || "profile"} to comment list` }))
+      .catch((err) => chrome.tabs.sendMessage(tab.id, { type: "TOAST", error: true, text: err.message }));
+    return;
+  }
+
+  if (info.menuItemId === "save-swipe") {
+    const text = (info.selectionText || "").trim();
+    if (!text) return;
+    // overlay.js (always present on linkedin.com) renders the confirm/edit
+    // card and does its own author/photo detection from the still-live
+    // selection — auto-detected author info is a best guess and deserves a
+    // chance to be corrected before it's saved, same reasoning as the
+    // lead-save card.
+    chrome.tabs.sendMessage(tab.id, { type: "SHOW_SWIPE_WIDGET", swipe: { text, pageUrl: tab.url || "" } });
+    return;
   }
 });
 
@@ -114,7 +176,12 @@ async function extensionAction(action, payload) {
 
 // ---- Message router (popup/settings/content scripts → background) --------
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === "SET_CONTEXT_TARGET") {
+    if (sender?.tab?.id != null) contextTargets.set(sender.tab.id, msg.target);
+    return; // fire-and-forget, no response needed
+  }
+
   if (msg.type === "AUTH") {
     authenticate(msg.pin)
       .then((session) => {

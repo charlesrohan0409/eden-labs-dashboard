@@ -18,13 +18,23 @@ const EMPTY_FORM = {
   billingType: "retainer", commissionPct: "", commissionBasis: "", payoutMonths: "",
 };
 
-// Every new LinkedIn client starts with the same three onboarding items —
-// nothing to configure, just the standing checklist before real work
-// (posting, outreach) begins.
+// Every new LinkedIn client starts with the same standing checklist.
+//
+// Two kinds, deliberately: the one-off setup items that get ticked once and
+// are done, and the recurring delivery work that resets every week for as
+// long as the engagement runs. The recurring ones are what actually make a
+// retainer a retainer — they reopen on their own (see lib/recurrence.js)
+// rather than needing to be re-added every Monday.
 const LINKEDIN_ONBOARDING_TASKS = [
-  "Sign contract",
-  "Optimise LinkedIn profile",
-  "Create ICP, offer & positioning doc",
+  { title: "Sign contract", category: "admin" },
+  { title: "Optimise LinkedIn profile", category: "delivery" },
+  { title: "Create ICP, offer & positioning doc", category: "delivery" },
+];
+
+const LINKEDIN_RECURRING_TASKS = [
+  { title: "Outreach & prospecting", category: "growth", recurrence: "weekly" },
+  { title: "Write & schedule the week's content", category: "delivery", recurrence: "weekly" },
+  { title: "Engage from the client's profile", category: "growth", recurrence: "daily" },
 ];
 
 export default function ClientsList({ data, setView, setSelectedClient, onAddClient, onAddTask, onToggleClientHidden, token }) {
@@ -52,8 +62,11 @@ export default function ClientsList({ data, setView, setSelectedClient, onAddCli
     const newClient = buildNewClient(form);
     onAddClient(newClient);
     if (newClient.type === "linkedin") {
-      LINKEDIN_ONBOARDING_TASKS.forEach((title) => {
-        onAddTask({ title, clientId: newClient.id, priority: "high", dueDate: "" });
+      LINKEDIN_ONBOARDING_TASKS.forEach((t) => {
+        onAddTask({ ...t, clientId: newClient.id, priority: "high", dueDate: "" });
+      });
+      LINKEDIN_RECURRING_TASKS.forEach((t) => {
+        onAddTask({ ...t, clientId: newClient.id, priority: "medium", dueDate: "" });
       });
     }
     setForm(EMPTY_FORM);

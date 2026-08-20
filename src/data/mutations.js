@@ -45,6 +45,30 @@ export function deleteTask(d, id) {
   d.tasks = d.tasks.filter((x) => x.id !== id);
   return d;
 }
+// Persists a manual drag-reorder. `orderedIds` is the new order of whatever
+// subset the list actually rendered — which is the reason for the second half
+// of this function: a filtered list (open-only, one client, one category)
+// doesn't know where the tasks it *didn't* render belong, so reindexing only
+// the visible ones would interleave the hidden ones unpredictably. Everything
+// not in `orderedIds` keeps its relative order and gets slotted after.
+//
+// Dense integers rather than fractional indices: every write here rewrites
+// the whole JSON blob anyway, so the usual "avoid touching N rows" argument
+// for floats buys nothing, while float precision-exhaustion after repeated
+// halving between the same pair would still be real. Gaps of 10 leave room to
+// read the raw JSON and see what's going on.
+export function reorderTasks(d, orderedIds) {
+  const inOrder = new Set(orderedIds);
+  const rest = d.tasks
+    .filter((t) => !inOrder.has(t.id))
+    .sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0));
+  orderedIds.forEach((id, i) => {
+    const t = d.tasks.find((x) => x.id === id);
+    if (t) t.sortIndex = i * 10;
+  });
+  rest.forEach((t, i) => { t.sortIndex = (orderedIds.length + i) * 10; });
+  return d;
+}
 
 // ---- clients ----
 export function addClient(d, client) {

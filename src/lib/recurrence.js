@@ -11,7 +11,7 @@
 // opens the dashboard after a period actually rolled over, rather than
 // depending on anything firing exactly at midnight/Monday.
 
-import { today, weekStart } from "./utils.js";
+import { today, weekStart, addDays } from "./utils.js";
 
 // The start-of-period key for a given cadence, "" for anything else (so a
 // stale/missing cadence just never matches and never resets — the safe
@@ -62,4 +62,23 @@ export function applyRecurringResets(data) {
   });
 
   return { data, changed };
+}
+
+// When a recurring task next comes due.
+//
+// Note what this deliberately is NOT: applyRecurringResets above reuses the
+// same task row rather than creating one row per occurrence, so there are no
+// future task rows to list and we must not invent any — generated instances
+// would double-count against the source row and be regenerated on every
+// server read. So "upcoming" is computed on demand, right here next to the
+// reset logic that defines the period, so the two can never disagree.
+//
+// The honest limitation: this gives the ONE next occurrence, not a series.
+export function nextOccurrenceFor(task) {
+  const recurrence = task.recurrence || "none";
+  if (recurrence === "none") return task.dueDate || "";
+  // Not yet done this period — it's due in the current one.
+  if (!task.done) return task.periodStart || today();
+  // Already ticked off, so the next time it reopens is the next period.
+  return recurrence === "daily" ? addDays(today(), 1) : addDays(weekStart(today()), 7);
 }

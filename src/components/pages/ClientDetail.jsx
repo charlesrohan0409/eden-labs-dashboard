@@ -97,7 +97,7 @@ function ActivityTab({ clientId, activityLog }) {
 export default function ClientDetail({
   data, clientId, setView, onAddPost, onUpdatePost, onDeletePost, onAddDM, onDeleteDM, onUpdateClient, onUpdateContract, onUpdateDelivery,
   onAddDeliveryMetric, onUpdateDeliveryMetric, onDeleteDeliveryMetric,
-  onUpdatePostStatus, onEndContract, onDeleteClient, onAddTask, onToggleTask, onDeleteTask, onUpdateTask,
+  onUpdatePostStatus, onEndContract, onDeleteClient, onAddTask, onToggleTask, onDeleteTask, onUpdateTask, onReorderTasks,
   onUpdateClientNotes, onLogActivity, token,
 }) {
   const [tab, setTab] = useState("overview");
@@ -473,6 +473,7 @@ export default function ClientDetail({
             onToggle={onToggleTask}
             onDelete={onDeleteTask}
             onUpdate={onUpdateTask}
+            onReorder={onReorderTasks}
             title={`Tasks for ${client.name.split(" ")[0]}`}
           />
 

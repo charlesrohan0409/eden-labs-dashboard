@@ -25,7 +25,7 @@ function greetingFor(hour) {
   return "Good evening";
 }
 
-export default function HomeDashboard({ data, setView, setSelectedClient, onAddTask, onToggleTask, onDeleteTask, onUpdateTask }) {
+export default function HomeDashboard({ data, setView, setSelectedClient, onAddTask, onToggleTask, onDeleteTask, onUpdateTask, onReorderTasks }) {
   const { money } = useCurrency();
   const finSeries = useMemo(() => {
     const byMonth = {};
@@ -181,6 +181,7 @@ export default function HomeDashboard({ data, setView, setSelectedClient, onAddT
             onToggle={onToggleTask}
             onDelete={onDeleteTask}
             onUpdate={onUpdateTask}
+            onReorder={onReorderTasks}
             title="Your tasks"
           />
         </div>

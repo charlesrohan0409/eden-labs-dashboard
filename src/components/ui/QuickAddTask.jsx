@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import Modal from "./Modal";
 import PrimaryButton from "./PrimaryButton";
+import { TASK_CATEGORY_LIST } from "../../lib/tasks";
 
 const PRIORITY_OPTIONS = [
   { value: "high", label: "High priority" },
@@ -15,7 +16,7 @@ const RECURRENCE_OPTIONS = [
   { value: "weekly", label: "Repeats weekly" },
 ];
 
-const BLANK = { title: "", clientId: "", dueDate: "", priority: "medium", recurrence: "none" };
+const BLANK = { title: "", clientId: "", dueDate: "", priority: "medium", recurrence: "none", category: "", description: "" };
 
 /**
  * Floating quick-add task button visible on every owner page.
@@ -49,6 +50,8 @@ export default function QuickAddTask({ clients = [], onAdd }) {
       dueDate: form.dueDate || "",
       priority: form.priority,
       recurrence: form.recurrence,
+      category: form.category,
+      description: form.description.trim(),
     });
     setForm(BLANK);
     setOpen(false);
@@ -79,17 +82,38 @@ export default function QuickAddTask({ clients = [], onAdd }) {
             className={inputCls}
           />
 
+          <textarea
+            placeholder="Notes (optional)"
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            rows={2}
+            className={`${inputCls} resize-none leading-relaxed`}
+          />
+
           <div className="grid grid-cols-2 gap-2">
             <select
               value={form.clientId}
               onChange={(e) => setForm({ ...form, clientId: e.target.value })}
               className="border border-line rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none"
             >
-              <option value="">No client (internal)</option>
+              <option value="">Eden Labs (internal)</option>
               {clients.filter((c) => !c.hidden).map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
+            <select
+              value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
+              className="border border-line rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none"
+            >
+              <option value="">No category</option>
+              {TASK_CATEGORY_LIST.map((c) => (
+                <option key={c.id} value={c.id}>{c.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
             <select
               value={form.priority}
               onChange={(e) => setForm({ ...form, priority: e.target.value })}
@@ -99,30 +123,25 @@ export default function QuickAddTask({ clients = [], onAdd }) {
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
+            <select
+              value={form.recurrence}
+              onChange={(e) => setForm({ ...form, recurrence: e.target.value })}
+              className="border border-line rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none"
+            >
+              {RECURRENCE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-xs text-stone-400 font-medium">Due date (optional)</label>
-              <input
-                type="date"
-                value={form.dueDate}
-                onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
-                className={`${inputCls} mt-1`}
-              />
-            </div>
-            <div>
-              <label className="text-xs text-stone-400 font-medium">Repeats</label>
-              <select
-                value={form.recurrence}
-                onChange={(e) => setForm({ ...form, recurrence: e.target.value })}
-                className="w-full border border-line rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none mt-1"
-              >
-                {RECURRENCE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </div>
+          <div>
+            <label className="text-xs text-stone-400 font-medium">Due date (optional)</label>
+            <input
+              type="date"
+              value={form.dueDate}
+              onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
+              className={`${inputCls} mt-1`}
+            />
           </div>
 
           <PrimaryButton

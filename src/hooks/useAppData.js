@@ -83,6 +83,7 @@ export function useAppData(token, onUnauthorized) {
     toggleTask: (id) => update((d) => M.toggleTask(d, id)),
     updateTask: (id, patch) => update((d) => M.updateTask(d, id, patch)),
     deleteTask: (id) => update((d) => M.deleteTask(d, id)),
+    reorderTasks: (orderedIds) => update((d) => M.reorderTasks(d, orderedIds)),
 
     // ---- clients ----
     addClient: (client) => {

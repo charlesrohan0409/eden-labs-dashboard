@@ -160,6 +160,7 @@ export default function App() {
             onToggleTask={actions.toggleTask}
             onDeleteTask={actions.deleteTask}
             onUpdateTask={actions.updateTask}
+            onReorderTasks={actions.reorderTasks}
           />
         )}
 
@@ -222,6 +223,7 @@ export default function App() {
             onToggleTask={actions.toggleTask}
             onDeleteTask={actions.deleteTask}
             onUpdateTask={actions.updateTask}
+            onReorderTasks={actions.reorderTasks}
             onUpdateClientNotes={actions.updateClientNotes}
             onLogActivity={actions.logActivity}
           />

@@ -1530,8 +1530,100 @@ PROCESS NOTES FROM THIS SESSION
     The lesson worth keeping: when a plausible cause is found, still check
     whether it QUANTITATIVELY explains the number before declaring it solved.
 
+--------------------------------------------------------------------------------
+15. POSTCOMPOSER "RECENT" REDESIGN + V10 PHASE 4 (2026-08-20, same session)
+--------------------------------------------------------------------------------
+  PostComposer "Recent" redesign (commit dc9df39): the old list hardcoded
+  `.slice(0, 4)` — most saved drafts were invisible — and rendered a 3-line
+  raw-content preview per card, which read as a wall of text. Fixed: no cap
+  (uncapped, self-scrolling 380px list, newest first), each row is now one
+  line — type-icon chip, hookOf() (first real line — what actually gets read
+  on LinkedIn) truncated to one line, a STAGE_META status dot, scheduled
+  date. Pulled styling from lib/content.js (Phase 3) so it matches the
+  content board. Added a shared fade-up keyframe to tailwind.config.js,
+  staggered entrance, active:scale-[0.98], bottom scroll-fade cue — all per
+  emil-design-eng. Verified live: all 7 real posts render and load correctly.
+
+  V10 PHASE 4 — Chrome extension (commit ee30a5a). Everything in the Phase 4
+  plan section above is now DONE, not just researched:
+  - api/extension.js + handleExtension() in api/_dataHandlers.js: single
+    action envelope — saveLead, logOutreach, saveSwipe, add/update/delete/
+    listCommentTargets — each with an ownerOnly flag. Security hinge exactly
+    as planned: clientId comes from the token for a client session, never
+    the payload. listCommentTargets is a read-only action (returns
+    data.commentTargets) rather than a mutation, needed so the overlay panel
+    can show what's already on the list.
+  - src/data/mutations.js: upsertCommentTarget (upserts by normalised
+    profileUrl — the overlay's add button gets double-clicked), plus
+    update/deleteCommentTarget.
+  - api/auth-client.js gained the CORS headers auth-owner/crm-lead already
+    had (the extension's role-aware login falls back to it for non-owner
+    PINs). vite.config.js's DATA_ROUTES dev-server loop gained CORS +
+    OPTIONS handling, so the extension is testable against `npm run dev`.
+  - chrome-extension/background.js: role-aware AUTH — tries /api/auth-owner
+    first, falls back to /api/auth-client, stores
+    {token, role, clientId, label} (label fetched from /api/portal-data for
+    a client session, purely for display). SAVE_LEAD now goes through
+    /api/extension instead of the owner-only /api/crm-lead. New message
+    types: LOG_OUTREACH, SAVE_SWIPE (wired but no UI consumer yet — see
+    below), ADD_COMMENT_TARGET, GET_COMMENT_TARGETS, GET_SESSION.
+  - popup/: two tabs, "Save Lead" (unchanged fields) and new "Log Outreach"
+    (date + the 5 core LinkedIn funnel fields — connections sent/accepted,
+    conversations started, replied, calls booked — mirrors GrowthDetail's
+    own log form, same overwrite-the-day semantics). Header shows a role
+    chip ("Client" badge + the client's name) when connected as a client
+    session. Popup also now reads the active tab's URL via chrome.tabs.query
+    (activeTab permission, no new "tabs" permission needed) to pre-fill the
+    source chip — the original popup had this UI but never actually filled
+    it.
+  - settings/: PIN field copy now explains entering the OWNER's PIN vs a
+    CLIENT's portal PIN, and the connected view reflects which is active.
+  - NEW chrome-extension/overlay.js: declared directly in manifest.json's
+    content_scripts (runs automatically on every linkedin.com page, unlike
+    content.js which only injects on a right-click). Pinned floating button,
+    bottom-right, expands into a panel: "+ Add this profile" (detects
+    current /in/ profile's name/headline/photo, same big-headshot heuristic
+    as content.js's findLinkedInPhoto but simplified — no selection
+    fallback needed since it always targets the page's own subject) plus a
+    scrollable list of everything already queued. Own injection guard
+    (__edenLabsOverlayInjected) — deliberately NOT content.js's flag, since
+    setting that first would silently disable the right-click save-lead
+    card (this was flagged as gotcha (b) in the Phase 4 plan and confirmed
+    still true).
+  - manifest.json: version bumped to 1.1.0, added
+    https://*.linkedin.com/* to host_permissions, added the content_scripts
+    block for overlay.js. background.js deliberately stayed a classic
+    script (gotcha (a) from the plan — "type":"module" caused a stale
+    service-worker registration bug once before).
+  - Verified live with curl against the dev server, using the real owner
+    session token pulled from the dashboard's own localStorage
+    (eden-labs-owner-token): OPTIONS preflight (204), listCommentTargets
+    (empty, then populated), addCommentTarget, saveLead, logOutreach, an
+    unauthenticated call (401 confirmed). All test rows (one contact, one
+    commentTarget, one outreachLog row dated 1999-01-01) deleted afterward;
+    confirmed production data byte-identical to before by re-reading
+    /api/data.
+
+  NOT DONE — deliberately deferred, flag if Charles asks:
+  - SAVE_SWIPE has no UI entry point yet (message type exists in
+    background.js, nothing calls it) — would need either a popup tab or an
+    overlay button on a LinkedIn post's page to capture it as a saved post.
+  - The commenting list has no "mark as commented" / remove-from-list action
+    in the overlay yet, and no in-search bulk-add flow ("stays pinned while
+    building a search" from the plan) — current overlay only supports
+    single-profile add via /in/ pages, not adding from a search-results list.
+  - No end-to-end test through the actual unpacked extension in Chrome
+    itself (chrome://extensions, manifest load, popup/overlay rendered in a
+    real browser) — everything above was verified at the API layer only.
+    Chrome-side smoke test is still owed before Charles relies on this.
+  - UI "revamp" was incremental (tabs, role chip, motion, copy) rather than
+    a from-scratch visual redesign of the popup/settings/overlay — if
+    Charles wants a bigger visual departure, that's still open.
+
 STILL OPEN AFTER THIS SESSION:
-  - V10 Phases 3 and 4 (see above).
+  - V10 Phase 4 loose ends — see the "NOT DONE" list in §15 immediately
+    above (SAVE_SWIPE UI, comment-list remove/mark-commented, search-page
+    bulk add, real-Chrome smoke test, deeper visual revamp).
   - VERCEL ACCOUNT IS PAUSED (Fast Origin Transfer 30.27GB/10GB on Hobby).
     Nothing from this session is live until Charles upgrades or the period
     resets. The loop fix should stop it recurring.

@@ -48,12 +48,52 @@ export async function getAppData() {
   return rows?.[0] || null;
 }
 
+// Unconditional write. Used for the very first insert and for server-side
+// read-modify-write inside a single request (portal/extension actions), which
+// read fresh data microseconds earlier and so aren't the stale-write risk
+// that a long-open browser tab is.
+//
+// `updated_at` is always set explicitly: the column defaults to now() on
+// INSERT but has no trigger, so an UPDATE would otherwise leave it frozen —
+// and it's the version token optimistic locking compares against, so a write
+// that didn't bump it would make every later conflict invisible.
 export async function upsertAppData(data) {
+  const now = new Date().toISOString();
   await rest("/app_data?on_conflict=id", {
     method: "POST",
     headers: { Prefer: "resolution=merge-duplicates" },
-    body: [{ id: 1, data }],
+    body: [{ id: 1, data, updated_at: now }],
   });
+  return now;
+}
+
+/**
+ * Compare-and-swap write: only succeeds if the row still carries the
+ * `updated_at` the caller last read.
+ *
+ * This is what stops a browser tab that has been open for an hour from
+ * flattening everything written since it loaded. It has happened for real —
+ * comment-list rows added from the Chrome extension vanished when the
+ * dashboard saved a blob it had read before they existed.
+ *
+ * Returns { ok: false } rather than throwing on a version mismatch: a
+ * conflict is an expected, recoverable outcome here (the caller replays its
+ * mutation against fresh data), not an error condition.
+ */
+export async function updateAppDataIfUnchanged(data, expectedVersion) {
+  const now = new Date().toISOString();
+  const rows = await rest(
+    `/app_data?id=eq.1&updated_at=eq.${encodeURIComponent(expectedVersion)}`,
+    {
+      method: "PATCH",
+      // Without return=representation PostgREST answers 204 whether or not
+      // anything matched, making a conflict indistinguishable from success.
+      headers: { Prefer: "return=representation" },
+      body: { data, updated_at: now },
+    }
+  );
+  if (!Array.isArray(rows) || rows.length === 0) return { ok: false };
+  return { ok: true, version: rows[0].updated_at || now };
 }
 
 // -------------------------------------------------------------- owner_auth ---

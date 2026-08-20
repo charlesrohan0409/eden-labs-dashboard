@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as M from "../data/mutations";
 
 // Dashboard data now lives in Supabase (one JSON document, read/written
@@ -27,13 +27,21 @@ async function apiGet(token) {
   return res.json();
 }
 
-async function apiPut(token, data) {
+// Sends the version last read so the server can reject a write built on
+// stale data (see updateAppDataIfUnchanged). A 409 isn't an error here — it
+// carries the fresh server state so the caller can replay onto it — so it's
+// returned rather than thrown.
+async function apiPut(token, data, version) {
   const res = await fetch("/api/data", {
     method: "PUT",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ data }),
+    body: JSON.stringify({ data, version }),
   });
   if (res.status === 401) throw unauthorizedError();
+  if (res.status === 409) {
+    const json = await res.json().catch(() => ({}));
+    return { conflict: true, data: json.data, version: json.version };
+  }
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `This change wasn't saved: ${res.status}`);
   return res.json();
 }
@@ -45,6 +53,20 @@ async function apiPut(token, data) {
 export function useAppData(token, onUnauthorized) {
   const [data, setData] = useState(null);
   const [saveError, setSaveError] = useState("");
+  // The optimistic-locking token for whatever was last read or written. A ref
+  // rather than state: it changes on every save and nothing renders from it,
+  // so putting it in state would just add a render per write.
+  const versionRef = useRef(null);
+  // The current data, mirrored outside React state so `update` can read it
+  // WITHOUT going through a setState updater — see the comment there.
+  const dataRef = useRef(null);
+
+  // Single place that moves data forward, so the ref and the rendered state
+  // can never drift apart.
+  const commit = useCallback((next) => {
+    dataRef.current = next;
+    setData(next);
+  }, []);
 
   useEffect(() => {
     if (!token) {
@@ -53,7 +75,11 @@ export function useAppData(token, onUnauthorized) {
     }
     let cancelled = false;
     apiGet(token)
-      .then((json) => { if (!cancelled) setData(json.data); })
+      .then((json) => {
+        if (cancelled) return;
+        versionRef.current = json.version || null;
+        commit(json.data);
+      })
       .catch((e) => {
         if (cancelled) return;
         if (e.unauthorized) onUnauthorized?.();
@@ -64,18 +90,56 @@ export function useAppData(token, onUnauthorized) {
 
   // Every mutation clones, mutates, persists, and returns the next state —
   // unchanged from the localStorage version, just pointed at the API now.
+  // Reads current data from a ref and commits explicitly, rather than doing
+  // the work inside a setData(prev => ...) updater.
+  //
+  // That distinction is load-bearing, not stylistic. StrictMode invokes state
+  // updaters TWICE in development, so running the mutation and firing the
+  // save from inside one meant every change was saved twice. That was merely
+  // wasteful under last-write-wins — both writes carried identical data — but
+  // it became destructive the moment optimistic locking was added: the first
+  // write succeeded and bumped the version, the second hit a 409, and the
+  // conflict replay then re-applied the mutation to data that ALREADY had it,
+  // silently undoing the change. Caught live — a task toggle round-tripped to
+  // no-op. An updater must stay pure; side effects belong out here.
   const update = useCallback((mutator) => {
-    setData((prev) => {
-      const next = mutator(structuredClone(prev));
-      apiPut(token, next)
-        .then(() => setSaveError(""))
-        .catch((e) => {
-          if (e.unauthorized) { onUnauthorized?.(); return; }
-          setSaveError(e.message);
-        });
-      return next;
+    const prev = dataRef.current;
+    if (!prev) return;
+
+    const next = mutator(structuredClone(prev));
+    commit(next);
+
+    // On a version conflict, REPLAY rather than surrender. Every mutator is
+    // a pure (draft) => draft, so re-running it against the server's fresh
+    // copy produces the change the user asked for on top of whatever else
+    // landed meanwhile — instead of either losing their edit or flattening
+    // someone else's. This is why mutations.js is kept pure.
+    //
+    // Bounded, because a genuinely hot row could otherwise spin forever; in
+    // practice one retry is always enough for a single-owner dashboard.
+    const save = async (payload, attempt = 0) => {
+      const res = await apiPut(token, payload, versionRef.current);
+      if (!res?.conflict) {
+        if (res?.version) versionRef.current = res.version;
+        setSaveError("");
+        return;
+      }
+      versionRef.current = res.version || null;
+      if (attempt >= 2) {
+        commit(res.data);
+        setSaveError("Someone else changed this at the same time — your latest change wasn't saved. The screen now shows the current data.");
+        return;
+      }
+      const replayed = mutator(structuredClone(res.data));
+      commit(replayed);
+      await save(replayed, attempt + 1);
+    };
+
+    save(next).catch((e) => {
+      if (e.unauthorized) { onUnauthorized?.(); return; }
+      setSaveError(e.message);
     });
-  }, [token, onUnauthorized]);
+  }, [token, onUnauthorized, commit]);
 
   const actions = {
     // ---- tasks ----

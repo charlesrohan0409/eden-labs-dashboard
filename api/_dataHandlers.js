@@ -5,7 +5,7 @@
 import { migrateData } from "../src/data/migrate.js";
 import { seedData } from "../src/data/seed.js";
 import * as M from "../src/data/mutations.js";
-import { getOwnerAuth, getAllClientCredentials, setClientCredential, deleteClientCredential, getAppData, upsertAppData, uploadToStorage } from "./_supabaseAdmin.js";
+import { getOwnerAuth, getAllClientCredentials, setClientCredential, deleteClientCredential, getAppData, upsertAppData, updateAppDataIfUnchanged, uploadToStorage } from "./_supabaseAdmin.js";
 import { verifyPin, hashPin, genSalt, signToken, verifyToken, bearerFrom } from "./_crypto.js";
 import { applyRecurringResets } from "../src/lib/recurrence.js";
 
@@ -98,12 +98,18 @@ export async function handleUpload(headers, body) {
 }
 
 // ------------------------------------------------------------- app data ---
+// Returns the data only. loadWithVersion is the variant used by the routes
+// that need the optimistic-locking token as well.
 async function loadData() {
+  return (await loadWithVersion()).data;
+}
+
+async function loadWithVersion() {
   const row = await getAppData();
   if (!row) {
     const fresh = seedData();
-    await upsertAppData(fresh);
-    return fresh;
+    const version = await upsertAppData(fresh);
+    return { data: fresh, version };
   }
   const migrated = migrateData(row.data);
   // Self-healing reset for weekly/daily-cadence KPIs and recurring tasks —
@@ -116,20 +122,39 @@ async function loadData() {
   // would silently overwrite a deliberate switch back to USD every time —
   // making the currency toggle look broken rather than merely re-defaulted.
   const currencyDefaultPending = !row.data?.settings?.currencyDefaultApplied;
-  if (changed || currencyDefaultPending) await upsertAppData(data);
-  return data;
+  let version = row.updated_at;
+  if (changed || currencyDefaultPending) version = await upsertAppData(data);
+  return { data, version };
 }
 
 export async function handleDataGet(headers) {
   if (!requireOwner(headers)) return { status: 401, body: { error: "Unauthorized" } };
-  return { status: 200, body: { data: await loadData() } };
+  const { data, version } = await loadWithVersion();
+  return { status: 200, body: { data, version } };
 }
 
 export async function handleDataPut(headers, body) {
   if (!requireOwner(headers)) return { status: 401, body: { error: "Unauthorized" } };
   if (!body?.data || typeof body.data !== "object") return { status: 400, body: { error: "Missing `data` object." } };
-  await upsertAppData(body.data);
-  return { status: 200, body: { ok: true } };
+
+  // A write with no version is a caller that predates optimistic locking.
+  // Accepted rather than rejected so an old open tab keeps working, but it
+  // gets the old last-write-wins behaviour — there's nothing to compare.
+  if (!body.version) {
+    const version = await upsertAppData(body.data);
+    return { status: 200, body: { ok: true, version } };
+  }
+
+  const result = await updateAppDataIfUnchanged(body.data, body.version);
+  if (result.ok) return { status: 200, body: { ok: true, version: result.version } };
+
+  // 409 carries the CURRENT server state, so the client can replay its
+  // mutation against fresh data in one round trip instead of refetching.
+  const { data, version } = await loadWithVersion();
+  return {
+    status: 409,
+    body: { error: "This data changed somewhere else while you were working.", data, version },
+  };
 }
 
 // Adds a CRM contact from the Chrome extension. Accepts the full contact

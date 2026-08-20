@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, X, ChevronRight, FileDown, Search, Eye, EyeOff } from "lucide-react";
+import { Plus, X, ChevronRight, FileDown, Search, Eye, EyeOff, AlertTriangle } from "lucide-react";
 import Card from "../ui/Card";
 import Badge from "../ui/Badge";
 import Avatar from "../ui/Avatar";
@@ -10,6 +10,7 @@ import {
   computeHealthScore, healthTone, downloadCSV, relativeDays, isMetricOnTrack,
   computeMRR, billingTypeLabel, computeCommissionTotal,
 } from "../../lib/utils";
+import { clientSignals } from "../../lib/today";
 import { useCurrency } from "../../hooks/useCurrency";
 
 const EMPTY_FORM = {
@@ -276,6 +277,7 @@ export default function ClientsList({ data, setView, setSelectedClient, onAddCli
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filtered.map((c) => {
           const health = computeHealthScore(c, data.invoices);
+          const { signals } = clientSignals(c, data);
           const onTrack = c.delivery.filter(isMetricOnTrack).length;
           const renewal = relativeDays(c.contract.renewalDate);
           return (
@@ -329,6 +331,26 @@ export default function ClientsList({ data, setView, setSelectedClient, onAddCli
                   </div>
                 </div>
               </div>
+
+              {/* Early warning. The health SCORE says how things stand;
+                  these say WHY, which is the part you can act on. Shown only
+                  when something is actually off — a permanent "all good" row
+                  is noise that trains you to stop reading the space. */}
+              {signals.length > 0 && (
+                <div className="mt-3 space-y-1">
+                  {signals.slice(0, 2).map((sig, i) => (
+                    <div
+                      key={i}
+                      className={`flex items-center gap-1.5 text-[11px] rounded-lg px-2 py-1.5 ${
+                        sig.level === "bad" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700"
+                      }`}
+                    >
+                      <AlertTriangle size={11} className="shrink-0" />
+                      <span className="truncate">{sig.text}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <div className="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between text-xs text-stone-400">
                 <span>{onTrack}/{c.delivery.length} metrics on track</span>

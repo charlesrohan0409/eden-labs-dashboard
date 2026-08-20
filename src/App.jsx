@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { AlertTriangle, X } from "lucide-react";
 import { useAppData } from "./hooks/useAppData";
 import { useOwnerAuth } from "./hooks/useOwnerAuth";
@@ -15,6 +15,7 @@ import ClientDetail from "./components/pages/ClientDetail";
 import ClientPortalLogin from "./components/portal/ClientPortalLogin";
 import ClientPortal from "./components/portal/ClientPortal";
 import QuickAddTask from "./components/ui/QuickAddTask";
+import CommandPalette from "./components/ui/CommandPalette";
 // Chart-heavy pages — lazy-load so recharts isn't in the initial bundle.
 // Each loads in under 1s on a fast connection; the spinner shows on slow ones.
 const GrowthDetail   = lazy(() => import("./components/pages/GrowthDetail"));
@@ -73,6 +74,8 @@ export default function App() {
   const { data, actions, saveError, dismissSaveError } = useAppData(ownerAuth.token, handleOwnerUnauthorized);
 
   const [view, setView] = useState("home");
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [selectedClient, setSelectedClient] = useState(null);
 
   // A client's shared portal link looks like /portal/:clientId (see
@@ -85,6 +88,20 @@ export default function App() {
   const [arrivedViaLink] = useState(() => /^\/portal\//.test(window.location.pathname));
   const [portalMode, setPortalMode] = useState(arrivedViaLink);
   const [portalSession, setPortalSession] = useState(null); // { token, clientId }
+
+  // ⌘K / Ctrl-K anywhere. Registered at the root rather than inside the
+  // palette so the shortcut works when the palette is closed — which is the
+  // only time it needs to.
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const handlePortalUnauthorized = useCallback(() => setPortalSession(null), []);
   const portal = usePortalData(portalSession?.token, handlePortalUnauthorized);
@@ -288,7 +305,15 @@ export default function App() {
       <MobileBottomNav view={view} setView={setView} />
 
       {/* Floating quick-add task — visible on every owner page, ⌘K shortcut */}
-      <QuickAddTask clients={data.clients} onAdd={actions.addTask} />
+      <QuickAddTask clients={data.clients} onAdd={actions.addTask} open={quickAddOpen} onOpenChange={setQuickAddOpen} />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        data={data}
+        setView={setView}
+        setSelectedClient={setSelectedClient}
+        onQuickAdd={() => setQuickAddOpen(true)}
+      />
     </div>
     </CurrencyProvider>
   );

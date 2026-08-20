@@ -20,18 +20,33 @@ const BLANK = { title: "", clientId: "", dueDate: "", priority: "medium", recurr
 
 /**
  * Floating quick-add task button visible on every owner page.
- * Shortcut: ⌘K / Ctrl+K  (opens/closes the modal).
- * Press Enter in the title field to submit.
+ * Shortcut: ⌘J / Ctrl+J. Press Enter in the title field to submit.
+ *
+ * This used to own ⌘K, which now belongs to the command palette — that's the
+ * near-universal binding for one (Linear, Notion, Raycast, GitHub), and two
+ * handlers on the same chord meant both fired. Quick-add is still reachable
+ * from the palette itself ("Add a task"), from the floating button, and from
+ * ⌘J for anyone with the muscle memory.
+ *
+ * `open`/`onOpenChange` are optional: supplied, the parent controls it (so
+ * the palette can open it); omitted, it manages its own state as before.
  */
-export default function QuickAddTask({ clients = [], onAdd }) {
-  const [open, setOpen] = useState(false);
+export default function QuickAddTask({ clients = [], onAdd, open: openProp, onOpenChange }) {
+  const [openLocal, setOpenLocal] = useState(false);
+  const isControlled = openProp !== undefined;
+  const open = isControlled ? openProp : openLocal;
+  const setOpen = (next) => {
+    const value = typeof next === "function" ? next(open) : next;
+    if (isControlled) onOpenChange?.(value);
+    else setOpenLocal(value);
+  };
   const [form, setForm] = useState(BLANK);
 
   // Global keyboard shortcut — doesn't fire when focus is inside an input or
-  // textarea so normal ⌘K browser behaviour isn't disrupted.
+  // textarea so normal browser behaviour isn't disrupted.
   useEffect(() => {
     const handleKey = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      if ((e.metaKey || e.ctrlKey) && e.key === "j") {
         const tag = document.activeElement?.tagName?.toLowerCase();
         if (tag === "input" || tag === "textarea" || tag === "select") return;
         e.preventDefault();
@@ -40,7 +55,7 @@ export default function QuickAddTask({ clients = [], onAdd }) {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, []);
+  });
 
   const submit = () => {
     if (!form.title.trim()) return;
@@ -64,14 +79,14 @@ export default function QuickAddTask({ clients = [], onAdd }) {
       {/* Floating button — sits above the mobile bottom nav (z-[80] > nav z-[70]) */}
       <button
         onClick={() => setOpen(true)}
-        title="Quick-add task (⌘K)"
+        title="Quick-add task (⌘J)"
         aria-label="Quick-add task"
         className="fixed bottom-24 right-5 lg:bottom-8 lg:right-8 z-[80] w-12 h-12 rounded-full bg-emerald-800 text-white shadow-lg flex items-center justify-center hover:bg-emerald-900 active:scale-95 transition-all"
       >
         <Plus size={22} />
       </button>
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Quick-add task" subtitle="⌘K to open from anywhere">
+      <Modal open={open} onClose={() => setOpen(false)} title="Quick-add task" subtitle="⌘J to open from anywhere">
         <div className="space-y-3">
           <input
             autoFocus

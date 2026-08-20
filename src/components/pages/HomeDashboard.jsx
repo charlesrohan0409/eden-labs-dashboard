@@ -12,6 +12,7 @@ import IconStat from "../ui/IconStat";
 import Avatar from "../ui/Avatar";
 import TaskList from "../ui/TaskList";
 import MeetingRow from "../ui/MeetingRow";
+import TodayPanel from "../ui/TodayPanel";
 import { MONTHS, computeHealthScore, healthTone, STAGE_WEIGHTS, relativeDays, isMetricOnTrack, metricProgressPct, computeMRR } from "../../lib/utils";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { useBufferPerformance } from "../../hooks/useBufferPerformance";
@@ -113,7 +114,7 @@ export default function HomeDashboard({ data, setView, setSelectedClient, onAddT
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
             {greetingFor(new Date().getHours())}, {(data.profile?.name || "Charles").split(" ")[0]}
           </h1>
-          <p className="text-sm text-white/70 mt-0.5">Stay on top of your clients, delivery, and pipeline.</p>
+          <p className="text-sm text-white/70 mt-0.5">Here's what needs you today.</p>
         </div>
         <div className="flex items-center gap-2.5 bg-white border border-line rounded-full pl-3 pr-1.5 py-1.5">
           <div className="text-right hidden sm:block">
@@ -123,6 +124,16 @@ export default function HomeDashboard({ data, setView, setSelectedClient, onAddT
           <Avatar name={data.profile?.name || "Charles Rohan"} photoUrl={data.profile?.photoUrl} size={30} />
         </div>
       </div>
+
+      {/* ── What's due, everywhere ── */}
+      {/* Sits above the stat tiles deliberately: the numbers describe the
+          business, this describes the day. You open a dashboard to find out
+          what to DO, and nothing here answered that before. */}
+      <TodayPanel
+        data={data}
+        onGo={setView}
+        onOpenClient={(id) => { setSelectedClient(id); setView("client-detail"); }}
+      />
 
       {/* ── Headline stats ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

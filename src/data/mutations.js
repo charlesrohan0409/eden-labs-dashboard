@@ -248,6 +248,39 @@ export function deleteSwipe(d, id) {
   d.swipeFile = d.swipeFile.filter((x) => x.id !== id);
   return d;
 }
+
+// ---- commenting list (LinkedIn profiles to engage with, owner-only) ----
+// Not CRM contacts — LEGACY_STAGE_MAP rewrites "contacted"/"replied" to
+// "lead" on every migrate, so this outreach-engagement state can't live as a
+// contact stage without being clobbered.
+function normalizeProfileUrl(url) {
+  try {
+    const u = new URL(url);
+    return (u.origin + u.pathname).replace(/\/+$/, "").toLowerCase();
+  } catch {
+    return String(url || "").trim().toLowerCase();
+  }
+}
+// Upserts rather than always pushing — the overlay button this comes from
+// gets clicked more than once per profile (page re-renders, user re-clicks),
+// and a whole-blob write has no unique constraint to lean on instead.
+export function upsertCommentTarget(d, t) {
+  if (!Array.isArray(d.commentTargets)) d.commentTargets = [];
+  const key = normalizeProfileUrl(t.profileUrl);
+  const existing = d.commentTargets.find((x) => normalizeProfileUrl(x.profileUrl) === key);
+  if (existing) Object.assign(existing, t);
+  else d.commentTargets.push({ id: uid(), inSearch: false, addedAt: today(), notes: "", ...t });
+  return d;
+}
+export function updateCommentTarget(d, id, patch) {
+  const t = (d.commentTargets || []).find((x) => x.id === id);
+  if (t) Object.assign(t, patch);
+  return d;
+}
+export function deleteCommentTarget(d, id) {
+  d.commentTargets = (d.commentTargets || []).filter((x) => x.id !== id);
+  return d;
+}
 export function addDM(d, dm) {
   d.dms.push({ id: uid(), ...dm });
   if (dm.clientId) {

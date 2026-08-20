@@ -52,6 +52,14 @@ function apiDevServer(mode) {
       Object.entries(DATA_ROUTES).forEach(([route, { method, handler }]) => {
         server.middlewares.use(route, async (req, res) => {
           res.setHeader('Content-Type', 'application/json')
+          // CORS — the Chrome extension talks to these routes directly from
+          // a chrome-extension:// origin (same as production's per-file CORS
+          // headers on auth-client/crm-lead/extension), and without this the
+          // extension is only ever testable against production, never dev.
+          res.setHeader('Access-Control-Allow-Origin', '*')
+          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS')
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+          if (req.method === 'OPTIONS') { res.statusCode = 204; res.end(); return }
           if (method && req.method !== method) {
             res.statusCode = 405
             res.end(JSON.stringify({ error: `${method} only` }))

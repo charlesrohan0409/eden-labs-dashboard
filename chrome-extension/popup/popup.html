@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Save Lead — Eden Labs</title>
+  <title>Eden Labs — Extension</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -24,17 +24,22 @@
       gap: 10px;
     }
     .logo { height: 26px; width: auto; border-radius: 6px; display: block; }
-    .header-text { flex: 1; }
+    .header-text { flex: 1; min-width: 0; }
     .header-title { font-size: 15px; font-weight: 600; }
-    .header-sub   { font-size: 11px; opacity: .65; margin-top: 1px; }
+    .header-sub   { font-size: 11px; opacity: .65; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .role-chip {
+      font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 99px;
+      background: rgba(255,255,255,.14); color: #fff; white-space: nowrap;
+    }
     .settings-btn {
       background: rgba(255,255,255,0.12);
       border: none; border-radius: 6px;
       color: rgba(255,255,255,0.7);
       cursor: pointer; padding: 5px 7px; font-size: 16px;
-      line-height: 1; transition: background .15s;
+      line-height: 1; transition: background .15s ease;
     }
     .settings-btn:hover { background: rgba(255,255,255,0.2); color: #fff; }
+    .settings-btn:active { transform: scale(0.94); }
 
     /* ---- Not connected banner ---- */
     #not-connected {
@@ -46,11 +51,28 @@
     #not-connected button {
       background: #ea580c; color: #fff; border: none;
       border-radius: 6px; padding: 5px 12px; font-size: 12px;
-      font-weight: 600; cursor: pointer;
+      font-weight: 600; cursor: pointer; transition: background .15s ease, transform .15s cubic-bezier(0.23,1,0.32,1);
     }
+    #not-connected button:active { transform: scale(0.96); }
+
+    /* ---- Tabs ---- */
+    .tabs {
+      display: flex; gap: 4px; padding: 12px 20px 0;
+    }
+    .tab {
+      flex: 1; text-align: center; padding: 8px 0; font-size: 12.5px; font-weight: 600;
+      color: #78716c; background: transparent; border: none; border-radius: 8px 8px 0 0;
+      cursor: pointer; transition: color .15s ease, background .15s ease;
+    }
+    .tab.active { color: #14532d; background: #fff; }
+    .tab:not(.active):hover { color: #44403c; }
+
+    .panel { display: none; animation: fade-in .22s cubic-bezier(0.23,1,0.32,1) both; }
+    .panel.active { display: block; }
+    @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
     /* ---- Form body ---- */
-    .body { padding: 18px 20px 20px; }
+    .body { padding: 18px 20px 20px; background: #fff; }
 
     .field { margin-bottom: 13px; }
     label { display: block; font-size: 11px; font-weight: 600; color: #78716c; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 5px; }
@@ -68,6 +90,7 @@
     textarea { resize: vertical; min-height: 64px; line-height: 1.5; }
 
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .row-4 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
     /* source chip strip */
     .source-chip {
@@ -79,18 +102,21 @@
     }
     .source-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+    .hint-sm { font-size: 11.5px; color: #a8a29e; margin: -6px 0 14px; line-height: 1.5; }
+
     /* ---- Footer / save button ---- */
-    .footer { padding: 0 20px 18px; }
-    #save-btn {
+    .footer { padding: 0 20px 18px; background: #fff; }
+    .primary-btn {
       width: 100%; padding: 10px;
       background: #14532d; color: #fff;
       border: none; border-radius: 10px;
       font-size: 14px; font-weight: 600;
-      cursor: pointer; transition: background .15s, opacity .15s;
+      cursor: pointer; transition: background .15s ease, opacity .15s ease, transform .15s cubic-bezier(0.23,1,0.32,1);
       display: flex; align-items: center; justify-content: center; gap: 7px;
     }
-    #save-btn:hover:not(:disabled) { background: #166534; }
-    #save-btn:disabled { opacity: .55; cursor: default; }
+    .primary-btn:hover:not(:disabled) { background: #166534; }
+    .primary-btn:active:not(:disabled) { transform: scale(0.98); }
+    .primary-btn:disabled { opacity: .55; cursor: default; }
 
     /* ---- Status ---- */
     #status {
@@ -113,9 +139,10 @@
   <div class="header">
     <img class="logo" src="../assets/wordmark.png" alt="Eden Labs" />
     <div class="header-text">
-      <div class="header-title">Save Lead</div>
-      <div class="header-sub">Eden Labs CRM</div>
+      <div class="header-title">Eden Labs</div>
+      <div class="header-sub" id="header-sub">Chrome Extension</div>
     </div>
+    <span class="role-chip" id="role-chip" style="display:none"></span>
     <button class="settings-btn" id="open-settings" title="Settings">⚙</button>
   </div>
 
@@ -124,72 +151,116 @@
     <button id="connect-btn">Connect</button>
   </div>
 
-  <div class="body">
-    <div class="field">
-      <label>Name *</label>
-      <input id="name" type="text" placeholder="Full name" autocomplete="off" />
-    </div>
-
-    <div class="row">
-      <div class="field">
-        <label>Company</label>
-        <input id="company" type="text" placeholder="Company name" />
-      </div>
-      <div class="field">
-        <label>Title / Role</label>
-        <input id="title" type="text" placeholder="e.g. CFO" />
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="field">
-        <label>Stage</label>
-        <!-- These values must match the dashboard's CRM stages exactly. This
-             list used to offer "qualified", which is not a real stage — a lead
-             saved that way rendered in no column on the CRM board at all and
-             couldn't be recovered through the UI. -->
-        <select id="stage">
-          <option value="lead">Lead</option>
-          <option value="call_booked">Call booked</option>
-          <option value="proposal_sent">Proposal sent</option>
-          <option value="closed">Closed won</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Est. deal value ($)</label>
-        <input id="deal-value" type="number" placeholder="e.g. 3500" min="0" />
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="field">
-        <label>Email</label>
-        <input id="email" type="email" placeholder="email@company.com" />
-      </div>
-      <div class="field">
-        <label>Phone</label>
-        <input id="phone" type="tel" placeholder="+1 555 000 0000" />
-      </div>
-    </div>
-
-    <div class="field">
-      <label>Notes</label>
-      <textarea id="notes" placeholder="Anything worth remembering…"></textarea>
-    </div>
-
-    <div class="field" id="source-field" style="display:none">
-      <label>Source URL</label>
-      <div class="source-chip">
-        <span>🔗</span>
-        <span id="source-url-display"></span>
-      </div>
-    </div>
+  <div class="tabs">
+    <button class="tab active" id="tab-lead" data-panel="panel-lead">Save Lead</button>
+    <button class="tab" id="tab-outreach" data-panel="panel-outreach">Log Outreach</button>
   </div>
 
   <div id="status"></div>
 
-  <div class="footer">
-    <button id="save-btn">Save to CRM</button>
+  <!-- ══ Save Lead ══ -->
+  <div class="panel active" id="panel-lead">
+    <div class="body">
+      <div class="field">
+        <label>Name *</label>
+        <input id="name" type="text" placeholder="Full name" autocomplete="off" />
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>Company</label>
+          <input id="company" type="text" placeholder="Company name" />
+        </div>
+        <div class="field">
+          <label>Title / Role</label>
+          <input id="title" type="text" placeholder="e.g. CFO" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>Stage</label>
+          <!-- These values must match the dashboard's CRM stages exactly. This
+               list used to offer "qualified", which is not a real stage — a lead
+               saved that way rendered in no column on the CRM board at all and
+               couldn't be recovered through the UI. -->
+          <select id="stage">
+            <option value="lead">Lead</option>
+            <option value="call_booked">Call booked</option>
+            <option value="proposal_sent">Proposal sent</option>
+            <option value="closed">Closed won</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Est. deal value ($)</label>
+          <input id="deal-value" type="number" placeholder="e.g. 3500" min="0" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>Email</label>
+          <input id="email" type="email" placeholder="email@company.com" />
+        </div>
+        <div class="field">
+          <label>Phone</label>
+          <input id="phone" type="tel" placeholder="+1 555 000 0000" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Notes</label>
+        <textarea id="notes" placeholder="Anything worth remembering…"></textarea>
+      </div>
+
+      <div class="field" id="source-field" style="display:none">
+        <label>Source URL</label>
+        <div class="source-chip">
+          <span>🔗</span>
+          <span id="source-url-display"></span>
+        </div>
+      </div>
+    </div>
+    <div class="footer">
+      <button class="primary-btn" id="save-lead-btn">Save to CRM</button>
+    </div>
+  </div>
+
+  <!-- ══ Log Outreach ══ -->
+  <div class="panel" id="panel-outreach">
+    <div class="body">
+      <div class="field">
+        <label>Date</label>
+        <input id="outreach-date" type="date" />
+      </div>
+      <p class="hint-sm" id="outreach-scope">Sets today's totals for LinkedIn outreach — this overwrites, so enter the full day's count, not just what changed.</p>
+
+      <div class="row-4">
+        <div class="field">
+          <label>Connections sent</label>
+          <input id="oc-sent" type="number" min="0" placeholder="0" />
+        </div>
+        <div class="field">
+          <label>Accepted</label>
+          <input id="oc-accepted" type="number" min="0" placeholder="0" />
+        </div>
+        <div class="field">
+          <label>Conversations started</label>
+          <input id="oc-convos" type="number" min="0" placeholder="0" />
+        </div>
+        <div class="field">
+          <label>Replied</label>
+          <input id="oc-replied" type="number" min="0" placeholder="0" />
+        </div>
+      </div>
+      <div class="field">
+        <label>Calls booked</label>
+        <input id="oc-calls" type="number" min="0" placeholder="0" />
+      </div>
+    </div>
+    <div class="footer">
+      <button class="primary-btn" id="save-outreach-btn">Save outreach for this day</button>
+    </div>
   </div>
 
   <script src="popup.js"></script>

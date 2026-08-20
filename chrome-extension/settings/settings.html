@@ -117,9 +117,9 @@
     <div id="connected-view">
       <div class="connected-badge">
         <div class="dot"></div>
-        <span>Connected to dashboard.theedenlabs.com</span>
+        <span id="connected-label">Connected to dashboard.theedenlabs.com</span>
       </div>
-      <p style="font-size:13px;color:#57534e;line-height:1.6;margin-bottom:20px;">
+      <p id="connected-copy" style="font-size:13px;color:#57534e;line-height:1.6;margin-bottom:20px;">
         You're all set. Right-click any selected name on any webpage to save it
         as a lead in your Eden Labs CRM.
       </p>
@@ -130,22 +130,23 @@
     <div id="setup-view">
       <div id="status"></div>
       <div class="field">
-        <label>Dashboard PIN</label>
+        <label>PIN</label>
         <input
           id="pin"
           type="password"
           inputmode="numeric"
-          placeholder="Enter your 6-digit PIN"
+          placeholder="Your PIN — owner or a client's"
           maxlength="6"
           autocomplete="off"
         />
       </div>
       <button class="btn btn-primary" id="connect-btn">Connect</button>
       <p class="hint">
-        This is the same PIN you use to log in to
-        <strong>dashboard.theedenlabs.com</strong>. It's exchanged for a
-        session token and stored locally in your browser — your PIN is never
-        stored directly.
+        Enter <strong>your own</strong> PIN to save leads and log outreach
+        for Eden Labs, or a <strong>client's portal PIN</strong> to scope this
+        Chrome profile to that client instead — handy if this profile is
+        already signed into their LinkedIn account. Either way it's exchanged
+        for a session token stored locally; the PIN itself is never stored.
       </p>
     </div>
 

@@ -257,6 +257,113 @@ export async function handlePortalAction(headers, body) {
   return { status: 200, body: { data: buildPortalData(full, clientId) } };
 }
 
+// ------------------------------------------------------------- extension ---
+// Single envelope for everything the Chrome extension writes, rather than a
+// separate endpoint file per action (each would re-duplicate the CORS/
+// OPTIONS/body boilerplate — exactly the drift crm-lead.js already shows) or
+// loosening handlePortalAction's requireClient-only boundary, which is the
+// real client portal's security perimeter and returns a full portal payload
+// on every call — the wrong shape and the wrong risk for this.
+//
+// The extension authenticates as EITHER an owner session or a client session
+// (role-aware login: a Chrome profile dedicated to one client's LinkedIn
+// login can be signed into the extension with that client's own PIN instead
+// of the owner's, so everything logged from that profile is scoped to them
+// automatically). ownerOnly gates the actions a client session must never
+// reach — CRM-adjacent leads and per-client outreach are fine either way,
+// but the swipe-file library and the comment-target list are owner tools.
+const EXTENSION_ACTIONS = {
+  saveLead:            { ownerOnly: false },
+  logOutreach:         { ownerOnly: false },
+  saveSwipe:           { ownerOnly: true },
+  addCommentTarget:    { ownerOnly: true },
+  updateCommentTarget: { ownerOnly: true },
+  deleteCommentTarget: { ownerOnly: true },
+  // Read-only — the overlay's panel needs to show what's already on the
+  // list, not just write to it. Owner-only like the rest of the comment-
+  // target actions, and deliberately returns just this one array rather
+  // than routing through handlePortalDataGet's shape (which is client-only
+  // and scoped to a single client's posts/dms/calls, not this).
+  listCommentTargets: { ownerOnly: true, readOnly: true },
+};
+
+export async function handleExtension(headers, body) {
+  const payload = verifyToken(bearerFrom(headers), secret());
+  const isOwner = payload?.role === "owner";
+  const isClient = payload?.role === "client" && !!payload.clientId;
+  if (!payload || (!isOwner && !isClient)) return { status: 401, body: { error: "Unauthorized" } };
+
+  const { action, payload: p = {} } = body || {};
+  const spec = EXTENSION_ACTIONS[action];
+  if (!spec) return { status: 400, body: { error: `Unknown or disallowed action: ${action}` } };
+  if (spec.ownerOnly && !isOwner) return { status: 403, body: { error: "This action is owner-only." } };
+
+  // The security hinge: clientId is NEVER read from the payload for a client
+  // session — only the token's own clientId. An owner session may target any
+  // client (or null = agency) via the payload, since the owner is trusted to
+  // say who a save is for.
+  const clientId = isOwner ? (p.clientId || null) : payload.clientId;
+
+  const data = await loadData();
+
+  if (action === "listCommentTargets") {
+    return { status: 200, body: { ok: true, targets: data.commentTargets || [] } };
+  }
+
+  // Never PUT /api/data here — there's no optimistic locking, so a stale
+  // full-blob write from a long-open popup would roll back everything the
+  // dashboard did since the popup was opened. Every action below does its
+  // own read-modify-save against the live blob instead.
+  switch (action) {
+    case "saveLead": {
+      if (!p.name?.trim()) return { status: 400, body: { error: "`name` is required." } };
+      M.addContact(data, {
+        name: p.name.trim(), company: p.company || "", title: p.title || "",
+        stage: p.stage || "lead", source: p.source || "Chrome Extension",
+        url: p.url || "", notes: p.notes || "", email: p.email || "", phone: p.phone || "",
+        photoUrl: p.photoUrl || "", dealValue: p.dealValue || null,
+        clientId, closedDate: null, addedDate: new Date().toISOString().slice(0, 10),
+      });
+      break;
+    }
+    case "logOutreach": {
+      if (!p.date) return { status: 400, body: { error: "`date` is required." } };
+      M.logOutreachDay(data, { ...p, clientId });
+      break;
+    }
+    case "saveSwipe": {
+      if (!p.author?.trim() && !p.text?.trim()) return { status: 400, body: { error: "Need at least an author or some text." } };
+      M.addSwipe(data, {
+        author: p.author || "", authorPhoto: p.authorPhoto || "", authorUrl: p.authorUrl || "",
+        url: p.url || "", text: p.text || "", note: p.note || "", tag: p.tag || "hook",
+        savedAt: new Date().toISOString(),
+      });
+      break;
+    }
+    case "addCommentTarget": {
+      if (!p.profileUrl?.trim()) return { status: 400, body: { error: "`profileUrl` is required." } };
+      M.upsertCommentTarget(data, {
+        name: p.name || "", profileUrl: p.profileUrl, photoUrl: p.photoUrl || "",
+        headline: p.headline || "", notes: p.notes || "",
+      });
+      break;
+    }
+    case "updateCommentTarget": {
+      if (!p.id) return { status: 400, body: { error: "`id` is required." } };
+      M.updateCommentTarget(data, p.id, p.patch || {});
+      break;
+    }
+    case "deleteCommentTarget": {
+      if (!p.id) return { status: 400, body: { error: "`id` is required." } };
+      M.deleteCommentTarget(data, p.id);
+      break;
+    }
+  }
+
+  await upsertAppData(data);
+  return { status: 200, body: { ok: true } };
+}
+
 // Routes that need the HTTP method and headers, not just a POST body — kept
 // separate from _handlers.js's ROUTES (which are all fire-and-forget POST
 // proxies) so that dev server plumbing stays simple for both.
@@ -275,4 +382,5 @@ export const DATA_ROUTES = {
   "/api/portal-data": { method: "GET", handler: ({ headers }) => handlePortalDataGet(headers) },
   "/api/portal-action": { method: "POST", handler: ({ headers, body }) => handlePortalAction(headers, body) },
   "/api/upload": { method: "POST", handler: ({ headers, body }) => handleUpload(headers, body) },
+  "/api/extension": { method: "POST", handler: ({ headers, body }) => handleExtension(headers, body) },
 };

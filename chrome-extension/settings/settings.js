@@ -3,17 +3,27 @@
 const $ = (id) => document.getElementById(id);
 
 async function init() {
-  const { token } = await chrome.storage.local.get("token");
-  if (token) {
-    showConnected();
+  const session = await sendMessageWithTimeout({ type: "GET_SESSION" });
+  if (session?.connected) {
+    showConnected(session);
   } else {
     showSetup();
   }
 }
 
-function showConnected() {
+function showConnected(session) {
   $("connected-view").style.display = "block";
   $("setup-view").style.display = "none";
+  if (session.role === "client") {
+    $("connected-label").textContent = `Connected as ${session.label || "a client"}`;
+    $("connected-copy").textContent =
+      `Everything you save or log from this Chrome profile — leads, outreach — ` +
+      `is scoped to ${session.label || "this client"}, not your own agency data.`;
+  } else {
+    $("connected-label").textContent = "Connected as Eden Labs (you)";
+    $("connected-copy").textContent =
+      "You're all set. Right-click any selected name on any webpage to save it as a lead in your Eden Labs CRM.";
+  }
 }
 
 function showSetup() {
@@ -50,7 +60,7 @@ function sendMessageWithTimeout(message, ms = 8000) {
 
 async function connect() {
   const pin = $("pin").value.trim();
-  if (!pin) { showStatus("error", "Please enter your PIN."); return; }
+  if (!pin) { showStatus("error", "Please enter a PIN."); return; }
 
   $("connect-btn").disabled = true;
   $("connect-btn").innerHTML = '<span class="spin">⟳</span> Connecting…';
@@ -60,7 +70,7 @@ async function connect() {
     const result = await sendMessageWithTimeout({ type: "AUTH", pin });
     if (result?.ok) {
       showStatus("success", "Connected! You can close this tab.");
-      showConnected();
+      showConnected({ role: result.role, label: result.label });
       return;
     }
     showStatus("error", result?.error || "Connection failed. Check your PIN.");

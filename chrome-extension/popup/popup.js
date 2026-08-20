@@ -1,38 +1,76 @@
-// Eden Labs CRM — popup script
-// Opens when the toolbar icon is clicked, for adding a lead manually with no
-// text selection involved. (Right-click-a-name saves now happen through the
-// in-page floating card in content.js instead — this popup no longer needs
-// to receive that context.)
+// Eden Labs — popup script
+// Opens when the toolbar icon is clicked. Two tabs: save a lead manually
+// (no text-selection context involved — that flow lives in content.js's
+// in-page card instead), and log today's LinkedIn outreach without leaving
+// whatever page you're on.
 
 const $ = (id) => document.getElementById(id);
 
-// ---- Boot: check auth -------------------------------------------------------
+// ---- Boot: check auth + reflect role ---------------------------------------
 
 async function init() {
-  const { token } = await chrome.storage.local.get("token");
-  if (!token) {
+  $("outreach-date").value = new Date().toISOString().slice(0, 10);
+
+  const session = await chrome.runtime.sendMessage({ type: "GET_SESSION" });
+  if (!session?.connected) {
     $("not-connected").style.display = "flex";
-    $("save-btn").disabled = true;
+    $("save-lead-btn").disabled = true;
+    $("save-outreach-btn").disabled = true;
+  } else {
+    applySession(session);
   }
+
+  // Pre-fill the source chip from whatever tab the popup was opened on top
+  // of — the same "which page is this from" context the in-page card gets
+  // automatically, since the popup has no text-selection to inherit it from.
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.url && !tab.url.startsWith("chrome://")) {
+      $("source-field").style.display = "block";
+      $("source-url-display").textContent = tab.url;
+      $("source-url-display").title = tab.url;
+    }
+  } catch {
+    // Not fatal — the lead still saves, just without a source URL.
+  }
+
   $("name").focus();
 }
 
-// ---- Actions --------------------------------------------------------------
+function applySession(session) {
+  const chip = $("role-chip");
+  if (session.role === "client") {
+    $("header-sub").textContent = `Scoped to ${session.label || "a client"}`;
+    chip.textContent = "Client";
+    chip.style.display = "inline-block";
+    $("outreach-scope").textContent =
+      `Sets today's totals for ${session.label || "this client"}'s LinkedIn outreach — this overwrites, so enter the full day's count, not just what changed.`;
+  } else {
+    $("header-sub").textContent = "Eden Labs CRM";
+    chip.style.display = "none";
+  }
+}
 
-$("open-settings").addEventListener("click", () => {
-  chrome.runtime.openOptionsPage();
+// ---- Tabs -------------------------------------------------------------------
+
+document.querySelectorAll(".tab").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
+    btn.classList.add("active");
+    $(btn.dataset.panel).classList.add("active");
+    $("status").style.display = "none";
+  });
 });
 
-$("connect-btn").addEventListener("click", () => {
-  chrome.runtime.openOptionsPage();
-});
+// ---- Actions ----------------------------------------------------------------
 
-$("save-btn").addEventListener("click", saveLead);
+$("open-settings").addEventListener("click", () => chrome.runtime.openOptionsPage());
+$("connect-btn").addEventListener("click", () => chrome.runtime.openOptionsPage());
 
-// Also submit on Enter inside the name field
-$("name").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") saveLead();
-});
+$("save-lead-btn").addEventListener("click", saveLead);
+$("name").addEventListener("keydown", (e) => { if (e.key === "Enter") saveLead(); });
+$("save-outreach-btn").addEventListener("click", saveOutreach);
 
 async function saveLead() {
   const name = $("name").value.trim();
@@ -57,23 +95,52 @@ async function saveLead() {
     url:        sourceUrl,
   };
 
-  $("save-btn").disabled = true;
-  $("save-btn").innerHTML = '<span class="spin">⟳</span> Saving…';
+  $("save-lead-btn").disabled = true;
+  $("save-lead-btn").innerHTML = '<span class="spin">⟳</span> Saving…';
 
   const result = await chrome.runtime.sendMessage({ type: "SAVE_LEAD", lead });
 
   if (result.ok) {
     showStatus("success", `✓ ${name} saved to CRM!`);
-    $("save-btn").innerHTML = "✓ Saved";
+    $("save-lead-btn").innerHTML = "✓ Saved";
     setTimeout(() => window.close(), 1400);
   } else {
     showStatus("error", result.error || "Something went wrong.");
-    $("save-btn").disabled = false;
-    $("save-btn").innerHTML = "Save to CRM";
+    $("save-lead-btn").disabled = false;
+    $("save-lead-btn").innerHTML = "Save to CRM";
   }
 }
 
-// ---- Helpers --------------------------------------------------------------
+async function saveOutreach() {
+  const date = $("outreach-date").value;
+  if (!date) { showStatus("error", "Pick a date."); return; }
+
+  const entry = {
+    date,
+    linkedinConnectionsSent:      Number($("oc-sent").value) || 0,
+    linkedinConnectionsAccepted:  Number($("oc-accepted").value) || 0,
+    linkedinConversationsStarted: Number($("oc-convos").value) || 0,
+    linkedinReplied:              Number($("oc-replied").value) || 0,
+    linkedinCallsBooked:          Number($("oc-calls").value) || 0,
+  };
+
+  $("save-outreach-btn").disabled = true;
+  $("save-outreach-btn").innerHTML = '<span class="spin">⟳</span> Saving…';
+
+  const result = await chrome.runtime.sendMessage({ type: "LOG_OUTREACH", entry });
+
+  if (result.ok) {
+    showStatus("success", `✓ Outreach saved for ${date}.`);
+    $("save-outreach-btn").innerHTML = "Save outreach for this day";
+    $("save-outreach-btn").disabled = false;
+  } else {
+    showStatus("error", result.error || "Something went wrong.");
+    $("save-outreach-btn").disabled = false;
+    $("save-outreach-btn").innerHTML = "Save outreach for this day";
+  }
+}
+
+// ---- Helpers ------------------------------------------------------------
 
 function showStatus(type, msg) {
   const el = $("status");

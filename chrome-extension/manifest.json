@@ -1,19 +1,27 @@
 {
   "manifest_version": 3,
   "name": "Eden Labs CRM",
-  "version": "1.0.0",
-  "description": "Right-click any name on any website to save it as a lead in your Eden Labs CRM.",
+  "version": "1.1.0",
+  "description": "Save LinkedIn leads, log outreach, and build a daily comment list — right from the extension, without leaving the page.",
 
   "permissions": ["contextMenus", "storage", "scripting", "activeTab"],
-  "host_permissions": ["https://dashboard.theedenlabs.com/*"],
+  "host_permissions": ["https://dashboard.theedenlabs.com/*", "https://*.linkedin.com/*"],
 
   "background": {
     "service_worker": "background.js"
   },
 
+  "content_scripts": [
+    {
+      "matches": ["https://*.linkedin.com/*"],
+      "js": ["overlay.js"],
+      "run_at": "document_idle"
+    }
+  ],
+
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "Eden Labs CRM",
+    "default_title": "Eden Labs",
     "default_icon": {
       "16":  "icons/icon16.png",
       "48":  "icons/icon48.png",

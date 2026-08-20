@@ -434,6 +434,15 @@ if (!window.__edenLabsOverlayInjected) {
         }
         .row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .row a { color: #14532d; text-decoration: none; font-size: 11px; flex-shrink: 0; }
+        .row .remove-btn {
+          background: transparent; border: none; color: #d6d3d1; cursor: pointer;
+          flex-shrink: 0; padding: 3px; border-radius: 6px; line-height: 1;
+          display: flex; align-items: center; justify-content: center;
+          transition: color .15s ease, background .15s ease, transform .15s cubic-bezier(0.23,1,0.32,1);
+        }
+        .row .remove-btn:hover { color: #9f1239; background: #fff1f2; }
+        .row .remove-btn:active { transform: scale(0.9); }
+        .row .remove-btn:disabled { opacity: .4; cursor: default; }
         .empty { padding: 18px 14px; text-align: center; color: #a8a29e; font-size: 12px; }
         .not-connected { padding: 14px; text-align: center; color: #9a3412; font-size: 12px; background: #fff7ed; }
       </style>
@@ -475,13 +484,28 @@ if (!window.__edenLabsOverlayInjected) {
         return;
       }
       list.innerHTML = targets.slice().reverse().map((t) => `
-        <div class="row">
+        <div class="row" data-id="${t.id}">
           ${t.photoUrl ? `<img src="${t.photoUrl}" alt="" />` : `<span class="avatar-fallback">${initials(t.name)}</span>`}
           <span class="name" title="${t.name || t.profileUrl}">${t.name || t.profileUrl}</span>
           <a href="${t.profileUrl}" target="_blank" rel="noopener">Open</a>
+          <button class="remove-btn" data-remove-id="${t.id}" title="Remove from list" aria-label="Remove from list">✕</button>
         </div>
       `).join("");
     }
+
+    // One delegated listener rather than one per row — the list re-renders
+    // wholesale on every refresh, so per-row listeners would just leak.
+    $("list").addEventListener("click", (e) => {
+      const btn = e.target.closest?.("[data-remove-id]");
+      if (!btn) return;
+      const id = btn.dataset.removeId;
+      btn.disabled = true;
+      btn.textContent = "…";
+      safeSendMessage({ type: "DELETE_COMMENT_TARGET", id }, (result) => {
+        if (result?.ok) refreshList();
+        else { btn.disabled = false; btn.textContent = "✕"; showToast(result?.error || "Couldn't remove — try again.", true); }
+      });
+    });
 
     function refreshList() {
       safeSendMessage({ type: "GET_COMMENT_TARGETS" }, (result) => {

@@ -87,6 +87,16 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       });
       return;
     }
+    // Fail closed rather than saving a nameless row — the same fix the
+    // pinned panel's own "+ Add this profile" button already got, applied
+    // here too since this is a second path into the same list.
+    if (!target.name) {
+      chrome.tabs.sendMessage(tab.id, {
+        type: "TOAST", error: true,
+        text: "Couldn't detect a name there — try right-clicking directly on the text of their name.",
+      });
+      return;
+    }
     extensionAction("addCommentTarget", target)
       .then(() => chrome.tabs.sendMessage(tab.id, { type: "TOAST", text: `✓ Added ${target.name || "profile"} to comment list` }))
       .catch((err) => chrome.tabs.sendMessage(tab.id, { type: "TOAST", error: true, text: err.message }));
@@ -215,6 +225,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === "ADD_COMMENT_TARGET") {
     extensionAction("addCommentTarget", msg.target)
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (msg.type === "DELETE_COMMENT_TARGET") {
+    extensionAction("deleteCommentTarget", { id: msg.id })
       .then(() => sendResponse({ ok: true }))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;

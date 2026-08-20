@@ -55,7 +55,12 @@ if (!window.__edenLabsOverlayInjected) {
     const stripped = aria.replace(/^View\s+/i, "").replace(/[’']s profile$/i, "").trim();
     if (stripped) return stripped;
     const text = (link.textContent || "").replace(/\s+/g, " ").trim();
-    return text.split("•")[0].trim();
+    const beforeBullet = text.split("•")[0].trim();
+    if (beforeBullet) return beforeBullet;
+    // A link that's just an avatar photo (no visible text) still usually
+    // carries the person's name in the image's alt text — common in feed
+    // post headers, where the avatar and the name are two separate <a>s.
+    return link.querySelector?.("img[alt]")?.alt?.trim() || "";
   }
 
   function findNearbyPhoto(link) {
@@ -70,12 +75,23 @@ if (!window.__edenLabsOverlayInjected) {
   // ---- Current-profile-page detection (for the pinned panel's own button) --
 
   function bestProfileName() {
-    // document.title ("First Last - Headline | LinkedIn") is far more
+    // document.title ("(3) First Last - Headline | LinkedIn") is far more
     // reliable than any CSS selector, which LinkedIn's auto-generated class
-    // names can and do change without notice.
-    const fromTitle = (document.title || "").split(" | LinkedIn")[0].split(" - ")[0].trim();
-    if (fromTitle && fromTitle.toLowerCase() !== "linkedin") return fromTitle;
-    return document.querySelector("h1")?.textContent?.trim() || "";
+    // names can and do change without notice — but it can carry an unread-
+    // notification-count prefix like "(3) ", and during an in-app (SPA)
+    // navigation the title itself can briefly still say the generic
+    // "Feed | LinkedIn" or similar for a moment before LinkedIn updates it,
+    // so this isn't relied on alone.
+    const title = (document.title || "").replace(/^\(\d+\+?\)\s*/, "");
+    const fromTitle = title.split(" | LinkedIn")[0].split(" - ")[0].trim();
+    const looksGeneric = !fromTitle || /^(linkedin|feed|home)$/i.test(fromTitle);
+    if (!looksGeneric) return fromTitle;
+    const h1 = document.querySelector("h1")?.textContent?.trim();
+    if (h1) return h1;
+    // .text-heading-xlarge is the class LinkedIn's own profile-name heading
+    // has carried for years, even though it isn't guaranteed forever — kept
+    // as a last-resort fallback rather than the primary signal.
+    return document.querySelector(".text-heading-xlarge")?.textContent?.trim() || "";
   }
 
   function findOwnPhoto() {
@@ -487,8 +503,16 @@ if (!window.__edenLabsOverlayInjected) {
         btn.textContent = "Visit a profile to add it";
         return;
       }
+      // Fail closed rather than silently saving a blank name — LinkedIn's
+      // SPA can still be mid-navigation the instant this runs, and a saved
+      // row with no name is worse than a button that says "wait a second".
+      if (!profile.name) {
+        btn.disabled = true;
+        btn.textContent = "Detecting name…";
+        return;
+      }
       btn.disabled = false;
-      btn.textContent = `+ Add ${profile.name || "this profile"}`;
+      btn.textContent = `+ Add ${profile.name}`;
       btn.onclick = () => {
         btn.disabled = true;
         btn.textContent = "Adding…";

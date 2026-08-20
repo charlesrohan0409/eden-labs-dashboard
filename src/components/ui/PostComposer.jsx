@@ -9,6 +9,12 @@ import PostPreview from "./PostPreview";
 import { toUnicodeBold, toUnicodeItalic, nowLocalISO, formatDateTime } from "../../lib/utils";
 import { fileToImage, fileToVideo, fileToDocument } from "../../lib/media";
 import { createBufferPost } from "../../lib/buffer";
+import { normalizeStatus, STAGE_META, POST_TYPE_META, hookOf } from "../../lib/content";
+
+// Icon per post type, reusing the same vocabulary POST_TYPES below is built
+// from — "document" (PDF carousels) has no entry there since it's not a
+// composer choice, so it gets its own fallback.
+const TYPE_ICON = { text: Type, image: ImageIcon, carousel: LayoutGrid, document: FileText, video: Film, poll: BarChart3 };
 
 const POST_TYPES = [
   { value: "text", label: "Text", icon: Type },
@@ -488,43 +494,73 @@ export default function PostComposer({
           poll={type === "poll" && (poll.question || poll.options.some((o) => o.text)) ? poll : null}
         />
 
-        <div className="flex items-center justify-between mt-5 mb-2">
+        <div className="flex items-center justify-between mt-6 mb-2.5">
           <span className="text-xs text-stone-400 font-medium">Recent ({scoped.length})</span>
           {scoped.length > 0 && <span className="text-[11px] text-stone-300">Click one to edit it</span>}
         </div>
-        <div className="space-y-2">
-          {scoped.slice(0, 4).map((p) => (
-            <div
-              key={p.id}
-              className={`group w-full text-xs border rounded-xl p-2.5 flex justify-between items-start gap-2 transition-colors ${
-                editingId === p.id ? "border-emerald-500 bg-emerald-50/50" : "border-line text-stone-600 hover:border-stone-300"
-              }`}
-            >
-              <button onClick={() => loadForEditing(p)} className="min-w-0 flex-1 text-left">
-                {/* whitespace-pre-wrap is the fix here — without it the
-                    browser collapses every line break in the saved post
-                    into a single space, so anything with paragraph breaks
-                    rendered as one run-on wall of text instead of the
-                    actual post. */}
-                <span className="line-clamp-3 block whitespace-pre-wrap">{p.content || "(media only)"}</span>
-              </button>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <Badge tone={p.status === "published" ? "emerald" : p.status === "scheduled" ? "teal" : p.status === "pending_review" ? "amber" : "stone"}>
-                  {p.status === "pending_review" ? "in review" : p.status}
-                </Badge>
-                {onDeletePost && (
-                  <button
-                    onClick={() => { if (editingId === p.id) reset(); onDeletePost(p.id); }}
-                    aria-label="Delete post"
-                    className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-stone-300 hover:text-rose-500 transition p-0.5"
-                  >
-                    <Trash2 size={12} />
+
+        {/* Every saved post lives here — nothing is capped or hidden — inside
+            a fixed-height, self-scrolling list, so "recent" never pushes the
+            whole page down or hides drafts that exist but didn't fit a
+            hardcoded slice. Newest first, one line per card: the full body
+            was the actual mess (wrapping to 3 lines of a post read like a
+            wall of text and still didn't say *which* post it was) — a
+            single-line hook plus a status dot reads instantly instead. */}
+        <div className="relative">
+          <div className="space-y-1.5 max-h-[380px] overflow-y-auto pr-1 -mr-1 [scrollbar-width:thin] [scrollbar-color:theme(colors.stone.200)_transparent]">
+            {[...scoped].reverse().map((p, i) => {
+              const status = normalizeStatus(p.status);
+              const meta = STAGE_META[status] || STAGE_META.idea;
+              const typeMeta = POST_TYPE_META[p.type] || POST_TYPE_META.text;
+              const TypeIcon = TYPE_ICON[p.type] || Type;
+              const hook = hookOf(p.content) || (p.type ? `${POST_TYPE_META[p.type]?.label || "Media"} post` : "(media only)");
+              const isEditing = editingId === p.id;
+              return (
+                <div
+                  key={p.id}
+                  style={{ animationDelay: `${Math.min(i, 10) * 40}ms` }}
+                  className={`group motion-safe:[animation-fill-mode:both] motion-safe:animate-fade-up relative flex items-center gap-2.5 rounded-xl border pl-2 pr-1.5 py-1.5 transition-all duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.98] ${
+                    isEditing
+                      ? "border-emerald-400 bg-emerald-50/60 ring-1 ring-emerald-400/20"
+                      : "border-line hover:border-stone-300 hover:bg-stone-50/70"
+                  }`}
+                >
+                  <button onClick={() => loadForEditing(p)} className="min-w-0 flex-1 flex items-center gap-2.5 text-left">
+                    <span className={`shrink-0 w-7 h-7 rounded-lg flex items-center justify-center ${typeMeta.chip}`}>
+                      <TypeIcon size={13} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] font-medium text-stone-700 truncate">{hook}</span>
+                      <span className="flex items-center gap-1.5 mt-0.5">
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${meta.dot}`} />
+                        <span className="text-[11px] text-stone-400 truncate">
+                          {meta.label}
+                          {p.scheduledAt && ` · ${formatDateTime(p.scheduledAt)}`}
+                        </span>
+                      </span>
+                    </span>
                   </button>
-                )}
-              </div>
-            </div>
-          ))}
-          {scoped.length === 0 && <div className="text-xs text-stone-300">No posts yet.</div>}
+                  {onDeletePost && (
+                    <button
+                      onClick={() => { if (isEditing) reset(); onDeletePost(p.id); }}
+                      aria-label="Delete post"
+                      className="shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-stone-300 hover:text-rose-500 transition-colors p-1.5 rounded-lg hover:bg-rose-50"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+            {scoped.length === 0 && (
+              <div className="text-xs text-stone-300 py-3 text-center">No posts yet — anything you save or draft shows up here.</div>
+            )}
+          </div>
+          {/* Fade cue that there's more below, rather than an abrupt cut —
+              only shown once the list is actually tall enough to scroll. */}
+          {scoped.length > 5 && (
+            <div className="pointer-events-none absolute bottom-0 inset-x-0 h-8 bg-gradient-to-t from-white to-transparent rounded-b-xl" />
+          )}
         </div>
       </div>
     </div>

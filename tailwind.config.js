@@ -16,6 +16,17 @@ export default {
         sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
         serif: ["'Instrument Serif'", "ui-serif", "Georgia", "serif"],
       },
+      keyframes: {
+        // Entrance for staggered list items — never scales from 0, only
+        // moves/fades, per the motion rules this app follows.
+        "fade-up": {
+          "0%": { opacity: "0", transform: "translateY(6px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+      },
+      animation: {
+        "fade-up": "fade-up 0.32s cubic-bezier(0.23,1,0.32,1) both",
+      },
     },
   },
   plugins: [],

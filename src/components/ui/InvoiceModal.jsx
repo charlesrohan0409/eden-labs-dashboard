@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, Download, Send, Loader2, CheckCircle2, FileText } from "lucide-react";
 import Modal from "./Modal";
 import Badge from "./Badge";
@@ -7,8 +7,9 @@ import { today, addDays, uid, commissionInstallment } from "../../lib/utils";
 import { invoiceNumber, buildInvoiceDocument, buildInvoiceEmailText } from "../../lib/invoice";
 import { sendEmail } from "../../lib/email";
 import { useCurrency } from "../../hooks/useCurrency";
+import { CURRENCIES, formatAmount, fetchUsdToInr } from "../../lib/currency";
 
-const EMPTY_FORM = { clientId: "", description: "", amount: "", issueDate: today(), dueDate: addDays(today(), 14), notes: "" };
+const EMPTY_FORM = { clientId: "", description: "", amount: "", currency: "USD", issueDate: today(), dueDate: addDays(today(), 14), notes: "" };
 
 /**
  * Create a single ad-hoc invoice. Two phases in one modal: fill in the
@@ -21,9 +22,32 @@ export default function InvoiceModal({ open, onClose, clients, invoices, onCreat
   const [sendStatus, setSendStatus] = useState("");
   const [sendError, setSendError] = useState("");
   const [sending, setSending] = useState(false);
-  const { money, currency } = useCurrency();
+  const { moneyIn } = useCurrency();
+  // The invoice's OWN currency — not the dashboard's display setting.
+  const invCurrency = created?.currency || form.currency;
   // 2dp on an invoice — a document should show exact cents/paise.
-  const fmtMoney = (n) => money(n, { decimals: 2 });
+  //
+  // Deliberately formatAmount, NOT money()/moneyIn(): those mask to "••••••"
+  // when hide-amounts is on, which previously meant downloading or emailing
+  // an invoice with privacy mode enabled produced a document reading
+  // "Total: ••••••". A document leaving the building must never be masked.
+  const fmtMoney = (n) => formatAmount(n, { currency: invCurrency, decimals: 2 });
+
+  // The FX rate for the picked currency, frozen onto the invoice at creation
+  // so its USD equivalent stays auditable. Fetched here rather than read off
+  // the currency context because the context only fetches a rate when the
+  // GLOBAL display setting is non-USD — on a USD dashboard it reports rate 1,
+  // which would record a ₹50,000 invoice as $50,000.
+  const [fx, setFx] = useState({ rate: 1, loading: false, stale: false });
+  useEffect(() => {
+    if (form.currency === "USD") { setFx({ rate: 1, loading: false, stale: false }); return; }
+    let cancelled = false;
+    setFx((f) => ({ ...f, loading: true }));
+    fetchUsdToInr().then((res) => {
+      if (!cancelled) setFx({ rate: res.rate, loading: false, stale: res.stale });
+    });
+    return () => { cancelled = true; };
+  }, [form.currency]);
 
   const client = clients.find((c) => c.id === (created?.clientId || form.clientId));
 
@@ -62,11 +86,20 @@ export default function InvoiceModal({ open, onClose, clients, invoices, onCreat
   };
 
   const handleCreate = () => {
-    if (!form.clientId || !Number(form.amount)) return;
+    if (!form.clientId || !Number(form.amount) || fx.loading) return;
+    const nativeAmount = Number(form.amount);
+    const rate = form.currency === "USD" ? 1 : fx.rate || 1;
     const invoice = {
       id: uid(),
       clientId: form.clientId,
-      amount: Number(form.amount),
+      // What the client actually owes, in the currency they were billed in —
+      // this is what the document prints, forever.
+      nativeAmount,
+      currency: form.currency,
+      // Frozen at issue time so the USD figure below stays explainable later.
+      fxRate: rate,
+      // USD snapshot, so app-wide totals stay summable across currencies.
+      amount: nativeAmount / rate,
       description: form.description.trim(),
       notes: form.notes.trim(),
       date: form.issueDate,
@@ -138,7 +171,9 @@ export default function InvoiceModal({ open, onClose, clients, invoices, onCreat
         ) : (
           <>
             <PrimaryButton variant="ghost" onClick={close}>Cancel</PrimaryButton>
-            <PrimaryButton icon={Plus} onClick={handleCreate} disabled={!form.clientId || !Number(form.amount)}>
+            {/* Blocked while the FX rate is in flight — creating before it
+                resolves would freeze rate 1 onto a non-USD invoice. */}
+            <PrimaryButton icon={Plus} onClick={handleCreate} disabled={!form.clientId || !Number(form.amount) || fx.loading}>
               Create invoice
             </PrimaryButton>
           </>
@@ -151,7 +186,9 @@ export default function InvoiceModal({ open, onClose, clients, invoices, onCreat
             <label className="text-xs text-stone-500 font-medium">Client</label>
             <select value={form.clientId} onChange={(e) => pickClient(e.target.value)} className={`${inputCls} mt-1`}>
               <option value="">Select a client…</option>
-              {clients.map((c) => <option key={c.id} value={c.id}>{c.name} · {c.company}</option>)}
+              {/* Hidden clients drop out of the picker but keep every invoice
+                  and total they already have. */}
+              {clients.filter((c) => !c.hidden).map((c) => <option key={c.id} value={c.id}>{c.name} · {c.company}</option>)}
             </select>
           </div>
 
@@ -167,13 +204,24 @@ export default function InvoiceModal({ open, onClose, clients, invoices, onCreat
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-stone-500 font-medium">Amount (USD)</label>
-              <input
-                type="number" min="0" placeholder="0.00"
-                value={form.amount}
-                onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                className={`${inputCls} mt-1`}
-              />
+              <label className="text-xs text-stone-500 font-medium">Amount</label>
+              <div className="flex gap-2 mt-1">
+                <input
+                  type="number" min="0" placeholder="0.00"
+                  value={form.amount}
+                  onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                  className={`${inputCls} flex-1`}
+                />
+                <select
+                  value={form.currency}
+                  onChange={(e) => setForm({ ...form, currency: e.target.value })}
+                  className="border border-line rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20 shrink-0"
+                >
+                  {Object.values(CURRENCIES).map((c) => (
+                    <option key={c.code} value={c.code}>{c.symbol} {c.code}</option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div>
               <label className="text-xs text-stone-500 font-medium">Issue date</label>
@@ -184,6 +232,29 @@ export default function InvoiceModal({ open, onClose, clients, invoices, onCreat
               />
             </div>
           </div>
+
+          {/* What the invoice will actually say, plus the USD equivalent it's
+              recorded at — so a non-USD invoice is never a black box. */}
+          {form.currency !== "USD" && !!Number(form.amount) && (
+            <div className="text-[11px] text-stone-500 bg-stone-50 border border-line rounded-lg px-3 py-2">
+              {fx.loading ? (
+                "Fetching today's exchange rate…"
+              ) : (
+                <>
+                  This invoice bills{" "}
+                  <span className="font-semibold text-stone-700 tnum">
+                    {formatAmount(Number(form.amount), { currency: form.currency, decimals: 2 })}
+                  </span>
+                  . Recorded as{" "}
+                  <span className="tnum">
+                    {formatAmount(Number(form.amount) / (fx.rate || 1), { currency: "USD", decimals: 2 })}
+                  </span>{" "}
+                  for reporting, at 1 USD = {(fx.rate || 1).toFixed(2)} {form.currency}
+                  {fx.stale ? " (approximate — couldn't reach the rate service)" : ""}.
+                </>
+              )}
+            </div>
+          )}
 
           <div>
             <label className="text-xs text-stone-500 font-medium">Due date</label>
@@ -223,7 +294,9 @@ export default function InvoiceModal({ open, onClose, clients, invoices, onCreat
             </div>
             <div className="flex justify-between text-sm mb-1.5">
               <span className="text-stone-500">{created.description || "Services rendered"}</span>
-              <span className="text-stone-800 font-medium tnum">{money(created.amount)}</span>
+              <span className="text-stone-800 font-medium tnum">
+                {moneyIn(created.nativeAmount ?? created.amount, created.currency)}
+              </span>
             </div>
             <div className="flex justify-between text-sm pt-2 border-t border-stone-100 mt-2">
               <span className="text-stone-500">Due</span>

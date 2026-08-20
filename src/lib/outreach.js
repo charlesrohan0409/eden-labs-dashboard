@@ -26,6 +26,21 @@ export const ALL_FIELDS = [...LINKEDIN_STAGES, ...EMAIL_STAGES].map((s) => s.key
 
 export const EMPTY_ENTRY = ALL_FIELDS.reduce((acc, k) => ({ ...acc, [k]: 0 }), {});
 
+// Scopes a log to one client before aggregating. `undefined` means "every
+// row, whoever it belongs to"; `null` means the owner's own agency outreach;
+// a string means that client. Same convention TaskList already uses for its
+// clientId prop.
+//
+// Deliberately a separate filter rather than a clientId parameter on each
+// aggregator below: any default there would be wrong. Defaulting to "all
+// rows" would make the owner's Growth numbers silently jump the first time a
+// client row is logged, and defaulting to "owner only" would bake a policy
+// decision into a math helper.
+export const forClient = (outreachLog, clientId) =>
+  clientId === undefined
+    ? (outreachLog || [])
+    : (outreachLog || []).filter((e) => (e.clientId || null) === (clientId || null));
+
 // Sums every field across whatever rows fall in [since, today] — used for
 // the funnel view's rolling window and the small trend stats.
 export function sumEntries(outreachLog, sinceDate) {
@@ -41,15 +56,23 @@ export function sumEntries(outreachLog, sinceDate) {
 // day you forgot to log reads as a real dip rather than just vanishing from
 // the x-axis.
 export function buildDailySeries(outreachLog, days = 30) {
-  const byDate = new Map((outreachLog || []).map((e) => [e.date, e]));
+  // Accumulates per date rather than keying a Map to the row — with rows now
+  // scoped per client, several can share a date, and a Map keyed on date
+  // silently kept only the last one instead of summing them. Idempotent for
+  // the single-row-per-date case, so scoped callers are unaffected.
+  const byDate = new Map();
+  (outreachLog || []).forEach((e) => {
+    const bucket = byDate.get(e.date) || { ...EMPTY_ENTRY };
+    ALL_FIELDS.forEach((k) => { bucket[k] += Number(e[k]) || 0; });
+    byDate.set(e.date, bucket);
+  });
   const out = [];
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const date = d.toISOString().slice(0, 10);
-    const entry = byDate.get(date);
     const label = d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
-    out.push({ date, label, ...EMPTY_ENTRY, ...(entry || {}) });
+    out.push({ date, label, ...EMPTY_ENTRY, ...(byDate.get(date) || {}) });
   }
   return out;
 }

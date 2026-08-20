@@ -11,7 +11,7 @@ export function migrateData(loaded) {
   [
     "clients", "contacts", "tasks", "posts", "dms", "expenses", "invoices",
     "growthLog", "outreachLog", "channelPerf", "integrations", "calls", "outreachByChannel",
-    "comments", "swipeFile", "activityLog",
+    "comments", "swipeFile", "activityLog", "commentTargets",
   ].forEach((key) => {
     if (!Array.isArray(merged[key])) merged[key] = defaults[key];
   });
@@ -43,6 +43,11 @@ export function migrateData(loaded) {
   // Clients saved before service lines existed are all LinkedIn work.
   merged.clients = merged.clients.map((c) => ({
     email: "", photoUrl: "", logoUrl: "", type: DEFAULT_CLIENT_TYPE, notes: "", industry: "",
+    // Hiding is about decluttering the client list (an ended engagement you
+    // don't want to scroll past), so it lives on the record and syncs across
+    // devices — unlike the finance hide-amounts toggle, which is a
+    // per-browser privacy preference in localStorage.
+    hidden: false,
     ...c,
     contract: {
       value: 0, status: "active", cycle: "monthly", notes: "", serviceType: "content",
@@ -89,15 +94,49 @@ export function migrateData(loaded) {
 
   // Ensure older invoices have a billing period, and the fields the ad-hoc
   // invoice modal added (due date, a description line, free-text notes).
+  //
+  // currency/nativeAmount/fxRate: every pre-existing invoice was USD-only, so
+  // it backfills as USD at rate 1 with nativeAmount mirroring the stored USD
+  // amount. `amount` stays the USD snapshot every aggregate already sums;
+  // `nativeAmount` is what the invoice document actually prints.
   merged.invoices = merged.invoices.map((i) => ({
     period: (i.date || "").slice(0, 7), description: "", dueDate: i.date || "", notes: "",
+    currency: "USD", fxRate: 1, nativeAmount: Number(i.amount) || 0,
     ...i,
   }));
 
   // Tasks are newer than the first saved shape — fill in their defaults.
-  merged.tasks = merged.tasks.map((t) => ({
+  // sortIndex seeds from array position — the one place insertion order gets
+  // promoted into a real field, stable because migrate preserves order and
+  // `...t` wins once a value has actually been written.
+  // category defaults to "" (uncategorised) rather than a real category:
+  // guessing one would silently mislabel real historical work.
+  merged.tasks = merged.tasks.map((t, idx) => ({
     clientId: null, dueDate: "", priority: "medium", done: false, createdAt: "",
     recurrence: "none", periodStart: "",
+    sortIndex: idx * 10, category: "", description: "",
+    ...t,
+  }));
+
+  // Outreach rows gained a clientId — everything logged before this was the
+  // owner's own agency outreach, so null (not a client) is the correct
+  // backfill. See lib/outreach.js's forClient().
+  merged.outreachLog = merged.outreachLog.map((e) => ({ clientId: null, ...e }));
+
+  // The swipe file used to be a one-line "hook I liked" note. It's now a
+  // saved-post library, so entries carry the author, their photo, the full
+  // post text and a link. Old entries keep working: their `source` was the
+  // author's name, so it maps straight onto `author`.
+  merged.swipeFile = merged.swipeFile.map((s) => ({
+    author: s.source || "", authorPhoto: "", authorUrl: "", url: "", text: "",
+    savedAt: "", note: "", tag: "hook",
+    ...s,
+  }));
+
+  // The commenting list (LinkedIn profiles to engage with daily) — owner-only,
+  // populated from the Chrome extension or the dashboard.
+  merged.commentTargets = merged.commentTargets.map((t) => ({
+    name: "", profileUrl: "", photoUrl: "", headline: "", inSearch: false, addedAt: "", notes: "",
     ...t,
   }));
 

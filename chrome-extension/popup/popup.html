@@ -144,11 +144,15 @@
     <div class="row">
       <div class="field">
         <label>Stage</label>
+        <!-- These values must match the dashboard's CRM stages exactly. This
+             list used to offer "qualified", which is not a real stage — a lead
+             saved that way rendered in no column on the CRM board at all and
+             couldn't be recovered through the UI. -->
         <select id="stage">
           <option value="lead">Lead</option>
-          <option value="qualified">Qualified</option>
+          <option value="call_booked">Call booked</option>
           <option value="proposal_sent">Proposal sent</option>
-          <option value="closed">Closed</option>
+          <option value="closed">Closed won</option>
         </select>
       </div>
       <div class="field">

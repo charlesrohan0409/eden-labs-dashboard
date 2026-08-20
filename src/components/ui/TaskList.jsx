@@ -135,7 +135,7 @@ export default function TaskList({ tasks, clients, onAdd, onToggle, onDelete, on
                 className={`${inputCls} flex-1 min-w-[9rem]`}
               >
                 <option value="">Internal / agency</option>
-                {clients.map((c) => (
+                {clients.filter((x) => !x.hidden).map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
@@ -193,7 +193,7 @@ export default function TaskList({ tasks, clients, onAdd, onToggle, onDelete, on
                       className={`${inputCls} flex-1 min-w-[9rem]`}
                     >
                       <option value="">Internal / agency</option>
-                      {clients.map((c) => (
+                      {clients.filter((x) => !x.hidden).map((c) => (
                         <option key={c.id} value={c.id}>{c.name}</option>
                       ))}
                     </select>

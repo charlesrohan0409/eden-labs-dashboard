@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { fetchUsdToInr, formatMoney, convertFromUsd, CURRENCIES } from "../lib/currency";
+import { fetchUsdToInr, formatMoney, formatAmount, convertFromUsd, CURRENCIES } from "../lib/currency";
 
 // Currency is needed by nearly every page (finance, clients, CRM, dashboard),
 // so it goes through context rather than being threaded as a prop through
@@ -55,8 +55,13 @@ export function CurrencyProvider({ currency = "USD", children }) {
     symbol: (CURRENCIES[currency] || CURRENCIES.USD).symbol,
     hideAmounts,
     toggleHideAmounts,
-    // The two functions components actually call.
+    // The functions components actually call.
+    // money()   — a USD-stored amount, converted into the global display currency.
+    // moneyIn() — an amount that already IS in `code` (an invoice's own
+    //             currency), rendered as-is with no conversion.
     money: (usd, opts = {}) => (hideAmounts ? MASK : formatMoney(usd, { currency, rate: fx.rate, ...opts })),
+    moneyIn: (amount, code, opts = {}) =>
+      (hideAmounts ? MASK : formatAmount(amount, { currency: code || "USD", ...opts })),
     convert: (usd) => convertFromUsd(usd, currency, fx.rate),
   }), [currency, fx, hideAmounts]);
 
@@ -72,6 +77,7 @@ export function useCurrency() {
       currency: "USD", rate: 1, symbol: "$", fxStale: false, fxLoading: false,
       hideAmounts: false, toggleHideAmounts: () => {},
       money: (usd, opts = {}) => formatMoney(usd, { currency: "USD", rate: 1, ...opts }),
+      moneyIn: (amount, code, opts = {}) => formatAmount(amount, { currency: code || "USD", ...opts }),
       convert: (usd) => Number(usd) || 0,
     };
   }

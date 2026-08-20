@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, X, ChevronRight, FileDown, Search } from "lucide-react";
+import { Plus, X, ChevronRight, FileDown, Search, Eye, EyeOff } from "lucide-react";
 import Card from "../ui/Card";
 import Badge from "../ui/Badge";
 import Avatar from "../ui/Avatar";
@@ -27,13 +27,16 @@ const LINKEDIN_ONBOARDING_TASKS = [
   "Create ICP, offer & positioning doc",
 ];
 
-export default function ClientsList({ data, setView, setSelectedClient, onAddClient, onAddTask, token }) {
+export default function ClientsList({ data, setView, setSelectedClient, onAddClient, onAddTask, onToggleClientHidden, token }) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [onboardStatus, setOnboardStatus] = useState("");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [showHidden, setShowHidden] = useState(false);
   const { money } = useCurrency();
+
+  const hiddenCount = data.clients.filter((c) => c.hidden).length;
 
   // Commission is the one billing type where leaving fields blank would
   // silently create a $0 total (since the value is entirely derived from
@@ -70,7 +73,11 @@ export default function ClientsList({ data, setView, setSelectedClient, onAddCli
     const q = search.trim().toLowerCase();
     const matchesSearch = !q || c.name.toLowerCase().includes(q) || (c.company || "").toLowerCase().includes(q);
     const matchesType = typeFilter === "all" || (c.type || DEFAULT_CLIENT_TYPE) === typeFilter;
-    return matchesSearch && matchesType;
+    // Hidden clients only surface when explicitly asked for — or when a
+    // search matches them, so someone typing a name never gets "no results"
+    // for a client that does exist.
+    const matchesHidden = showHidden || !c.hidden || !!q;
+    return matchesSearch && matchesType && matchesHidden;
   });
 
   const inputCls = "border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
@@ -238,6 +245,19 @@ export default function ClientsList({ data, setView, setSelectedClient, onAddCli
             <option key={t.id} value={t.id}>{t.label}</option>
           ))}
         </select>
+        {hiddenCount > 0 && (
+          <button
+            onClick={() => setShowHidden((v) => !v)}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-sm border transition-colors active:scale-[0.97] ${
+              showHidden
+                ? "bg-stone-800 border-stone-800 text-white"
+                : "bg-white border-line text-stone-600 hover:border-stone-300"
+            }`}
+          >
+            {showHidden ? <Eye size={14} /> : <EyeOff size={14} />}
+            {hiddenCount} hidden
+          </button>
+        )}
       </div>
 
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -248,7 +268,7 @@ export default function ClientsList({ data, setView, setSelectedClient, onAddCli
           return (
             <Card
               key={c.id}
-              className="p-5"
+              className={`p-5 group relative ${c.hidden ? "opacity-60" : ""}`}
               onClick={() => { setSelectedClient(c.id); setView("client-detail"); }}
             >
               <div className="flex justify-between items-start gap-2">
@@ -269,6 +289,17 @@ export default function ClientsList({ data, setView, setSelectedClient, onAddCli
                   <Badge tone="stone">{(CLIENT_TYPES[c.type] || CLIENT_TYPES[DEFAULT_CLIENT_TYPE]).label}</Badge>
                 </div>
               </div>
+
+              {/* stopPropagation so hiding doesn't also navigate into the
+                  client. Always visible on touch, hover-revealed on desktop. */}
+              <button
+                onClick={(e) => { e.stopPropagation(); onToggleClientHidden?.(c.id); }}
+                aria-label={c.hidden ? `Unhide ${c.name}` : `Hide ${c.name}`}
+                title={c.hidden ? "Show in list" : "Hide from list"}
+                className="absolute bottom-3 right-3 text-stone-300 hover:text-stone-600 p-1.5 rounded-full transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 active:scale-[0.97]"
+              >
+                {c.hidden ? <Eye size={14} /> : <EyeOff size={14} />}
+              </button>
 
               <div className="grid grid-cols-2 gap-3 mt-4">
                 <div>

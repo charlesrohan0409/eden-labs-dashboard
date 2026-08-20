@@ -18,6 +18,7 @@ import InvoiceModal from "../ui/InvoiceModal";
 import PrivacyToggle from "../ui/PrivacyToggle";
 import { MONTHS, downloadCSV, today, computeMRR, billingTypeLabel } from "../../lib/utils";
 import { useCurrency } from "../../hooks/useCurrency";
+import { formatAmount } from "../../lib/currency";
 import { invoiceNumber } from "../../lib/invoice";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 
@@ -44,7 +45,7 @@ export default function FinanceDetail({ data, setView, onAddExpense, onUpdateExp
   const [editingExpenseId, setEditingExpenseId] = useState(null);
   const [editExpenseForm, setEditExpenseForm] = useState({ category: "Software", vendor: "", amount: "" });
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
-  const { money } = useCurrency();
+  const { money, moneyIn } = useCurrency();
 
   const clientOf = (id) => data.clients.find((c) => c.id === id);
 
@@ -52,6 +53,9 @@ export default function FinanceDetail({ data, setView, onAddExpense, onUpdateExp
   const totalCost = data.expenses.reduce((s, e) => s + e.amount, 0);
   const profit = totalRevenue - totalCost;
   const margin = totalRevenue ? Math.round((profit / totalRevenue) * 100) : 0;
+  // Every total below sums `amount`, the per-invoice USD snapshot, so mixed
+  // currencies stay addable. This flag just drives an honest footnote.
+  const hasMixedCurrency = data.invoices.some((i) => (i.currency || "USD") !== "USD");
   const pending = data.invoices.filter((i) => i.status === "pending").reduce((s, i) => s + i.amount, 0);
   const overdue = data.invoices.filter((i) => i.status === "overdue").reduce((s, i) => s + i.amount, 0);
 
@@ -113,7 +117,14 @@ export default function FinanceDetail({ data, setView, onAddExpense, onUpdateExp
     }
     setReminderStatus((s) => ({ ...s, [invoice.id]: "sending" }));
     const inv = invoiceNo(invoice.id);
-    const amount = `$${invoice.amount.toLocaleString()}`;
+    // The invoice's own currency, formatted directly rather than through
+    // money() — this used to hardcode "$", which told a client billed in ₹
+    // that they owed dollars. formatAmount also bypasses the hide-amounts
+    // mask, which must never reach an outgoing email.
+    const amount = formatAmount(invoice.nativeAmount ?? invoice.amount, {
+      currency: invoice.currency || "USD",
+      decimals: 2,
+    });
     const text = `Hi ${client.name},\n\nThis is a reminder that invoice ${inv} for ${amount} is ${invoice.status}.\n\nPlease let us know if you have any questions.\n\n— Eden Labs`;
     const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#1c1917;line-height:1.6;max-width:520px">
   <p>Hi ${client.name},</p>
@@ -168,8 +179,15 @@ export default function FinanceDetail({ data, setView, onAddExpense, onUpdateExp
             title="Export invoices as CSV"
             onClick={() => downloadCSV(
               "eden-labs-invoices.csv",
-              ["Invoice", "Client", "Amount", "Status", "Date", "Period"],
-              data.invoices.map((i) => [invoiceNo(i.id), clientOf(i.clientId)?.name || "—", i.amount, i.status, i.date, i.period || ""])
+              // Both figures: what the client was billed in their own
+              // currency, and the USD equivalent every total is based on.
+              ["Invoice", "Client", "Billed amount", "Currency", "Amount (USD)", "FX rate", "Status", "Date", "Period"],
+              data.invoices.map((i) => [
+                invoiceNo(i.id), clientOf(i.clientId)?.name || "—",
+                i.nativeAmount ?? i.amount, i.currency || "USD",
+                i.amount, i.fxRate ?? 1,
+                i.status, i.date, i.period || "",
+              ])
             )}
           >
             <span className="hidden sm:inline">Export</span>
@@ -228,6 +246,15 @@ export default function FinanceDetail({ data, setView, onAddExpense, onUpdateExp
                   {thisMonthRev
                     ? `${money(thisMonthRev)} collected in ${currentMonth}`
                     : `No payments recorded in ${currentMonth} yet`}
+                </div>
+              )}
+
+              {/* Totals sum each invoice's USD snapshot — adding ₹ to $ would
+                  be meaningless — so say so once a non-USD invoice exists,
+                  rather than presenting a converted total as if it were exact. */}
+              {hasMixedCurrency && (
+                <div className="text-[11px] text-white/35 mt-2 leading-snug">
+                  Includes non-USD invoices, converted at each invoice's issue-date rate.
                 </div>
               )}
 
@@ -410,7 +437,9 @@ export default function FinanceDetail({ data, setView, onAddExpense, onUpdateExp
                             </div>
                           </div>
                         </td>
-                        <td className="py-3 px-3 font-semibold text-stone-800 tnum">{money(i.amount)}</td>
+                        <td className="py-3 px-3 font-semibold text-stone-800 tnum">
+                          {moneyIn(i.nativeAmount ?? i.amount, i.currency)}
+                        </td>
                         <td className="py-3 px-3">
                           <Badge tone={STATUS_TONE[i.status]} dot>{STATUS_LABEL[i.status] || i.status}</Badge>
                         </td>
@@ -506,12 +535,15 @@ export default function FinanceDetail({ data, setView, onAddExpense, onUpdateExp
               // description — show that as-is rather than the fabricated
               // retainer split, which would misdescribe a one-off like
               // "carousel design" as 45% content / 35% outreach / 20% reporting.
+              // Line items are in the invoice's own currency, so they're
+              // derived from nativeAmount, not the USD reporting snapshot.
+              const native = invoice.nativeAmount ?? invoice.amount;
               const lines = invoice.description
-                ? [{ label: invoice.description, value: invoice.amount }]
+                ? [{ label: invoice.description, value: native }]
                 : [
-                    { label: client.contract?.serviceType === "content" ? "Content" : "LinkedIn content", value: Math.round(invoice.amount * 0.45) },
-                    { label: "Outreach & DMs", value: Math.round(invoice.amount * 0.35) },
-                    { label: "Reporting", value: Math.round(invoice.amount * 0.2) },
+                    { label: client.contract?.serviceType === "content" ? "Content" : "LinkedIn content", value: Math.round(native * 0.45) },
+                    { label: "Outreach & DMs", value: Math.round(native * 0.35) },
+                    { label: "Reporting", value: Math.round(native * 0.2) },
                   ];
               return (
                 <Card key={invoice.id} className="p-5 flex flex-col">
@@ -535,7 +567,7 @@ export default function FinanceDetail({ data, setView, onAddExpense, onUpdateExp
                     {lines.map((l) => (
                       <div key={l.label} className="flex justify-between text-xs">
                         <span className="text-stone-500">{l.label}</span>
-                        <span className="text-stone-700 font-medium tnum">{money(l.value)}</span>
+                        <span className="text-stone-700 font-medium tnum">{moneyIn(l.value, invoice.currency)}</span>
                       </div>
                     ))}
                   </div>
@@ -544,7 +576,7 @@ export default function FinanceDetail({ data, setView, onAddExpense, onUpdateExp
                     <div>
                       <div className="text-[11px] text-stone-400">Balance due</div>
                       <div className={`text-xl font-bold tracking-tight tnum ${invoice.status === "paid" ? "text-emerald-700" : "text-stone-900"}`}>
-                        {invoice.status === "paid" ? money(0) : money(invoice.amount)}
+                        {invoice.status === "paid" ? moneyIn(0, invoice.currency) : moneyIn(native, invoice.currency)}
                       </div>
                     </div>
                     <PrimaryButton

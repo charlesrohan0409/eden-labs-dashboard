@@ -193,6 +193,7 @@ export default function App() {
             setSelectedClient={setSelectedClient}
             onAddClient={actions.addClient}
             onAddTask={actions.addTask}
+            onToggleClientHidden={actions.toggleClientHidden}
             token={ownerAuth.token}
           />
         )}

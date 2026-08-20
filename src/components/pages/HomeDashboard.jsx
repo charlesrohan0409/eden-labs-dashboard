@@ -17,7 +17,7 @@ import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { useBufferPerformance } from "../../hooks/useBufferPerformance";
 import { useCurrency } from "../../hooks/useCurrency";
 import { useGoogleCalendar } from "../../hooks/useGoogleCalendar";
-import { buildDailySeries, sumEntries } from "../../lib/outreach";
+import { buildDailySeries, sumEntries, forClient } from "../../lib/outreach";
 
 function greetingFor(hour) {
   if (hour < 12) return "Good morning";
@@ -78,7 +78,9 @@ export default function HomeDashboard({ data, setView, setSelectedClient, onAddT
   // Real outreach tracking (LinkedIn + email funnels), not the old
   // hand-logged monthly growthLog — see lib/outreach.js and the Growth
   // detail page for the full daily/weekly/monthly breakdown.
-  const outreachLog = data.outreachLog || [];
+  // Agency-level rows only — the growth mini-card tracks the owner's own
+  // outreach, matching the Growth detail page it links to.
+  const outreachLog = forClient(data.outreachLog, null);
   const dailyOutreach = useMemo(
     () => buildDailySeries(outreachLog, 14).map((d) => ({ ...d, combinedSent: d.linkedinConnectionsSent + d.emailSent })),
     [outreachLog]

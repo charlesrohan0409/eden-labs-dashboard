@@ -26,7 +26,10 @@ const fmtDate = (d) =>
  */
 export function buildInvoiceDocument({ invoice, client, number, fmtMoney = defaultFmt }) {
   const lineLabel = invoice.description?.trim() || "Services rendered";
-  const total = Number(invoice.amount) || 0;
+  // nativeAmount is what the client was actually billed, in the invoice's own
+  // currency — `amount` is only the USD reporting snapshot. Falls back for any
+  // payload that predates the split.
+  const total = Number(invoice.nativeAmount ?? invoice.amount) || 0;
 
   return `<!doctype html>
 <html>
@@ -97,7 +100,7 @@ export function buildInvoiceEmailText({ invoice, client, number, fmtMoney = defa
     `Invoice ${number} from Eden Labs`,
     "",
     `Billed to: ${client?.company || client?.name || "—"}`,
-    `${lineLabel}: ${fmtMoney(invoice.amount)}`,
+    `${lineLabel}: ${fmtMoney(invoice.nativeAmount ?? invoice.amount)}`,
     `Due: ${fmtDate(invoice.dueDate || invoice.date)}`,
     "",
     invoice.notes?.trim() || "",

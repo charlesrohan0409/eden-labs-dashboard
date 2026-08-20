@@ -150,6 +150,7 @@ export function buildNewClient(c) {
     status: "active",
     type,
     industry: c.industry || "",
+    hidden: false,
     pin: Math.floor(1000 + Math.random() * 9000).toString(),
     contract: {
       value, status: "active", cycle: "monthly", notes: "",
@@ -376,10 +377,16 @@ export const seedData = () => ({
   comments: [
     { id: "cm1", clientId: "c1", tab: "content", author: "Client", text: "Love the tone on the last post — more like this please.", date: "2026-07-29 10:14" },
   ],
+  // Saved posts from other creators — the swipe library. `text` holds the
+  // full post, so it can be read back without leaving the dashboard.
   swipeFile: [
-    { id: "s1", source: "Justin Welsh", note: "Contrarian opener + 3-point list structure", tag: "hook" },
-    { id: "s2", source: "Alex Hormozi", note: "Cost-of-inaction framing before the offer", tag: "structure" },
+    { id: "s1", author: "Justin Welsh", authorPhoto: "", authorUrl: "", url: "", text: "", note: "Contrarian opener + 3-point list structure", tag: "hook", savedAt: "" },
+    { id: "s2", author: "Alex Hormozi", authorPhoto: "", authorUrl: "", url: "", text: "", note: "Cost-of-inaction framing before the offer", tag: "structure", savedAt: "" },
   ],
+  // LinkedIn profiles to comment on daily. Owner-only — this is the owner's
+  // own engagement routine, not a client deliverable. `inSearch` tracks which
+  // ones are already in the saved LinkedIn search being worked through.
+  commentTargets: [],
   // Activity log — chronological record of key events per client.
   // Shape is Supabase-ready: each entry maps cleanly to a row.
   // clientId === null means an agency-level event (e.g. new expense).

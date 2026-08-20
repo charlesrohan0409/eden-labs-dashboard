@@ -86,7 +86,7 @@ export default function QuickAddTask({ clients = [], onAdd }) {
               className="border border-line rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none"
             >
               <option value="">No client (internal)</option>
-              {clients.map((c) => (
+              {clients.filter((c) => !c.hidden).map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>

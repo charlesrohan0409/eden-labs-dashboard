@@ -59,6 +59,15 @@ export function updateClient(d, id, patch) {
   if (c) Object.assign(c, patch);
   return d;
 }
+// Hides a client from the clients list and every client picker without
+// touching their data — for an ended engagement you don't want to scroll
+// past. Deliberately NOT a delete and NOT a status change: finance totals,
+// invoices and history all still count them.
+export function toggleClientHidden(d, id) {
+  const c = d.clients.find((x) => x.id === id);
+  if (c) c.hidden = !c.hidden;
+  return d;
+}
 export function updateContract(d, id, contract) {
   const c = d.clients.find((x) => x.id === id);
   if (c) c.contract = contract;
@@ -110,6 +119,10 @@ export function deleteClient(d, id) {
   d.invoices = d.invoices.filter((i) => i.clientId !== id);
   d.tasks = d.tasks.filter((t) => t.clientId !== id);
   d.contacts = d.contacts.filter((c) => c.clientId !== id);
+  // Outreach and per-channel rows were being left behind — orphaned rows then
+  // pollute any aggregate that isn't client-filtered.
+  if (Array.isArray(d.outreachLog)) d.outreachLog = d.outreachLog.filter((e) => e.clientId !== id);
+  if (Array.isArray(d.outreachByChannel)) d.outreachByChannel = d.outreachByChannel.filter((o) => o.clientId !== id);
   if (Array.isArray(d.activityLog)) d.activityLog = d.activityLog.filter((a) => a.clientId !== id);
   return d;
 }
@@ -285,8 +298,15 @@ export function generateInvoices(d, period) {
       const payoutMonths = Number(c.contract?.payoutMonths) || 0;
       const paidSoFar = d.invoices.filter((i) => i.clientId === c.id).length;
       if (!payoutMonths || paidSoFar >= payoutMonths) return; // fully paid out
+      const installment = commissionInstallment(c.contract.value, payoutMonths);
       d.invoices.push({
-        id: uid(), clientId: c.id, amount: commissionInstallment(c.contract.value, payoutMonths),
+        id: uid(), clientId: c.id, amount: installment,
+        // Auto-billing is USD-only by construction: this function is pure and
+        // shared with the server, so it can't fetch an FX rate. Per-invoice
+        // INR is a manual-invoice feature (see InvoiceModal). Emitted
+        // explicitly rather than left to migrate so a fresh row is never
+        // undefined-currency.
+        currency: "USD", nativeAmount: installment, fxRate: 1,
         status: "pending", date: today(), period,
         description: `Commission installment ${paidSoFar + 1} of ${payoutMonths}`,
       });
@@ -297,6 +317,7 @@ export function generateInvoices(d, period) {
     // retainer (default)
     d.invoices.push({
       id: uid(), clientId: c.id, amount: c.contract.value, status: "pending", date: today(), period,
+      currency: "USD", nativeAmount: c.contract.value, fxRate: 1,
       description: `${month} retainer`,
     });
     created++;
@@ -326,9 +347,15 @@ export function logGrowth(d, entry) {
 // point is a day-to-day running log, not a pile of same-day duplicates.
 export function logOutreachDay(d, entry) {
   if (!Array.isArray(d.outreachLog)) d.outreachLog = [];
-  const idx = d.outreachLog.findIndex((x) => x.date === entry.date);
-  if (idx >= 0) d.outreachLog[idx] = { ...d.outreachLog[idx], ...entry };
-  else d.outreachLog.push({ id: uid(), ...entry });
+  // Keyed on (clientId, date), not date alone — the owner's own agency
+  // outreach (clientId null) and each client's outreach are separate funnels,
+  // and keying on date alone meant logging for one client silently
+  // overwrote another's numbers for the same day.
+  // `|| null` not `?? null`: the client <select>'s "agency" option is "".
+  const clientId = entry.clientId || null;
+  const idx = d.outreachLog.findIndex((x) => x.date === entry.date && (x.clientId || null) === clientId);
+  if (idx >= 0) d.outreachLog[idx] = { ...d.outreachLog[idx], ...entry, clientId };
+  else d.outreachLog.push({ id: uid(), ...entry, clientId });
   return d;
 }
 export function deleteOutreachDay(d, id) {

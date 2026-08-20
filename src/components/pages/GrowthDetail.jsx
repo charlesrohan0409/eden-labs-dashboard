@@ -17,7 +17,7 @@ import { useBufferPerformance } from "../../hooks/useBufferPerformance";
 import { useCurrency } from "../../hooks/useCurrency";
 import {
   LINKEDIN_STAGES, EMAIL_STAGES, EMPTY_ENTRY, sumEntries, buildDailySeries, buildWeeklySeries,
-  buildMonthlySeries, conversionPct,
+  buildMonthlySeries, conversionPct, forClient,
 } from "../../lib/outreach";
 import PillTabs from "../ui/PillTabs";
 
@@ -67,7 +67,9 @@ export default function GrowthDetail({ data, setView, onLogOutreachDay, onDelete
   const bufferConnected = !!data.integrations.find((i) => i.id === "buffer")?.connected;
   const perf = useBufferPerformance({ enabled: bufferConnected, range: "90" });
 
-  const outreachLog = data.outreachLog || [];
+  // This page is the owner's OWN growth, so it reads only agency-level rows
+  // (clientId null). Per-client outreach lives on each client's page.
+  const outreachLog = forClient(data.outreachLog, null);
 
   const sinceDate = useMemo(() => {
     const d = new Date();

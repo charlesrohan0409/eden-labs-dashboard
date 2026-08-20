@@ -32,6 +32,10 @@ export const LEGACY_STAGE_MAP = {
   replied: "lead",
   booked: "call_booked",
   client: "closed",
+  // The Chrome extension's popup used to offer a "qualified" stage that the
+  // board never had. Anything saved that way rendered in no column and was
+  // unreachable through the UI — mapping it back to lead rescues those rows.
+  qualified: "lead",
 };
 
 export function downloadCSV(filename, headers, rows) {

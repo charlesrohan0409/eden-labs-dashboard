@@ -83,6 +83,34 @@ export const convertFromUsd = (usd, currency, rate) =>
   currency === "INR" ? (Number(usd) || 0) * (rate || FALLBACK_USD_TO_INR) : (Number(usd) || 0);
 
 /**
+ * Convert between the two supported currencies in either direction.
+ *
+ * This is the THIRD path, and it exists for personal-finance records —
+ * accounts, subscriptions, bills, budgets. Those are unlike both cases above:
+ * a US bank account genuinely holds dollars and an electricity bill genuinely
+ * costs rupees (so neither can be stored as a converted USD figure without
+ * drifting), but unlike an invoice they aren't legal documents frozen at a
+ * moment — you DO want to see them all in one currency to compare them.
+ * So: store native, convert at render.
+ */
+export function convertBetween(amount, from, to, rate) {
+  const n = Number(amount) || 0;
+  if (from === to) return n;
+  const r = rate || FALLBACK_USD_TO_INR;
+  if (from === "USD" && to === "INR") return n * r;
+  if (from === "INR" && to === "USD") return n / r;
+  return n;
+}
+
+/**
+ * Format an amount denominated in `from`, rendered in the active display
+ * currency. The personal-finance counterpart to formatMoney.
+ */
+export function formatFrom(amount, from, { currency = "USD", rate, ...rest } = {}) {
+  return formatAmount(convertBetween(amount, from || "USD", currency, rate), { currency, ...rest });
+}
+
+/**
  * Format an amount that is ALREADY denominated in `currency` — no conversion.
  * This is what an invoice needs: a ₹50,000 invoice is ₹50,000, full stop, and
  * must never be run through an FX rate again.
@@ -91,16 +119,21 @@ export const convertFromUsd = (usd, currency, rate) =>
 export function formatAmount(value, { currency = "USD", compact = false, decimals = 0 } = {}) {
   const n = Number(value) || 0;
   const { symbol } = CURRENCIES[currency] || CURRENCIES.USD;
+  // The minus sign belongs OUTSIDE the currency symbol: "-₹500", never
+  // "₹-500". Only reachable now that balances can be negative (a credit card
+  // is debt, so net worth can go below zero) — before this, every formatted
+  // amount in the app happened to be positive.
+  const sign = n < 0 ? "-" : "";
+  const abs = Math.abs(n);
 
   if (compact) {
-    const abs = Math.abs(n);
-    if (abs >= 10000000) return `${symbol}${(n / 10000000).toFixed(1)}Cr`; // INR crore
-    if (abs >= 100000 && currency === "INR") return `${symbol}${(n / 100000).toFixed(1)}L`; // lakh
-    if (abs >= 1000) return `${symbol}${(n / 1000).toFixed(abs >= 10000 ? 0 : 1)}k`;
-    return `${symbol}${Math.round(n)}`;
+    if (abs >= 10000000) return `${sign}${symbol}${(abs / 10000000).toFixed(1)}Cr`; // INR crore
+    if (abs >= 100000 && currency === "INR") return `${sign}${symbol}${(abs / 100000).toFixed(1)}L`; // lakh
+    if (abs >= 1000) return `${sign}${symbol}${(abs / 1000).toFixed(abs >= 10000 ? 0 : 1)}k`;
+    return `${sign}${symbol}${Math.round(abs)}`;
   }
 
-  return `${symbol}${n.toLocaleString(currency === "INR" ? "en-IN" : "en-US", {
+  return `${sign}${symbol}${abs.toLocaleString(currency === "INR" ? "en-IN" : "en-US", {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   })}`;

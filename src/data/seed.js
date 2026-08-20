@@ -249,7 +249,11 @@ export const seedData = () => ({
     company: "Eden Labs",
   },
   // Display currency. Rates are fetched live and cached in `fx`.
-  settings: { currency: "USD" },
+  // INR is the default: this is an India-based operation, so rupees are the
+  // currency most numbers here are actually thought about in. Client billing
+  // is still per-invoice (see the invoice record's own `currency`) — this
+  // setting only controls what the dashboard DISPLAYS.
+  settings: { currency: "INR", currencyDefaultApplied: true },
   clients: [
     {
       id: "c1", name: "Chris Alman", company: "Equip CFO", status: "active", type: "linkedin",
@@ -387,6 +391,20 @@ export const seedData = () => ({
   // own engagement routine, not a client deliverable. `inSearch` tracks which
   // ones are already in the saved LinkedIn search being worked through.
   commentTargets: [],
+  // ---- personal finance ----
+  // Bank/credit accounts shown in the balance bar. Balances are entered by
+  // hand and stored in the account's OWN currency — a ₹ account stores
+  // rupees, not converted dollars, so the number never drifts as FX moves.
+  // (Same lesson the invoice record learned; see lib/currency.js.)
+  // Seeded empty: fake balances in a personal-finance view are worse than
+  // none, since there's no way to tell them apart from real ones at a glance.
+  accounts: [],
+  // Subscriptions and fixed bills — one collection, distinguished by `kind`.
+  // Nothing here charges itself; `nextRenewal` is a reminder and "Mark paid"
+  // is what actually books the expense. See lib/finance.js for why.
+  outgoings: [],
+  // Spending limits per expense category, checked against `expenses`.
+  budgets: [],
   // Activity log — chronological record of key events per client.
   // Shape is Supabase-ready: each entry maps cleanly to a row.
   // clientId === null means an agency-level event (e.g. new expense).

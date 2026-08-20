@@ -145,6 +145,20 @@ export function useAppData(token, onUnauthorized) {
     addExpense: (e) => update((d) => M.addExpense(d, e)),
     updateExpense: (id, patch) => update((d) => M.updateExpense(d, id, patch)),
     deleteExpense: (id) => update((d) => M.deleteExpense(d, id)),
+
+    addAccount:    (a) => update((d) => M.addAccount(d, a)),
+    updateAccount: (id, patch) => update((d) => M.updateAccount(d, id, patch)),
+    deleteAccount: (id) => update((d) => M.deleteAccount(d, id)),
+
+    addOutgoing:    (o) => update((d) => M.addOutgoing(d, o)),
+    updateOutgoing: (id, patch) => update((d) => M.updateOutgoing(d, id, patch)),
+    deleteOutgoing: (id) => update((d) => M.deleteOutgoing(d, id)),
+    cancelOutgoing: (id) => update((d) => M.cancelOutgoing(d, id)),
+    payOutgoing:    (id, opts) => update((d) => M.payOutgoing(d, id, opts)),
+
+    addBudget:    (b) => update((d) => M.addBudget(d, b)),
+    updateBudget: (id, patch) => update((d) => M.updateBudget(d, id, patch)),
+    deleteBudget: (id) => update((d) => M.deleteBudget(d, id)),
     addInvoice: (i) => update((d) => M.addInvoice(d, i)),
     updateInvoiceStatus: (id, status) => update((d) => M.updateInvoiceStatus(d, id, status)),
     deleteInvoice: (id) => update((d) => M.deleteInvoice(d, id)),

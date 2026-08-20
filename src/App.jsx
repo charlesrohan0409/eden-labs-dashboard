@@ -184,6 +184,17 @@ export default function App() {
             onGenerateInvoices={actions.generateInvoices}
             onUpdateInvoiceStatus={actions.updateInvoiceStatus}
             onDeleteInvoice={actions.deleteInvoice}
+            onAddAccount={actions.addAccount}
+            onUpdateAccount={actions.updateAccount}
+            onDeleteAccount={actions.deleteAccount}
+            onAddOutgoing={actions.addOutgoing}
+            onUpdateOutgoing={actions.updateOutgoing}
+            onDeleteOutgoing={actions.deleteOutgoing}
+            onCancelOutgoing={actions.cancelOutgoing}
+            onPayOutgoing={actions.payOutgoing}
+            onAddBudget={actions.addBudget}
+            onUpdateBudget={actions.updateBudget}
+            onDeleteBudget={actions.deleteBudget}
           />
         )}
 

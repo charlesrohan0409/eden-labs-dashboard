@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { fetchUsdToInr, formatMoney, formatAmount, convertFromUsd, CURRENCIES } from "../lib/currency";
+import { fetchUsdToInr, formatMoney, formatAmount, formatFrom, convertFromUsd, convertBetween, CURRENCIES } from "../lib/currency";
 
 // Currency is needed by nearly every page (finance, clients, CRM, dashboard),
 // so it goes through context rather than being threaded as a prop through
@@ -59,10 +59,16 @@ export function CurrencyProvider({ currency = "USD", children }) {
     // money()   — a USD-stored amount, converted into the global display currency.
     // moneyIn() — an amount that already IS in `code` (an invoice's own
     //             currency), rendered as-is with no conversion.
+    // moneyFrom() — an amount stored in its own currency (a bank account, a
+    //               subscription) that SHOULD still follow the display toggle,
+    //               so everything can be compared in one currency.
     money: (usd, opts = {}) => (hideAmounts ? MASK : formatMoney(usd, { currency, rate: fx.rate, ...opts })),
     moneyIn: (amount, code, opts = {}) =>
       (hideAmounts ? MASK : formatAmount(amount, { currency: code || "USD", ...opts })),
+    moneyFrom: (amount, from, opts = {}) =>
+      (hideAmounts ? MASK : formatFrom(amount, from, { currency, rate: fx.rate, ...opts })),
     convert: (usd) => convertFromUsd(usd, currency, fx.rate),
+    convertFrom: (amount, from) => convertBetween(amount, from || "USD", currency, fx.rate),
   }), [currency, fx, hideAmounts]);
 
   return <CurrencyContext.Provider value={value}>{children}</CurrencyContext.Provider>;
@@ -78,7 +84,9 @@ export function useCurrency() {
       hideAmounts: false, toggleHideAmounts: () => {},
       money: (usd, opts = {}) => formatMoney(usd, { currency: "USD", rate: 1, ...opts }),
       moneyIn: (amount, code, opts = {}) => formatAmount(amount, { currency: code || "USD", ...opts }),
+      moneyFrom: (amount, from, opts = {}) => formatFrom(amount, from, { currency: "USD", rate: 1, ...opts }),
       convert: (usd) => Number(usd) || 0,
+      convertFrom: (amount) => Number(amount) || 0,
     };
   }
   return ctx;

@@ -16,6 +16,9 @@ import PillTabs from "../ui/PillTabs";
 import PrimaryButton from "../ui/PrimaryButton";
 import InvoiceModal from "../ui/InvoiceModal";
 import PrivacyToggle from "../ui/PrivacyToggle";
+import BalanceBar from "../ui/BalanceBar";
+import Outgoings from "../ui/Outgoings";
+import Budgets from "../ui/Budgets";
 import { MONTHS, downloadCSV, today, computeMRR, billingTypeLabel } from "../../lib/utils";
 import { useCurrency } from "../../hooks/useCurrency";
 import { formatAmount } from "../../lib/currency";
@@ -34,7 +37,13 @@ const TILE_TONE = {
   emerald: { wash: "bg-emerald-50", icon: "text-emerald-600" },
 };
 
-export default function FinanceDetail({ data, setView, onAddExpense, onUpdateExpense, onDeleteExpense, onAddInvoice, onGenerateInvoices, onUpdateInvoiceStatus, onDeleteInvoice }) {
+export default function FinanceDetail({
+  data, setView, onAddExpense, onUpdateExpense, onDeleteExpense,
+  onAddInvoice, onGenerateInvoices, onUpdateInvoiceStatus, onDeleteInvoice,
+  onAddAccount, onUpdateAccount, onDeleteAccount,
+  onAddOutgoing, onUpdateOutgoing, onDeleteOutgoing, onCancelOutgoing, onPayOutgoing,
+  onAddBudget, onUpdateBudget, onDeleteBudget,
+}) {
   const [activeTab, setActiveTab] = useState("overview");
   const [filterStatus, setFilterStatus] = useState("all");
   const [search, setSearch] = useState("");
@@ -211,6 +220,7 @@ export default function FinanceDetail({ data, setView, onAddExpense, onUpdateExp
             { value: "overview", label: "Overview" },
             { value: "invoices", label: "Invoices", count: counts.all },
             { value: "expenses", label: "Expenses" },
+            { value: "money", label: "My money" },
             { value: "unit-economics", label: "Unit economics" },
           ]}
         />
@@ -678,6 +688,39 @@ export default function FinanceDetail({ data, setView, onAddExpense, onUpdateExp
               </PrimaryButton>
             </div>
           </Card>
+        </div>
+      )}
+
+      {/* ══ My money ══ */}
+      {/* Personal finances, deliberately kept in their own tab rather than
+          mixed into Overview: agency revenue and personal balances answer
+          different questions, and blending them makes both harder to read. */}
+      {activeTab === "money" && (
+        <div className="space-y-4">
+          <BalanceBar
+            accounts={data.accounts}
+            onAdd={onAddAccount}
+            onUpdate={onUpdateAccount}
+            onDelete={onDeleteAccount}
+          />
+          <div className="grid lg:grid-cols-2 gap-4 items-start">
+            <Outgoings
+              outgoings={data.outgoings}
+              accounts={data.accounts}
+              onAdd={onAddOutgoing}
+              onUpdate={onUpdateOutgoing}
+              onDelete={onDeleteOutgoing}
+              onCancel={onCancelOutgoing}
+              onPay={onPayOutgoing}
+            />
+            <Budgets
+              budgets={data.budgets}
+              expenses={data.expenses}
+              onAdd={onAddBudget}
+              onUpdate={onUpdateBudget}
+              onDelete={onDeleteBudget}
+            />
+          </div>
         </div>
       )}
 

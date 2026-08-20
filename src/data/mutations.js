@@ -316,6 +316,95 @@ export function deleteExpense(d, id) {
   d.expenses = d.expenses.filter((x) => x.id !== id);
   return d;
 }
+
+// ---- personal finance: accounts, outgoings, budgets ----
+export function addAccount(d, a) {
+  if (!Array.isArray(d.accounts)) d.accounts = [];
+  d.accounts.push({ id: uid(), type: "main", balance: 0, currency: "INR", ...a });
+  return d;
+}
+export function updateAccount(d, id, patch) {
+  const a = (d.accounts || []).find((x) => x.id === id);
+  if (a) Object.assign(a, patch);
+  return d;
+}
+export function deleteAccount(d, id) {
+  d.accounts = (d.accounts || []).filter((x) => x.id !== id);
+  // Outgoings pointed at a deleted account would otherwise render "paid from
+  // <nothing>" forever with no way to fix it from the UI.
+  d.outgoings = (d.outgoings || []).map((o) => (o.accountId === id ? { ...o, accountId: null } : o));
+  return d;
+}
+
+export function addOutgoing(d, o) {
+  if (!Array.isArray(d.outgoings)) d.outgoings = [];
+  d.outgoings.push({
+    id: uid(), kind: "subscription", cadence: "monthly", currency: "INR",
+    status: "active", lastPaidDate: "", ...o,
+  });
+  return d;
+}
+export function updateOutgoing(d, id, patch) {
+  const o = (d.outgoings || []).find((x) => x.id === id);
+  if (o) Object.assign(o, patch);
+  return d;
+}
+export function deleteOutgoing(d, id) {
+  d.outgoings = (d.outgoings || []).filter((x) => x.id !== id);
+  return d;
+}
+// Cancelled rather than deleted — a subscription you stopped in June is still
+// the reason money left in May, so deleting it would quietly rewrite history
+// in the expense list and every budget that counted it.
+export function cancelOutgoing(d, id) {
+  const o = (d.outgoings || []).find((x) => x.id === id);
+  if (o) o.status = o.status === "cancelled" ? "active" : "cancelled";
+  return d;
+}
+
+// Books one payment of a recurring outgoing: writes the expense, rolls the
+// renewal date forward, and decrements the linked account. This is the ONLY
+// way a charge gets recorded — nothing fires on its own (see lib/finance.js).
+// `advance` is passed in rather than imported so mutations.js stays free of
+// date-math imports; the caller supplies the next date it already computed.
+export function payOutgoing(d, id, { date, nextRenewal }) {
+  const o = (d.outgoings || []).find((x) => x.id === id);
+  if (!o) return d;
+  const paidOn = date || today();
+  d.expenses.push({
+    id: uid(),
+    category: o.category || "Software",
+    vendor: o.name,
+    amount: Number(o.amount) || 0,
+    nativeAmount: Number(o.amount) || 0,
+    currency: o.currency || "INR",
+    date: paidOn,
+    outgoingId: o.id,
+  });
+  o.lastPaidDate = paidOn;
+  if (nextRenewal) o.nextRenewal = nextRenewal;
+  // Money leaving a debit account lowers the balance; on a credit card it
+  // raises what's owed, which is the same subtraction either way once the
+  // card's balance is read as debt.
+  const account = (d.accounts || []).find((a) => a.id === o.accountId);
+  if (account) account.balance = (Number(account.balance) || 0) - (Number(o.amount) || 0);
+  return d;
+}
+
+export function addBudget(d, b) {
+  if (!Array.isArray(d.budgets)) d.budgets = [];
+  d.budgets.push({ id: uid(), period: "monthly", currency: "INR", ...b });
+  return d;
+}
+export function updateBudget(d, id, patch) {
+  const b = (d.budgets || []).find((x) => x.id === id);
+  if (b) Object.assign(b, patch);
+  return d;
+}
+export function deleteBudget(d, id) {
+  d.budgets = (d.budgets || []).filter((x) => x.id !== id);
+  return d;
+}
 export function addInvoice(d, i) {
   d.invoices.push({ id: uid(), status: "pending", ...i });
   return d;

@@ -111,7 +111,12 @@ async function loadData() {
   // anything, so the reset survives past this one response instead of only
   // existing in-memory for this request.
   const { data, changed } = applyRecurringResets(migrated);
-  if (changed) await upsertAppData(data);
+  // The one-time INR display default (see migrate.js) MUST be persisted, not
+  // just returned. Left unsaved it would re-apply on every single read, which
+  // would silently overwrite a deliberate switch back to USD every time —
+  // making the currency toggle look broken rather than merely re-defaulted.
+  const currencyDefaultPending = !row.data?.settings?.currencyDefaultApplied;
+  if (changed || currencyDefaultPending) await upsertAppData(data);
   return data;
 }
 

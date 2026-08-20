@@ -12,6 +12,7 @@ export function migrateData(loaded) {
     "clients", "contacts", "tasks", "posts", "dms", "expenses", "invoices",
     "growthLog", "outreachLog", "channelPerf", "integrations", "calls", "outreachByChannel",
     "comments", "swipeFile", "activityLog", "commentTargets",
+    "accounts", "outgoings", "budgets",
   ].forEach((key) => {
     if (!Array.isArray(merged[key])) merged[key] = defaults[key];
   });
@@ -138,6 +139,51 @@ export function migrateData(loaded) {
   merged.commentTargets = merged.commentTargets.map((t) => ({
     name: "", profileUrl: "", photoUrl: "", headline: "", inSearch: false, addedAt: "", notes: "",
     ...t,
+  }));
+
+  // Display currency defaulted to USD back when USD was the only option, so
+  // every existing save carries it whether or not it was ever chosen. This is
+  // an India-based operation and INR is now the intended default, so flip it
+  // exactly once, tracked by a flag so it never fights a later deliberate
+  // switch back to USD. Display-only — no stored amount is touched.
+  // Checked against the LOADED settings, not `merged` — merged has already
+  // absorbed the seed defaults, which carry the flag, so testing merged would
+  // always see it set and the flip would never fire. (It didn't, first time
+  // round.) Testing what was actually saved is the only way to tell "this
+  // user has been migrated" apart from "this key exists in the defaults".
+  if (!loaded?.settings?.currencyDefaultApplied) {
+    merged.settings = { ...merged.settings, currency: "INR", currencyDefaultApplied: true };
+  }
+
+  // ---- personal finance ----
+  merged.accounts = merged.accounts.map((a) => ({
+    name: "", type: "main", balance: 0, currency: "INR", note: "",
+    // Credit-card-only fields, harmless on a debit account.
+    limit: 0, billDate: "", dueDate: "",
+    ...a,
+  }));
+
+  merged.outgoings = merged.outgoings.map((o) => ({
+    name: "", kind: "subscription", amount: 0, currency: "INR",
+    cadence: "monthly", nextRenewal: "", accountId: null,
+    category: "Software", status: "active", lastPaidDate: "", note: "",
+    ...o,
+  }));
+
+  merged.budgets = merged.budgets.map((b) => ({
+    category: "", limit: 0, currency: "INR", period: "monthly", note: "",
+    ...b,
+  }));
+
+  // Expenses predate having a currency at all. Everything logged before this
+  // was entered as USD (the only display currency that existed then), so USD
+  // is the honest backfill — guessing INR would silently multiply every
+  // historical expense by ~83. nativeAmount mirrors the invoice record: the
+  // amount exactly as it was paid, never re-converted.
+  merged.expenses = merged.expenses.map((e) => ({
+    currency: "USD",
+    nativeAmount: e.amount,
+    ...e,
   }));
 
   return merged;

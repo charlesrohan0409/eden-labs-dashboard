@@ -1233,3 +1233,310 @@ STILL OPEN / NEXT SESSION:
   - The delivery-metric `direction: "lower"` field (§8/§11) is STILL only
     half-wired — computeHealthScore and "on track" UI mostly use
     `current >= target` uniformly. Not fixed this session either.
+
+================================================================================
+14. ADDENDUM (2026-08-20, "V10" session) — BANDWIDTH BLOWOUT ROOT-CAUSED,
+    SUPABASE STORAGE MIGRATION, RECURRING KPIs/TASKS, PER-INVOICE CURRENCY,
+    TASK SYSTEM OVERHAUL. Phases 3 & 4 of the V10 plan NOT yet built.
+================================================================================
+
+READ THIS FIRST IF YOU ARE PICKING UP MID-V10:
+  The approved V10 plan lives at
+    /Users/charlesrohan/.claude/plans/happy-dreaming-honey.md
+  It has 4 phases. Phases 1 and 2 are DONE, COMMITTED and PUSHED.
+  Phases 3 (Content tab) and 4 (Chrome extension) are NOT started.
+  Read that plan file before continuing — it carries the design decisions,
+  the user's 4 answered clarifying questions, and the per-phase verification
+  steps. Do not re-derive them.
+
+--------------------------------------------------------------------------------
+THE BIG ONE: the Vercel/Supabase bandwidth blowout was an INFINITE REFETCH
+LOOP, not payload size. (Charles pushed back on an incomplete first answer —
+he was right to.)
+--------------------------------------------------------------------------------
+  Symptom: Vercel paused the WHOLE account (32GB Fast Origin Transfer),
+  Supabase 15GB egress, and a recurring red "Failed to fetch" banner.
+
+  First (incomplete) diagnosis: the app_data blob was ~981KB, 97% of it
+  base64 client photos inlined in the JSON. That WAS real and was fixed (see
+  Storage migration below) — but it does not explain 15GB/32GB on its own.
+  Do not stop at a plausible cause; check request VOLUME too.
+
+  ACTUAL ROOT CAUSE (App.jsx + useOwnerAuth.js):
+    useOwnerAuth() returned a fresh object literal every render. App.jsx did
+      useCallback(() => ownerAuth.logout(), [ownerAuth])   // whole object!
+    so that callback got a new identity every render. useAppData's fetch
+    effect depends on that callback => refetch on EVERY render, forever:
+      setData -> re-render -> new ownerAuth object -> new callback ->
+      effect deps changed -> refetch -> setData -> ...
+    No user interaction required. Ran the entire time a tab was open.
+
+  MEASURED, both directions (reverted the fix to confirm, then re-applied):
+    before: 87 requests to /api/data in 22s idle (~4/sec)
+    after:  0 requests in 42s idle
+  Supabase edge logs corroborated: 4,415 GET /rest/v1/app_data in 24h,
+  4,317 of them inside ONE hour, on a single-owner app nobody was touching.
+
+  FIX (commit ee83f71), deliberately belt-and-suspenders since either alone
+  would stop it and this class of bug is silent and expensive:
+    - App.jsx depends on [ownerAuth.logout] (stable), not [ownerAuth].
+    - useOwnerAuth memoizes its return value with useMemo.
+  Audited siblings: usePortalData already passes a stable [] callback;
+  useBufferPerformance + useGoogleCalendar use module-level dedup caches with
+  stable deps. No polling anywhere in the codebase (verified: zero
+  setInterval in src/).
+
+  NOT RECONCILED: why Vercel says 32GB but Supabase says 15GB. Per GET they
+  should be roughly 1:1 (Supabase->Vercel, then Vercel->browser). Could be
+  different billing windows, or Vercel counting static assets/request bodies.
+  Claude had no access to Vercel's per-route breakdown. If Charles opens
+  Vercel's usage page, that gap can finally be closed — ASK FOR IT.
+
+--------------------------------------------------------------------------------
+SUPABASE STORAGE MIGRATION (images out of the JSON blob) — commit d31138f
+--------------------------------------------------------------------------------
+  Bucket "media" created (public read) via a one-off script against the
+  Storage REST API. NOT created by app code — if you ever need to recreate
+  it: POST {SUPABASE_URL}/storage/v1/bucket with
+  {id:"media", name:"media", public:true} and service-role headers.
+
+  NEW: api/upload.js + handleUpload() in api/_dataHandlers.js, registered in
+  DATA_ROUTES. Accepts {dataUrl, filename}, base64-decodes, uploads via a new
+  uploadToStorage() in api/_supabaseAdmin.js (plain fetch, same "no
+  supabase-js dependency" convention as the rest of that file), returns
+  {url}. Auth: requireOwnerOrClient — the client portal's PostComposer
+  uploads too. 8MB cap.
+
+  src/lib/media.js: fileToImage/fileToVideo/fileToDocument still downscale
+  client-side, then upload and return the STORAGE URL instead of a data URL.
+  All three now take a `token` 2nd arg. A `token` prop is threaded from
+  App.jsx -> ClientsList / ClientDetail / IntegrationsPage / ContentPage /
+  ClientPortal -> ImagePicker / PostComposer.
+
+  ClientDetail contract download/email updated for real URLs (fetch+blob
+  download; email LINKS to the file rather than re-attaching base64).
+
+  MIGRATION RESULT ON LIVE DATA: 1,004,686 bytes -> 14,667 bytes (98.5%
+  smaller). All 3 clients' photos verified still rendering.
+  Storage requests are ~90% 304s (cache hits) — images are not a bandwidth
+  concern now.
+
+--------------------------------------------------------------------------------
+RECURRING KPIs + RECURRING TASKS (src/lib/recurrence.js) — commit d31138f
+--------------------------------------------------------------------------------
+  applyRecurringResets(data) runs inside loadData() in api/_dataHandlers.js
+  on EVERY server read, and persists immediately if it changed anything.
+  Lazy + self-healing; no cron.
+  Cadences: "none" | "daily" | "weekly" ONLY (no monthly — periodStartFor
+  returns "" for anything else, which safely never resets).
+  weekStart() was promoted from lib/outreach.js to lib/utils.js so
+  recurrence and the outreach charts share one definition.
+
+  *** CRITICAL DESIGN CONSTRAINT — do not "fix" this without reading: ***
+  A recurring task REUSES THE SAME ROW. It flips done=false and slides
+  dueDate to the new periodStart. It does NOT create one row per occurrence.
+  Therefore THERE ARE NO FUTURE TASK ROWS and you must not create any —
+  generated instances would double-count against the source row and be
+  regenerated on every server read. "Upcoming" is a DERIVED view; see
+  nextOccurrenceFor() added in Phase 2.
+
+  Delivery KPIs gained cadence/periodStart too. seed.js sets the LinkedIn
+  "Posts per week" default metric to cadence:"weekly".
+
+--------------------------------------------------------------------------------
+V10 PHASE 1 (commit 3456a72) — per-invoice currency, hide clients, data
+foundations, + FIVE pre-existing bugs
+--------------------------------------------------------------------------------
+  PER-INVOICE CURRENCY. Charles chose (via AskUserQuestion) stored
+  per-invoice currency over an input-only converter. The shape:
+    amount       -> FROZEN USD SNAPSHOT. Every aggregate still sums this.
+    nativeAmount -> what the client was actually billed; what docs print.
+    currency     -> "USD" | "INR"
+    fxRate       -> rate frozen at issue time (amount === nativeAmount/fxRate)
+  Why amount stays USD: ~10 places sum i.amount unguarded (FinanceDetail
+  totals, revenue charts, per-client revenue, CSV, health score). Adding
+  ₹50,000 to $500 is meaningless. Keeping the USD snapshot = ZERO aggregate
+  code changes.
+
+  lib/currency.js was SPLIT:
+    formatAmount(value, opts)  -> renders as-is, NO conversion (per-record)
+    formatMoney(usd, opts)     -> converts then calls formatAmount (display)
+  useCurrency gained moneyIn(amount, code, opts). Added to the no-provider
+  fallback object too (or InvoiceModal throws outside a provider).
+
+  *** FX TRAP (cost a real bug) *** CurrencyProvider returns rate:1 whenever
+  the GLOBAL setting is USD. So InvoiceModal must call fetchUsdToInr()
+  ITSELF and await it — reading rate off the context on a USD dashboard
+  would have recorded a ₹50,000 invoice as $50,000. Create is disabled while
+  the rate loads.
+
+  generateInvoices() stays USD-only BY CONSTRUCTION — it's a pure mutation
+  shared with the server and cannot fetch a rate. It now emits
+  currency/nativeAmount/fxRate explicitly. If INR retainers are ever wanted:
+  add contract.billingCurrency + a FIXED contractual billingRate on the
+  contract (not a live rate) so it stays pure.
+
+  HIDE CLIENTS: `hidden` bool on the client record (in the blob, NOT
+  localStorage — unlike the finance hide-amounts toggle, this is about the
+  record and should sync across devices). Filtered out of ClientsList and
+  every picker (TaskList/QuickAddTask/InvoiceModal), but a search match
+  still surfaces them so typing a name never returns "no results". Finance
+  math never excludes them. New mutation toggleClientHidden.
+
+  FIVE PRE-EXISTING BUGS FOUND AND FIXED:
+   1. Invoices printed "Total: ••••••" when privacy mode was on —
+      InvoiceModal built fmtMoney from money(), which masks. Documents that
+      LEAVE THE BUILDING must use formatAmount directly. Verified live.
+   2. FinanceDetail sendReminder hardcoded `$${invoice.amount}` — would
+      email a ₹ client a dollar figure.
+   3. buildDailySeries keyed a Map on date, so same-date rows clobbered
+      instead of summing. Latent until outreach went per-client.
+   4. deleteClient orphaned outreachLog + outreachByChannel rows.
+   5. The extension popup offered CRM stage "qualified", which is in neither
+      STAGES nor LEGACY_STAGE_MAP — leads saved that way rendered in NO
+      column and were unrecoverable. Fixed popup.html AND added
+      qualified->lead to LEGACY_STAGE_MAP to rescue existing rows.
+
+--------------------------------------------------------------------------------
+V10 PHASE 2 (commit 3551a07) — task system overhaul
+--------------------------------------------------------------------------------
+  NEW FIELDS: sortIndex (int), category ("growth"|"delivery"|"admin"|""),
+  description. All backfilled in migrate.js (sortIndex: idx*10 — the one
+  place insertion order is promoted to a real field).
+
+  NEW: src/lib/tasks.js — TASK_CATEGORIES config (label/tone/dot/chip).
+  category is DELIBERATELY ORTHOGONAL to clientId: clientId = WHO it's for
+  (null = Eden Labs), category = what KIND of work. Do not derive one from
+  the other.
+
+  reorderTasks(d, orderedIds) mutation — dense INTEGER reindex (i*10).
+  Chose ints over fractional indices: every write rewrites the whole blob
+  anyway so floats buy nothing, while precision-exhaustion is still real.
+  IMPORTANT: it re-slots the tasks NOT in orderedIds after them — the list
+  only knows its FILTERED order, so reindexing only visible ones would
+  interleave hidden ones unpredictably.
+
+  TaskList.jsx was rewritten. Drag (grip handle, HTML5 native, same pattern
+  as CrmBoard) + up/down arrow buttons (the touch/keyboard path — HTML5 drag
+  does nothing on touch). Overdue always pins to top regardless of manual
+  order. "Sort by date" resets manual order as a one-off ACTION, not a mode.
+  Ownership chip per row (dark "Eden Labs" pill vs client avatar+name),
+  category chip, inline-expanding description.
+
+  nextOccurrenceFor(task) added to lib/recurrence.js next to periodStartFor
+  so the two can never disagree. Upcoming tab = future-dated rows +
+  recurring rows with derived next occurrence.
+
+  BUG FOUND WHILE VERIFYING: Upcoming excluded DONE recurring tasks (the
+  done-check ran before the upcoming branch), so the view went empty exactly
+  when you were on top of everything. A ticked-off recurring task is the one
+  you most want there. Fixed; shows "Back in 4d".
+
+  ClientsList now seeds LINKEDIN_RECURRING_TASKS (weekly outreach/content,
+  daily engagement) on client creation alongside the existing one-off
+  LINKEDIN_ONBOARDING_TASKS.
+
+--------------------------------------------------------------------------------
+V10 PHASES 3 & 4 — NOT BUILT. Key research already done (don't re-derive):
+--------------------------------------------------------------------------------
+  PHASE 3 (Content tab):
+   - REUSE src/components/ui/CrmBoard.jsx's kanban pattern verbatim: flex row
+     of w-[300px] shrink-0 columns in overflow-x-auto with page bleed,
+     whole-column drop targets, enterCount useRef for stable drag highlight,
+     ⋮ menu as the touch fallback. No DnD library is installed and none
+     should be added.
+   - Post status is a FREE STRING with no validation anywhere, so adding
+     "idea" costs nothing at the data layer. Live values today: draft,
+     pending_review, scheduled, published (published is never written by any
+     UI — seed only). ClientDetail's reviewQueue hardcodes
+     draft||pending_review — check it when adding statuses.
+   - Columns ADAPTIVE (Charles's choice): agency = Idea→Writing→Ready→
+     Scheduled→Published; client boards additionally get "In review".
+   - CARDS MUST LOOK LINKEDIN-NATIVE, NOT NOTION-LIKE (his explicit note):
+     media thumb / post-type icon, the HOOK (first line), char count vs the
+     3,000 limit, scheduled time, client avatar, engagement stats once
+     published. Colour by post TYPE, not by column.
+   - swipeFile ALREADY upgraded in Phase 1 to
+     {id, author, authorPhoto, authorUrl, url, text, savedAt, tag, note}
+     (old `source` backfills onto `author`). Phase 3 just needs the card-grid
+     UI + manual add form. Extension capture is Phase 4. Charles wants BOTH.
+   - PDF CAROUSELS — three blockers, all in known places:
+       PostComposer acceptFor maps carousel -> "image/*"
+       PostComposer handleFiles has only video/else branches
+       media.js fileToImage hard-throws on non-images
+     Fix by routing PDFs to the EXISTING fileToDocument (accepts any type;
+     /api/upload already accepts any content type) and storing
+     media.type:"document" — which PostPreview ALREADY routes to <Carousel>.
+     But Carousel renders <img>, so a PDF shows broken: render an <iframe>
+     following the working precedent at ClientDetail.jsx (contract preview).
+     Do NOT add a PDF-rasterising library.
+
+  PHASE 4 (Chrome extension):
+   - Charles confirmed: OWNER-ONLY distribution across his own Chrome
+     profiles. NO Chrome Web Store packaging needed.
+   - /api/auth-client already issues {role:"client", clientId} tokens. The
+     extension just hardcodes /api/auth-owner. Plan: try owner, fall back to
+     client on 401, store {token, role, clientId, label}.
+   - ONE new endpoint /api/extension with an {action, payload} envelope —
+     do NOT loosen handlePortalAction (it's requireClient-only and is the
+     real portal's security boundary). Security hinge:
+       clientId = isOwner ? (payload.clientId || null) : auth.clientId
+     Never read clientId from the payload for a client session.
+   - *** THE EXTENSION MUST NEVER CALL PUT /api/data. *** No optimistic
+     locking exists; a stale full-blob PUT from a long-open popup would roll
+     back everything the dashboard did since it opened.
+   - REGISTER new endpoints in DATA_ROUTES. /api/crm-lead is NOT in
+     DATA_ROUTES, which is why it 404s under `npm run dev`. ALSO: the
+     DATA_ROUTES loop in vite.config.js emits no CORS headers and no OPTIONS
+     short-circuit, so a chrome-extension:// origin can't reach localhost in
+     dev — add those (~5 lines) or the extension is untestable locally.
+   - commentTargets collection ALREADY EXISTS (added Phase 1, empty):
+     {id, name, profileUrl, photoUrl, headline, inSearch, addedAt, notes}.
+     Owner-only. Upsert by NORMALISED profileUrl — the overlay button will be
+     clicked twice and there's no unique constraint.
+   - Do NOT model outreach state as a CRM contact stage: LEGACY_STAGE_MAP
+     rewrites contacted->lead and replied->lead on EVERY migrate.
+   - outreachLog gained clientId in Phase 1; logOutreachDay now keys on
+     (clientId, date). Aggregators unchanged — use the new forClient(log, id)
+     helper at the CALL SITE (undefined = all, null = agency, string =
+     client). buildPortalData should use strict === clientId, NOT forClient
+     (its || null coercion would leak owner rows).
+   - MANIFEST: needs https://*.linkedin.com/* host permission + a
+     content_scripts entry. THREE GOTCHAS:
+       (a) do NOT add "type":"module" to the service worker — that caused the
+           stale-service-worker bug in §13. background.js stays a classic
+           script; duplicate shared helpers (already the convention).
+       (b) the overlay must be a NEW FILE with its OWN guard flag — listing
+           content.js declaratively would set __edenLabsCRMInjected first and
+           silently break the context-menu save card.
+       (c) adding content_scripts triggers a new permission prompt in every
+           Chrome profile on update.
+
+--------------------------------------------------------------------------------
+PROCESS NOTES FROM THIS SESSION
+--------------------------------------------------------------------------------
+  - Charles installed design skills. `emil-design-eng` was loaded and governs
+    the new UI work: custom easing curves (the const EASE in TaskList.jsx),
+    UI animation <300ms, active:scale-[0.97] on pressables, never enter from
+    scale(0), animate only transform/opacity, hover gated behind
+    @media(hover:hover). `ui-ux-pro-max` is also available and unused so far.
+  - Owner PIN is 041998 (also recorded in §12). Browser verification pattern:
+    POST /api/auth-owner, stash the token in localStorage, then navigate.
+  - Dev server hits the SAME production Supabase. EVERY verification created
+    real rows and they were each cleaned up explicitly afterwards. Keep doing
+    this — and prefer reverting to exact captured values over "swap it back",
+    which got the task order wrong once and needed a second corrective write.
+  - Charles corrected an over-narrow first answer on the bandwidth question.
+    The lesson worth keeping: when a plausible cause is found, still check
+    whether it QUANTITATIVELY explains the number before declaring it solved.
+
+STILL OPEN AFTER THIS SESSION:
+  - V10 Phases 3 and 4 (see above).
+  - VERCEL ACCOUNT IS PAUSED (Fast Origin Transfer 30.27GB/10GB on Hobby).
+    Nothing from this session is live until Charles upgrades or the period
+    resets. The loop fix should stop it recurring.
+  - The Vercel-32GB vs Supabase-15GB discrepancy (ask for the usage page).
+  - Everything still open from §13: Fathom key likely still 401, team access
+    UI, no regenerate-PIN flow, delivery-metric direction:"lower" only
+    half-wired, README is stale (still says localStorage, missing
+    SESSION_SECRET/SUPABASE_* env vars).

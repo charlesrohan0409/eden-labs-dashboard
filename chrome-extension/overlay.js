@@ -106,6 +106,28 @@ if (!window.__edenLabsOverlayInjected) {
     return (name || "?").split(" ").filter(Boolean).slice(0, 2).map((s) => s[0].toUpperCase()).join("");
   }
 
+  // ---- Safe messaging -------------------------------------------------------
+  // Reloading the extension from chrome://extensions invalidates every
+  // already-open tab's connection to it — Chrome doesn't clean this up on
+  // its own, and chrome.runtime.sendMessage throws synchronously once it
+  // happens. A plain page reload fixes it (fresh content script, fresh
+  // connection); this just stops that window from spamming the extension's
+  // error log with "Extension context invalidated" in the meantime.
+  function extensionAlive() {
+    try { return !!chrome.runtime?.id; } catch { return false; }
+  }
+  function safeSendMessage(msg, cb) {
+    if (!extensionAlive()) { cb?.(null); return; }
+    try {
+      chrome.runtime.sendMessage(msg, (result) => {
+        if (chrome.runtime.lastError) { cb?.(null); return; }
+        cb?.(result);
+      });
+    } catch {
+      cb?.(null);
+    }
+  }
+
   // ---- Toast ---------------------------------------------------------------
   // Feedback for actions that don't open any card of their own — right-click
   // "add to comment list" needs *some* confirmation that it worked.
@@ -145,7 +167,7 @@ if (!window.__edenLabsOverlayInjected) {
   document.addEventListener("contextmenu", (e) => {
     const link = findNearestProfileLink(e.target);
     if (!link || !/\/in\/[^/?#]+/.test(link.href)) return;
-    chrome.runtime.sendMessage({
+    safeSendMessage({
       type: "SET_CONTEXT_TARGET",
       target: {
         profileUrl: link.href.split("?")[0].replace(/\/$/, ""),
@@ -295,7 +317,7 @@ if (!window.__edenLabsOverlayInjected) {
       const btn = $("save");
       btn.disabled = true;
       btn.innerHTML = '<span class="spin">⟳</span> Saving…';
-      chrome.runtime.sendMessage({
+      safeSendMessage({
         type: "SAVE_SWIPE",
         swipe: {
           text,
@@ -446,7 +468,7 @@ if (!window.__edenLabsOverlayInjected) {
     }
 
     function refreshList() {
-      chrome.runtime.sendMessage({ type: "GET_COMMENT_TARGETS" }, (result) => {
+      safeSendMessage({ type: "GET_COMMENT_TARGETS" }, (result) => {
         if (!result?.ok) {
           $("list").innerHTML = `<div class="not-connected">${result?.error || "Not connected — open Settings to enter your PIN."}</div>`;
           $("count").textContent = "0";
@@ -470,7 +492,7 @@ if (!window.__edenLabsOverlayInjected) {
       btn.onclick = () => {
         btn.disabled = true;
         btn.textContent = "Adding…";
-        chrome.runtime.sendMessage({ type: "ADD_COMMENT_TARGET", target: profile }, (result) => {
+        safeSendMessage({ type: "ADD_COMMENT_TARGET", target: profile }, (result) => {
           if (result?.ok) {
             btn.textContent = "✓ Added";
             refreshList();
@@ -483,7 +505,7 @@ if (!window.__edenLabsOverlayInjected) {
       };
     }
 
-    chrome.runtime.sendMessage({ type: "GET_SESSION" }, (session) => {
+    safeSendMessage({ type: "GET_SESSION" }, (session) => {
       $("scope-label").textContent = session?.role === "client" ? (session.label || "Client") : "Eden Labs";
     });
 

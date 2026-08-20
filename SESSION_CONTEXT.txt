@@ -1632,3 +1632,68 @@ STILL OPEN AFTER THIS SESSION:
     UI, no regenerate-PIN flow, delivery-metric direction:"lower" only
     half-wired, README is stale (still says localStorage, missing
     SESSION_SECRET/SUPABASE_* env vars).
+
+--------------------------------------------------------------------------------
+16. V11 + V12 (2026-08-20, same long session)
+--------------------------------------------------------------------------------
+  V11 PHASE 1 — personal finance (commit d203530). New "My money" tab in
+  Finance: accounts/balance bar (hidden every load, not persisted — the
+  reason to hide a balance resets each page open), credit cards with
+  utilisation, subscriptions AND fixed bills in one `outgoings` collection
+  keyed by `kind`, budgets vs real expenses. NOTHING AUTOMATES — "Mark paid"
+  books the expense, rolls the date, adjusts the account. That was a
+  deliberate reversal of the original plan: the dashboard can't move money,
+  so a self-posting charge is an unverified guess. INR is now the default
+  display currency via a one-time flagged migration; personal-finance records
+  store their own currency and convert at render (new third path in
+  currency.js: formatFrom/convertBetween).
+
+  V11 PHASE 2 — content (commit aa87244). Buffer media publishing turned out
+  to be nearly free: Buffer has no upload endpoint, it fetches from a public
+  URL, and media already lives on public Supabase Storage URLs — so
+  mediaToAssets just maps our shape onto Buffer's `assets` array (an ordered
+  image array IS a carousel). Polls remain local-only. Ready->Scheduled now
+  opens a real schedule modal and only flips status if Buffer confirms;
+  previously it just relabelled the card while queuing nothing. Auto-publish
+  reconciles via bufferPostId. Posts gained contentType (angle) + topic,
+  surfaced in a filter bar NOT as card chips. New Analytics tab gated at
+  MIN_SAMPLE=10 with visible "n=3, need 10".
+
+  V12 — locking + reinvention (commits 1886df1, a8f32c2).
+  * OPTIMISTIC LOCKING. app_data.updated_at is now a version token (no
+    trigger on the column, so every write sets it explicitly). GET returns
+    it, PUT sends it, conditional PATCH rejects stale writes with 409
+    carrying fresh data. Client REPLAYS the mutation onto fresh data rather
+    than losing it — possible only because mutations.js is pure.
+  * Exposed a latent StrictMode bug: `update` ran the mutation and fired the
+    save inside a setData(prev => ...) updater, which StrictMode invokes
+    TWICE. Harmless under last-write-wins, destructive with locking (first
+    write bumped version, second 409'd, replay re-applied the mutation to
+    data that already had it — undoing it). Fixed by reading current data
+    from a ref and committing explicitly. LESSON: updaters must stay pure.
+  * Command palette (⌘K), Today view (derived, dark hero on Home), client
+    early-warning signals. Shortcut collision found: QuickAddTask already
+    owned ⌘K; it moved to ⌘J and became optionally controlled.
+
+  DATA LOSS INCIDENT (resolved). Two comment-list rows (Matt Lakajev, Lara
+  Acosta) were destroyed mid-session by exactly the bug the locking work
+  fixed — a browser tab holding pre-extension data saved its whole blob over
+  them during Phase 1/2 verification. Restored from values captured in
+  earlier tool output. WHILE VERIFYING: do not leave the dashboard open and
+  interactive while running curl writes against the same data.
+
+STILL OPEN AFTER THIS SESSION:
+  - Buffer QUEUE path never tested end-to-end — doing so publishes to a real
+    LinkedIn account. Owed: one throwaway post scheduled far out, then
+    deleted from Buffer.
+  - Analytics currently matches only 1 published post (only one is marked
+    published locally). Fills in as posts flow through the new schedule path,
+    which stamps bufferPostId for exact matching.
+  - Server-side writes (portal/extension actions) still use unconditional
+    upsert. Much lower risk (they read fresh microseconds earlier) but not
+    strictly CAS.
+  - Suggested-but-unbuilt: weekly review screen, content repurposing flow,
+    density/empty-state design pass, moving transactions to a real table
+    before the blob grows.
+  - Everything still open from §14/§15: Vercel paused (bandwidth), Fathom
+    key likely 401, README stale, no regenerate-PIN flow.

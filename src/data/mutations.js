@@ -11,6 +11,7 @@
 
 import { today, uid, commissionInstallment } from "../lib/utils.js";
 import { periodStartFor } from "../lib/recurrence.js";
+import { convertBetween } from "../lib/currency.js";
 
 const ensureActivityLog = (d) => {
   if (!Array.isArray(d.activityLog)) d.activityLog = [];
@@ -324,8 +325,24 @@ export function deleteDM(d, id) {
 }
 
 // ---- finance ----
-export function addExpense(d, e) {
-  d.expenses.push({ id: uid(), ...e });
+// `rate` is the live USD->INR rate, needed only when the expense and the
+// account it left are in different currencies. Optional: an expense with no
+// linked account touches no balance and needs no conversion.
+export function addExpense(d, e, rate) {
+  const expense = { id: uid(), ...e };
+  d.expenses.push(expense);
+  const account = (d.accounts || []).find((a) => a.id === expense.accountId);
+  if (account) {
+    const native = Number(expense.nativeAmount ?? expense.amount) || 0;
+    const debited = convertBetween(native, expense.currency || "USD", account.currency || "INR", rate);
+    // On a debit account this lowers the balance; on a credit card the stored
+    // balance IS the debt, so the same subtraction would wrongly reduce what's
+    // owed — spending on a card increases it.
+    const isCreditCard = account.type === "credit";
+    account.balance = (Number(account.balance) || 0) + (isCreditCard ? debited : -debited);
+    expense.settledFromAccountId = account.id;
+    expense.settledAmount = debited;
+  }
   return d;
 }
 export function updateExpense(d, id, patch) {
@@ -334,6 +351,16 @@ export function updateExpense(d, id, patch) {
   return d;
 }
 export function deleteExpense(d, id) {
+  const expense = d.expenses.find((x) => x.id === id);
+  // Reverse the balance effect using the amount actually applied, for the
+  // same reason invoice reversal does: the FX rate may have moved since.
+  if (expense?.settledFromAccountId && expense.settledAmount != null) {
+    const account = (d.accounts || []).find((a) => a.id === expense.settledFromAccountId);
+    if (account) {
+      const isCreditCard = account.type === "credit";
+      account.balance = (Number(account.balance) || 0) - (isCreditCard ? Number(expense.settledAmount) : -Number(expense.settledAmount));
+    }
+  }
   d.expenses = d.expenses.filter((x) => x.id !== id);
   return d;
 }
@@ -412,6 +439,37 @@ export function payOutgoing(d, id, { date, nextRenewal }) {
   return d;
 }
 
+// ---- expense categories ----
+// Shared by expenses, budgets and recurring items. Renaming re-files every
+// record that used the old name, rather than orphaning them: a budget whose
+// category no longer matches any expense silently reads as zero spent, which
+// is worse than either failing loudly or just following the rename.
+export function addExpenseCategory(d, name) {
+  const label = String(name || "").trim();
+  if (!label) return d;
+  if (!Array.isArray(d.expenseCategories)) d.expenseCategories = [];
+  if (!d.expenseCategories.some((c) => c.toLowerCase() === label.toLowerCase())) {
+    d.expenseCategories.push(label);
+  }
+  return d;
+}
+export function renameExpenseCategory(d, from, to) {
+  const next = String(to || "").trim();
+  if (!from || !next || from === next) return d;
+  d.expenseCategories = (d.expenseCategories || []).map((c) => (c === from ? next : c));
+  (d.expenses || []).forEach((e) => { if (e.category === from) e.category = next; });
+  (d.outgoings || []).forEach((o) => { if (o.category === from) o.category = next; });
+  (d.budgets || []).forEach((b) => { if (b.category === from) b.category = next; });
+  return d;
+}
+// Records keep their category string after a delete — history shouldn't be
+// rewritten because a label was retired. categoryOptions() re-adds it to the
+// picker for any record still carrying it.
+export function deleteExpenseCategory(d, name) {
+  d.expenseCategories = (d.expenseCategories || []).filter((c) => c !== name);
+  return d;
+}
+
 export function addBudget(d, b) {
   if (!Array.isArray(d.budgets)) d.budgets = [];
   d.budgets.push({ id: uid(), period: "monthly", currency: "INR", ...b });
@@ -430,9 +488,48 @@ export function addInvoice(d, i) {
   d.invoices.push({ id: uid(), status: "pending", ...i });
   return d;
 }
-export function updateInvoiceStatus(d, id, status) {
+/**
+ * Marks an invoice paid/unpaid and moves the money in the linked account.
+ *
+ * This is what makes getting paid actually show up in "My money" instead of
+ * only in the invoice list. `rate` is the live USD->INR rate, passed in by the
+ * caller because this file stays pure and can't fetch one.
+ *
+ * Reversal uses `settledAmount` — the exact figure that was added — rather
+ * than recomputing from the invoice. The rate can move between marking an
+ * invoice paid and un-marking it, and reversing at today's rate would leave
+ * the balance permanently off by the difference.
+ */
+export function updateInvoiceStatus(d, id, status, rate) {
   const i = d.invoices.find((x) => x.id === id);
-  if (i) i.status = status;
+  if (!i) return d;
+
+  const wasPaid = i.status === "paid";
+  const nowPaid = status === "paid";
+  i.status = status;
+  if (wasPaid === nowPaid) return d;
+
+  const accounts = d.accounts || [];
+
+  if (nowPaid) {
+    const account = accounts.find((a) => a.id === i.accountId);
+    if (account) {
+      const native = Number(i.nativeAmount ?? i.amount) || 0;
+      const credited = convertBetween(native, i.currency || "USD", account.currency || "INR", rate);
+      account.balance = (Number(account.balance) || 0) + credited;
+      i.settledIntoAccountId = account.id;
+      i.settledAmount = credited;
+    }
+    i.paidAt = today();
+  } else {
+    const account = accounts.find((a) => a.id === i.settledIntoAccountId);
+    if (account && i.settledAmount != null) {
+      account.balance = (Number(account.balance) || 0) - Number(i.settledAmount);
+    }
+    i.settledIntoAccountId = null;
+    i.settledAmount = null;
+    i.paidAt = "";
+  }
   return d;
 }
 export function deleteInvoice(d, id) {

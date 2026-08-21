@@ -121,3 +121,31 @@ export function budgetStatus(spent, limit) {
   if (pct >= 80)  return { pct, tone: "amber",   bar: "bg-amber-500",   label: "Close to limit" };
   return { pct, tone: "emerald", bar: "bg-emerald-500", label: "On track" };
 }
+
+
+// ---- expense categories ----
+//
+// Stored in the blob (data.expenseCategories) rather than hardcoded, because
+// the right categories are specific to how one person actually spends — a
+// fixed list is either too long to scan or missing the one you need, and
+// "Other" absorbing everything defeats the point of budgeting by category.
+//
+// Seeded with sensible defaults, but every one of them is editable and
+// deletable; nothing here is special-cased.
+export const DEFAULT_EXPENSE_CATEGORIES = [
+  "Software", "Utilities", "Rent", "Contractor", "Marketing", "Travel", "Other",
+];
+
+/**
+ * The category list to show in a picker: what's saved, plus any value already
+ * on the record being edited even if that category was since deleted.
+ * Without that second part, opening an old expense would silently re-file it
+ * under whatever happened to be first in the list.
+ */
+export function categoryOptions(saved, current) {
+  const list = Array.isArray(saved) && saved.length ? [...saved] : [...DEFAULT_EXPENSE_CATEGORIES];
+  if (current && !list.some((c) => c.toLowerCase() === String(current).toLowerCase())) {
+    list.push(current);
+  }
+  return list;
+}

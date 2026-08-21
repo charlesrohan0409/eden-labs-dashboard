@@ -5,6 +5,7 @@ import Badge from "./Badge";
 import PillTabs from "./PillTabs";
 import ImagePicker from "./ImagePicker";
 import BrandMark from "./BrandMark";
+import CategorySelect from "./CategorySelect";
 import { useCurrency } from "../../hooks/useCurrency";
 import {
   OUTGOING_KIND_LIST, outgoingMeta, CADENCE_LIST, CADENCES,
@@ -13,7 +14,6 @@ import {
 import { CURRENCIES } from "../../lib/currency";
 
 const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
-const CATEGORIES = ["Software", "Utilities", "Rent", "Contractor", "Marketing", "Travel", "Other"];
 
 /**
  * Subscriptions and fixed bills — everything that leaves on a schedule.
@@ -22,7 +22,7 @@ const CATEGORIES = ["Software", "Utilities", "Rent", "Contractor", "Marketing", 
  * renewal date forward and adjusts the linked account. See lib/finance.js for
  * why that's deliberate rather than unfinished.
  */
-export default function Outgoings({ outgoings = [], accounts = [], onAdd, onUpdate, onDelete, onCancel, onPay, token }) {
+export default function Outgoings({ outgoings = [], accounts = [], categories = [], onAddCategory, onAdd, onUpdate, onDelete, onCancel, onPay, token }) {
   const { moneyFrom, convertFrom, currency } = useCurrency();
   const [filter, setFilter] = useState("all");
   const [editing, setEditing] = useState(null);
@@ -185,6 +185,8 @@ export default function Outgoings({ outgoings = [], accounts = [], onAdd, onUpda
         <OutgoingForm
           outgoing={editing === "new" ? null : outgoings.find((o) => o.id === editing)}
           accounts={accounts}
+          categories={categories}
+          onAddCategory={onAddCategory}
           token={token}
           onCancel={() => setEditing(null)}
           onSave={(patch) => {
@@ -198,7 +200,7 @@ export default function Outgoings({ outgoings = [], accounts = [], onAdd, onUpda
   );
 }
 
-function OutgoingForm({ outgoing, accounts, onSave, onCancel, token }) {
+function OutgoingForm({ outgoing, accounts, categories, onAddCategory, onSave, onCancel, token }) {
   const [form, setForm] = useState({
     name: outgoing?.name || "",
     kind: outgoing?.kind || "subscription",
@@ -238,12 +240,13 @@ function OutgoingForm({ outgoing, accounts, onSave, onCancel, token }) {
             {OUTGOING_KIND_LIST.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
           </select>
         </div>
-        <div>
-          <label className={label}>Category</label>
-          <select className={input} value={form.category} onChange={set("category")}>
-            {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
+        <CategorySelect
+          label="Category"
+          value={form.category}
+          onChange={(v) => setForm((f) => ({ ...f, category: v }))}
+          categories={categories}
+          onAddCategory={onAddCategory}
+        />
         <div>
           <label className={label}>Amount</label>
           <input className={input} type="number" value={form.amount} onChange={set("amount")} placeholder="0" />

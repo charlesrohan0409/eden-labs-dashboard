@@ -8,96 +8,105 @@
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
-      background: #f5f4f0;
       color: #1c1917;
       min-height: 100vh;
-      display: flex;
-      align-items: flex-start;
-      justify-content: center;
+      display: flex; align-items: flex-start; justify-content: center;
       padding: 48px 16px;
+      background:
+        radial-gradient(90% 70% at 10% 0%, rgba(22,163,74,.14), transparent 60%),
+        radial-gradient(80% 60% at 100% 10%, rgba(20,83,45,.14), transparent 55%),
+        #f4f3f0;
     }
 
+    /* Real glass here — unlike the popup, this page has a gradient ground
+       behind the card for backdrop-filter to actually work against. */
     .card {
-      background: #fff;
-      border-radius: 16px;
-      box-shadow: 0 1px 4px rgba(0,0,0,.08), 0 4px 24px rgba(0,0,0,.06);
-      width: 100%;
-      max-width: 420px;
-      overflow: hidden;
+      width: 100%; max-width: 430px; overflow: hidden;
+      border-radius: 20px;
+      background: rgba(255,255,255,.7);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid rgba(255,255,255,.75);
+      box-shadow: 0 2px 8px rgba(0,0,0,.05), 0 20px 56px rgba(0,0,0,.13);
     }
 
     .card-header {
-      background: #14532d;
-      padding: 24px 28px 20px;
-      color: #fff;
+      background: linear-gradient(135deg, rgba(20,83,45,.95), rgba(6,54,30,.95));
+      padding: 26px 28px 22px; color: #fff;
+      border-bottom: 1px solid rgba(255,255,255,.10);
     }
-    .logo-row {
-      display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
-    }
+    .logo-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
     .logo { height: 32px; width: auto; border-radius: 8px; display: block; }
-    .card-title  { font-size: 20px; font-weight: 700; }
-    .card-sub    { font-size: 13px; opacity: .7; margin-top: 2px; }
+    .card-title { font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+    .card-sub   { font-size: 13px; opacity: .62; margin-top: 2px; }
 
     .card-body { padding: 28px; }
 
-    /* ---- Connected state ---- */
     #connected-view { display: none; }
     .connected-badge {
-      display: flex; align-items: center; gap: 8px;
-      background: #f0fdf4; border: 1px solid #bbf7d0;
-      border-radius: 10px; padding: 12px 14px; margin-bottom: 22px;
+      display: flex; align-items: center; gap: 9px;
+      background: rgba(240,253,244,.85); border: 1px solid rgba(187,247,208,.9);
+      border-radius: 12px; padding: 13px 15px; margin-bottom: 22px;
     }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: #16a34a; flex-shrink: 0; }
-    .connected-badge span { font-size: 13px; color: #166534; font-weight: 500; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #16a34a; flex-shrink: 0; box-shadow: 0 0 0 3px rgba(22,163,74,.18); }
+    .connected-badge span { font-size: 13px; color: #166534; font-weight: 550; }
 
-    /* ---- Form ---- */
     .field { margin-bottom: 18px; }
     label {
-      display: block; font-size: 11px; font-weight: 600;
+      display: block; font-size: 10.5px; font-weight: 650;
       color: #78716c; text-transform: uppercase;
-      letter-spacing: .05em; margin-bottom: 6px;
+      letter-spacing: .06em; margin-bottom: 7px;
     }
     input {
-      width: 100%; padding: 10px 13px;
-      border: 1px solid #e7e5e4; border-radius: 10px;
+      width: 100%; padding: 11px 14px;
+      border: 1px solid rgba(0,0,0,.10); border-radius: 12px;
       font-size: 14px; color: #1c1917; outline: none;
-      transition: border-color .15s, box-shadow .15s;
-      font-family: inherit; background: #fafaf9;
+      transition: border-color .15s, box-shadow .15s, background .15s;
+      font-family: inherit; background: rgba(255,255,255,.75);
     }
     input:focus {
       border-color: #16a34a;
-      box-shadow: 0 0 0 3px rgba(22,163,74,.12);
+      box-shadow: 0 0 0 3px rgba(22,163,74,.14);
       background: #fff;
     }
 
     .btn {
-      width: 100%; padding: 11px;
-      border: none; border-radius: 10px;
-      font-size: 14px; font-weight: 600;
-      cursor: pointer; transition: background .15s, opacity .15s;
+      width: 100%; padding: 12px;
+      border: none; border-radius: 12px;
+      font-size: 14px; font-weight: 650; letter-spacing: -.01em;
+      cursor: pointer;
+      transition: box-shadow .18s ease, opacity .15s ease, transform .15s cubic-bezier(0.23,1,0.32,1), background .15s ease;
     }
-    .btn-primary { background: #14532d; color: #fff; }
-    .btn-primary:hover { background: #166534; }
-    .btn-primary:disabled { opacity: .55; cursor: default; }
+    .btn-primary {
+      background: linear-gradient(135deg, #14532d, #0b3d20); color: #fff;
+      border: 1px solid rgba(255,255,255,.10);
+      box-shadow: 0 2px 6px rgba(20,83,45,.20), 0 8px 20px rgba(20,83,45,.16);
+    }
+    .btn-primary:hover:not(:disabled) { box-shadow: 0 2px 6px rgba(20,83,45,.26), 0 12px 28px rgba(20,83,45,.26); }
+    .btn-primary:active:not(:disabled) { transform: scale(0.98); }
+    .btn-primary:disabled { opacity: .5; cursor: default; box-shadow: none; }
     .btn-ghost {
-      background: transparent; color: #78716c;
-      border: 1px solid #e7e5e4; margin-top: 10px;
+      background: rgba(255,255,255,.6); color: #78716c;
+      border: 1px solid rgba(0,0,0,.08); margin-top: 10px;
     }
-    .btn-ghost:hover { background: #f5f4f0; color: #1c1917; }
+    .btn-ghost:hover { background: rgba(255,255,255,.9); color: #1c1917; }
+    .btn-ghost:active { transform: scale(0.98); }
 
     #status {
-      margin-bottom: 14px; padding: 10px 13px;
-      border-radius: 8px; font-size: 13px; display: none;
+      margin-bottom: 14px; padding: 11px 14px;
+      border-radius: 11px; font-size: 13px; display: none;
     }
-    #status.error   { background: #fff1f2; color: #9f1239; border: 1px solid #fecdd3; }
-    #status.success { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+    #status.error   { background: rgba(255,241,242,.95); color: #9f1239; border: 1px solid rgba(254,205,211,.9); }
+    #status.success { background: rgba(240,253,244,.95); color: #166534; border: 1px solid rgba(187,247,208,.9); }
 
-    .hint {
-      font-size: 12px; color: #a8a29e; margin-top: 14px; line-height: 1.5;
-    }
+    .hint { font-size: 12px; color: #a8a29e; margin-top: 14px; line-height: 1.55; }
 
     @keyframes spin { to { transform: rotate(360deg); } }
     .spin { animation: spin .7s linear infinite; display: inline-block; }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    }
   </style>
 </head>
 <body>

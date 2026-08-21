@@ -4,16 +4,16 @@ import Card from "./Card";
 import { useCurrency } from "../../hooks/useCurrency";
 import { BUDGET_PERIOD_LIST, spentOn, budgetStatus } from "../../lib/finance";
 import { CURRENCIES, convertBetween } from "../../lib/currency";
+import CategorySelect from "./CategorySelect";
 
 const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
-const CATEGORIES = ["Software", "Utilities", "Rent", "Contractor", "Marketing", "Travel", "Other"];
 
 /**
  * Spending limits per category, measured against real expenses in the current
  * period. Nothing here blocks a spend — it reports. A budget that refuses to
  * let you record what actually happened would just make the expense log lie.
  */
-export default function Budgets({ budgets = [], expenses = [], onAdd, onUpdate, onDelete }) {
+export default function Budgets({ budgets = [], expenses = [], categories = [], onAddCategory, onAdd, onUpdate, onDelete }) {
   const { moneyFrom, rate } = useCurrency();
   const [editing, setEditing] = useState(null);
   const convertAmount = (amount, from, to) => convertBetween(amount, from, to, rate);
@@ -105,6 +105,8 @@ export default function Budgets({ budgets = [], expenses = [], onAdd, onUpdate, 
       {editing && (
         <BudgetForm
           budget={editing === "new" ? null : budgets.find((b) => b.id === editing)}
+          categories={categories}
+          onAddCategory={onAddCategory}
           onCancel={() => setEditing(null)}
           onSave={(patch) => {
             if (editing === "new") onAdd?.(patch);
@@ -117,7 +119,7 @@ export default function Budgets({ budgets = [], expenses = [], onAdd, onUpdate, 
   );
 }
 
-function BudgetForm({ budget, onSave, onCancel }) {
+function BudgetForm({ budget, categories, onAddCategory, onSave, onCancel }) {
   const [form, setForm] = useState({
     category: budget?.category || "Software",
     limit: budget?.limit ?? "",
@@ -131,12 +133,13 @@ function BudgetForm({ budget, onSave, onCancel }) {
   return (
     <div className="mt-4 pt-4 border-t border-line motion-safe:animate-fade-up">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        <div>
-          <label className={label}>Category</label>
-          <select className={input} value={form.category} onChange={set("category")} autoFocus>
-            {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
+        <CategorySelect
+          label="Category"
+          value={form.category}
+          onChange={(v) => setForm((f) => ({ ...f, category: v }))}
+          categories={categories}
+          onAddCategory={onAddCategory}
+        />
         <div>
           <label className={label}>Limit</label>
           <input className={input} type="number" value={form.limit} onChange={set("limit")} placeholder="0" />

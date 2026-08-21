@@ -17,13 +17,21 @@ import PrimaryButton from "../ui/PrimaryButton";
 import InvoiceModal from "../ui/InvoiceModal";
 import PrivacyToggle from "../ui/PrivacyToggle";
 import BalanceBar from "../ui/BalanceBar";
+import CategorySelect from "../ui/CategorySelect";
 import Outgoings from "../ui/Outgoings";
 import Budgets from "../ui/Budgets";
 import { MONTHS, downloadCSV, today, computeMRR, billingTypeLabel } from "../../lib/utils";
 import { useCurrency } from "../../hooks/useCurrency";
-import { formatAmount } from "../../lib/currency";
+import { formatAmount, CURRENCIES } from "../../lib/currency";
 import { invoiceNumber } from "../../lib/invoice";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
+
+// A function rather than a shared object literal — resetting the form must
+// hand back a fresh copy, not a reference every reset then mutates in common.
+const BLANK_EXPENSE = () => ({
+  category: "Software", vendor: "", amount: "", currency: "INR",
+  date: new Date().toISOString().slice(0, 10), accountId: "",
+});
 
 const STATUS_TONE = { paid: "emerald", pending: "amber", overdue: "rose", draft: "stone" };
 const STATUS_LABEL = { paid: "Completed", pending: "Pending", overdue: "Overdue", draft: "Draft" };
@@ -42,7 +50,7 @@ export default function FinanceDetail({
   onAddInvoice, onGenerateInvoices, onUpdateInvoiceStatus, onDeleteInvoice,
   onAddAccount, onUpdateAccount, onDeleteAccount,
   onAddOutgoing, onUpdateOutgoing, onDeleteOutgoing, onCancelOutgoing, onPayOutgoing,
-  onAddBudget, onUpdateBudget, onDeleteBudget, token,
+  onAddBudget, onUpdateBudget, onDeleteBudget, onAddExpenseCategory, token,
 }) {
   const [activeTab, setActiveTab] = useState("overview");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -50,11 +58,11 @@ export default function FinanceDetail({
   const [genStatus, setGenStatus] = useState("");
   // { [invoiceId]: "sending" | "sent" | "failed" }
   const [reminderStatus, setReminderStatus] = useState({});
-  const [exp, setExp] = useState({ category: "Software", vendor: "", amount: "" });
+  const [exp, setExp] = useState(BLANK_EXPENSE);
   const [editingExpenseId, setEditingExpenseId] = useState(null);
   const [editExpenseForm, setEditExpenseForm] = useState({ category: "Software", vendor: "", amount: "" });
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
-  const { money, moneyIn } = useCurrency();
+  const { money, moneyIn, rate } = useCurrency();
 
   const clientOf = (id) => data.clients.find((c) => c.id === id);
 
@@ -485,7 +493,7 @@ export default function FinanceDetail({
                             <PrimaryButton
                               size="sm"
                               variant={i.status === "paid" ? "ghost" : "primary"}
-                              onClick={() => onUpdateInvoiceStatus(i.id, i.status === "paid" ? "pending" : "paid")}
+                              onClick={() => onUpdateInvoiceStatus(i.id, i.status === "paid" ? "pending" : "paid", rate)}
                             >
                               {i.status === "paid" ? "Mark unpaid" : "Mark paid"}
                             </PrimaryButton>
@@ -592,7 +600,7 @@ export default function FinanceDetail({
                     <PrimaryButton
                       size="sm"
                       variant={invoice.status === "paid" ? "ghost" : "primary"}
-                      onClick={() => onUpdateInvoiceStatus(invoice.id, invoice.status === "paid" ? "pending" : "paid")}
+                      onClick={() => onUpdateInvoiceStatus(invoice.id, invoice.status === "paid" ? "pending" : "paid", rate)}
                     >
                       {invoice.status === "paid" ? "Mark unpaid" : "Mark paid"}
                     </PrimaryButton>
@@ -665,23 +673,53 @@ export default function FinanceDetail({
           </Card>
 
           <Card className="p-5 h-fit">
-            <CardTitle sub="Recorded against this month">Log an expense</CardTitle>
+            <CardTitle sub="Logged at month end — pick the account it left, and the balance follows">
+              Log an expense
+            </CardTitle>
             <div className="space-y-2">
-              <select value={exp.category} onChange={(e) => setExp({ ...exp, category: e.target.value })} className={`${inputCls} w-full`}>
-                <option>Software</option>
-                <option>Contractor</option>
-                <option>Advertising</option>
-                <option>Other</option>
-              </select>
+              {/* This used to be a hardcoded list containing "Advertising",
+                  which existed in no other picker in the app. Any expense
+                  filed under it — or any budget set on a category this list
+                  omitted, like Marketing or Utilities — could never match,
+                  so those budgets silently read zero spent. One shared,
+                  editable vocabulary is the fix. */}
+              <CategorySelect
+                value={exp.category}
+                onChange={(v) => setExp({ ...exp, category: v })}
+                categories={data.expenseCategories}
+                onAddCategory={onAddExpenseCategory}
+              />
               <input placeholder="Vendor" value={exp.vendor} onChange={(e) => setExp({ ...exp, vendor: e.target.value })} className={`${inputCls} w-full`} />
-              <input placeholder="Amount" type="number" value={exp.amount} onChange={(e) => setExp({ ...exp, amount: e.target.value })} className={`${inputCls} w-full`} />
+              <div className="grid grid-cols-2 gap-2">
+                <input placeholder="Amount" type="number" value={exp.amount} onChange={(e) => setExp({ ...exp, amount: e.target.value })} className={`${inputCls} w-full`} />
+                <select value={exp.currency} onChange={(e) => setExp({ ...exp, currency: e.target.value })} className={`${inputCls} w-full`}>
+                  {Object.values(CURRENCIES).map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}
+                </select>
+              </div>
+              <input type="date" value={exp.date} onChange={(e) => setExp({ ...exp, date: e.target.value })} className={`${inputCls} w-full`} />
+              <select value={exp.accountId} onChange={(e) => setExp({ ...exp, accountId: e.target.value })} className={`${inputCls} w-full`}>
+                <option value="">Don't touch any balance</option>
+                {data.accounts.map((a) => <option key={a.id} value={a.id}>Paid from {a.name}</option>)}
+              </select>
               <PrimaryButton
                 icon={Plus}
                 className="w-full"
                 onClick={() => {
                   if (!exp.vendor || !exp.amount) return;
-                  onAddExpense({ ...exp, amount: Number(exp.amount), date: today() });
-                  setExp({ category: "Software", vendor: "", amount: "" });
+                  const amount = Number(exp.amount);
+                  onAddExpense({
+                    category: exp.category,
+                    vendor: exp.vendor,
+                    // `amount` stays the figure every existing aggregate on
+                    // this page already sums; nativeAmount/currency carry what
+                    // was actually paid, same split as invoices.
+                    amount,
+                    nativeAmount: amount,
+                    currency: exp.currency,
+                    date: exp.date || today(),
+                    accountId: exp.accountId || null,
+                  }, rate);
+                  setExp(BLANK_EXPENSE());
                 }}
               >
                 Add expense
@@ -713,11 +751,15 @@ export default function FinanceDetail({
               onDelete={onDeleteOutgoing}
               onCancel={onCancelOutgoing}
               onPay={onPayOutgoing}
+              categories={data.expenseCategories}
+              onAddCategory={onAddExpenseCategory}
               token={token}
             />
             <Budgets
               budgets={data.budgets}
               expenses={data.expenses}
+              categories={data.expenseCategories}
+              onAddCategory={onAddExpenseCategory}
               onAdd={onAddBudget}
               onUpdate={onUpdateBudget}
               onDelete={onDeleteBudget}
@@ -814,6 +856,7 @@ export default function FinanceDetail({
         onClose={() => setInvoiceModalOpen(false)}
         clients={data.clients}
         invoices={data.invoices}
+        accounts={data.accounts}
         onCreate={onAddInvoice}
       />
     </div>

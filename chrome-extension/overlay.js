@@ -381,84 +381,190 @@ if (!window.__edenLabsOverlayInjected) {
     shadow.innerHTML = `
       <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; }
-        .fab {
-          display: flex; align-items: center; gap: 7px;
-          background: #14532d; color: #fff; border: none; border-radius: 999px;
-          padding: 10px 16px 10px 12px; font-size: 12.5px; font-weight: 600;
-          cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,.22);
-          transition: transform .18s cubic-bezier(0.23,1,0.32,1), background .15s ease;
-        }
-        .fab:hover { background: #166534; }
-        .fab:active { transform: scale(0.96); }
-        .fab .badge {
-          background: rgba(255,255,255,.18); border-radius: 999px;
-          min-width: 18px; height: 18px; padding: 0 5px; font-size: 10.5px;
-          display: flex; align-items: center; justify-content: center;
-        }
+
+        /* Glass, tuned for LinkedIn's light grey page rather than in the
+           abstract: a translucent white panel over that background needs a
+           high blur AND saturation boost, or it reads as flat milky grey
+           instead of glass. The 1px white inner border is what actually
+           sells the edge — without it the panel has no lip and looks like a
+           low-opacity rectangle. */
         .panel {
           display: none;
-          width: 300px; max-height: 420px; overflow-y: auto;
-          background: #fff; border-radius: 14px; margin-bottom: 10px;
-          box-shadow: 0 4px 12px rgba(0,0,0,.12), 0 12px 40px rgba(0,0,0,.18);
-          animation: rise .2s cubic-bezier(0.23,1,0.32,1) both;
+          width: 360px; max-height: 70vh;
+          border-radius: 18px; margin-bottom: 12px; overflow: hidden;
+          background: rgba(255,255,255,.72);
+          -webkit-backdrop-filter: blur(24px) saturate(180%);
+          backdrop-filter: blur(24px) saturate(180%);
+          border: 1px solid rgba(255,255,255,.7);
+          box-shadow: 0 2px 8px rgba(0,0,0,.06), 0 16px 48px rgba(0,0,0,.20);
+          animation: rise .22s cubic-bezier(0.23,1,0.32,1) both;
         }
-        .panel.open { display: block; }
-        @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .panel.open { display: flex; flex-direction: column; }
+        /* Never from scale(0) — an element that pops out of nothing reads as
+           a glitch. A short lift plus fade is enough. */
+        @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
         .panel-header {
-          background: #14532d; color: #fff; padding: 12px 14px;
-          display: flex; align-items: center; justify-content: space-between;
-          border-radius: 14px 14px 0 0; position: sticky; top: 0;
+          padding: 14px 16px 12px;
+          background: linear-gradient(135deg, rgba(20,83,45,.92), rgba(6,54,30,.92));
+          -webkit-backdrop-filter: blur(20px);
+          backdrop-filter: blur(20px);
+          color: #fff; flex-shrink: 0;
+          border-bottom: 1px solid rgba(255,255,255,.10);
         }
-        .panel-header .title { font-size: 13px; font-weight: 600; }
-        .panel-header .sub { font-size: 10.5px; opacity: .65; }
-        .add-row { padding: 12px 14px; border-bottom: 1px solid #f0f0ee; }
+        .panel-header .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+        .panel-header .title { font-size: 14px; font-weight: 650; letter-spacing: -.01em; }
+        .panel-header .sub { font-size: 11px; opacity: .6; margin-top: 1px; }
+        .stat { text-align: right; flex-shrink: 0; }
+        .stat .big { font-size: 20px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+        .stat .cap { font-size: 9.5px; opacity: .55; text-transform: uppercase; letter-spacing: .05em; margin-top: 3px; }
+
+        /* Progress toward "everything on today's list is bookmarked". */
+        .track { height: 3px; border-radius: 99px; background: rgba(255,255,255,.16); margin-top: 11px; overflow: hidden; }
+        .track > i {
+          display: block; height: 100%; border-radius: 99px; background: #4ade80;
+          transform-origin: left; transition: transform .3s cubic-bezier(0.23,1,0.32,1);
+        }
+
+        .body { overflow-y: auto; flex: 1; }
+        .body::-webkit-scrollbar { width: 8px; }
+        .body::-webkit-scrollbar-thumb { background: rgba(0,0,0,.14); border-radius: 99px; border: 2px solid transparent; background-clip: content-box; }
+
+        .add-row { padding: 12px 14px 10px; }
         .add-btn {
-          width: 100%; padding: 8px; background: #f0fdf4; border: 1px dashed #86efac;
-          border-radius: 10px; color: #166534; font-size: 12px; font-weight: 600;
-          cursor: pointer; transition: background .15s ease, transform .15s cubic-bezier(0.23,1,0.32,1);
+          width: 100%; padding: 10px; border-radius: 12px; cursor: pointer;
+          background: rgba(255,255,255,.55); border: 1px dashed rgba(22,101,52,.35);
+          color: #166534; font-size: 12.5px; font-weight: 600;
+          transition: background .15s ease, transform .15s cubic-bezier(0.23,1,0.32,1);
         }
-        .add-btn:hover:not(:disabled) { background: #dcfce7; }
+        @media (hover: hover) { .add-btn:hover:not(:disabled) { background: rgba(220,252,231,.8); } }
         .add-btn:active:not(:disabled) { transform: scale(0.98); }
-        .add-btn:disabled { opacity: .5; cursor: default; }
-        .hint { padding: 8px 14px 0; font-size: 10.5px; color: #a8a29e; line-height: 1.5; }
-        .list { padding: 6px 8px; }
-        .row {
-          display: flex; align-items: center; gap: 8px; padding: 7px 8px;
-          border-radius: 8px; font-size: 12px; color: #1c1917;
+        .add-btn:disabled { opacity: .45; cursor: default; }
+
+        .hint { padding: 0 15px 10px; font-size: 10.5px; color: #78716c; line-height: 1.5; }
+
+        .daygroup { padding: 0 8px; }
+        .daylabel {
+          display: flex; align-items: center; gap: 8px;
+          padding: 9px 7px 5px; font-size: 10px; font-weight: 700;
+          color: #57534e; text-transform: uppercase; letter-spacing: .06em;
         }
-        .row:hover { background: #fafaf9; }
-        .row img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: #e7e5e4; }
+        .daylabel .rule { height: 1px; flex: 1; background: rgba(0,0,0,.07); }
+        .daylabel .n { opacity: .5; font-weight: 600; letter-spacing: 0; }
+
+        .row {
+          display: flex; align-items: center; gap: 9px; padding: 7px;
+          border-radius: 11px; font-size: 12.5px; color: #1c1917;
+          transition: background .15s ease;
+        }
+        @media (hover: hover) { .row:hover { background: rgba(255,255,255,.7); } }
+        .row.done .name { color: #a8a29e; text-decoration: line-through; }
+        .row.done img, .row.done .avatar-fallback { opacity: .45; }
+
+        .idx {
+          width: 17px; flex-shrink: 0; text-align: right;
+          font-size: 10.5px; font-weight: 600; color: #a8a29e;
+          font-variant-numeric: tabular-nums;
+        }
+
+        /* Real checkbox, restyled — keeps keyboard focus and the native
+           :checked state instead of faking both with a div. */
+        .tick {
+          appearance: none; -webkit-appearance: none;
+          width: 17px; height: 17px; flex-shrink: 0; cursor: pointer;
+          border: 1.5px solid rgba(0,0,0,.22); border-radius: 6px;
+          background: rgba(255,255,255,.6);
+          display: grid; place-content: center;
+          transition: background .15s ease, border-color .15s ease, transform .15s cubic-bezier(0.23,1,0.32,1);
+        }
+        .tick:active { transform: scale(0.9); }
+        .tick:checked { background: #16a34a; border-color: #16a34a; }
+        .tick:checked::after {
+          content: ""; width: 9px; height: 5px;
+          border: 2px solid #fff; border-top: 0; border-right: 0;
+          transform: rotate(-45deg) translate(1px, -1px);
+        }
+        .tick:focus-visible { outline: 2px solid #16a34a; outline-offset: 2px; }
+
+        .row img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: #e7e5e4; }
         .row .avatar-fallback {
-          width: 24px; height: 24px; border-radius: 50%; background: #dcfce7; color: #14532d;
-          font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+          width: 26px; height: 26px; border-radius: 50%;
+          background: rgba(22,163,74,.14); color: #14532d;
+          font-size: 10px; font-weight: 700;
+          display: flex; align-items: center; justify-content: center; flex-shrink: 0;
         }
         .row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .row a { color: #14532d; text-decoration: none; font-size: 11px; flex-shrink: 0; }
+        .row a {
+          color: #14532d; text-decoration: none; font-size: 11px; flex-shrink: 0;
+          padding: 3px 7px; border-radius: 7px; background: rgba(20,83,45,.07);
+          transition: background .15s ease;
+        }
+        @media (hover: hover) { .row a:hover { background: rgba(20,83,45,.14); } }
         .row .remove-btn {
           background: transparent; border: none; color: #d6d3d1; cursor: pointer;
           flex-shrink: 0; padding: 3px; border-radius: 6px; line-height: 1;
           display: flex; align-items: center; justify-content: center;
           transition: color .15s ease, background .15s ease, transform .15s cubic-bezier(0.23,1,0.32,1);
         }
-        .row .remove-btn:hover { color: #9f1239; background: #fff1f2; }
+        @media (hover: hover) { .row .remove-btn:hover { color: #9f1239; background: rgba(255,241,242,.9); } }
         .row .remove-btn:active { transform: scale(0.9); }
         .row .remove-btn:disabled { opacity: .4; cursor: default; }
-        .empty { padding: 18px 14px; text-align: center; color: #a8a29e; font-size: 12px; }
-        .not-connected { padding: 14px; text-align: center; color: #9a3412; font-size: 12px; background: #fff7ed; }
+
+        .empty { padding: 26px 16px; text-align: center; color: #a8a29e; font-size: 12px; line-height: 1.6; }
+        .not-connected { padding: 16px; text-align: center; color: #9a3412; font-size: 12px; background: rgba(255,247,237,.9); }
+
+        /* The trigger. Bigger than before — it's the extension's front door
+           on every LinkedIn page, and the old pill was easy to lose against
+           a busy feed. */
+        .fab {
+          display: flex; align-items: center; gap: 10px;
+          padding: 12px 18px 12px 14px; border: none; border-radius: 999px;
+          font-size: 13.5px; font-weight: 650; letter-spacing: -.01em;
+          color: #fff; cursor: pointer;
+          background: linear-gradient(135deg, rgba(20,83,45,.94), rgba(6,54,30,.94));
+          -webkit-backdrop-filter: blur(16px) saturate(160%);
+          backdrop-filter: blur(16px) saturate(160%);
+          border: 1px solid rgba(255,255,255,.14);
+          box-shadow: 0 2px 8px rgba(0,0,0,.14), 0 10px 28px rgba(20,83,45,.30);
+          transition: transform .18s cubic-bezier(0.23,1,0.32,1), box-shadow .18s ease;
+        }
+        @media (hover: hover) { .fab:hover { box-shadow: 0 2px 8px rgba(0,0,0,.16), 0 14px 36px rgba(20,83,45,.40); } }
+        .fab:active { transform: scale(0.96); }
+        .fab .badge {
+          background: rgba(255,255,255,.20); border-radius: 999px;
+          min-width: 22px; height: 22px; padding: 0 7px; font-size: 11.5px; font-weight: 700;
+          display: flex; align-items: center; justify-content: center;
+          font-variant-numeric: tabular-nums;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .panel { animation: none; }
+          * { transition-duration: .01ms !important; }
+        }
       </style>
 
       <div class="panel" id="panel">
         <div class="panel-header">
-          <div>
-            <div class="title">Comment list</div>
-            <div class="sub" id="scope-label">Eden Labs</div>
+          <div class="top">
+            <div>
+              <div class="title">Comment list</div>
+              <div class="sub" id="scope-label">Eden Labs</div>
+            </div>
+            <div class="stat">
+              <div class="big"><span id="done-count">0</span><span style="opacity:.45">/</span><span id="count-hdr">0</span></div>
+              <div class="cap">bookmarked</div>
+            </div>
           </div>
+          <div class="track"><i id="progress" style="transform:scaleX(0)"></i></div>
         </div>
-        <div class="add-row">
-          <button class="add-btn" id="add-btn">+ Add this profile</button>
+
+        <div class="body">
+          <div class="add-row">
+            <button class="add-btn" id="add-btn">+ Add this profile</button>
+          </div>
+          <div class="hint">Tick each one once you've added them to your saved LinkedIn search. Right-click any name anywhere on LinkedIn to add it here.</div>
+          <div id="list"></div>
         </div>
-        <div class="hint">Tip: right-click any name anywhere on LinkedIn — feed, connections, search — and choose "Add to Eden Labs comment list".</div>
-        <div class="list" id="list"></div>
       </div>
 
       <button class="fab" id="fab">
@@ -477,20 +583,65 @@ if (!window.__edenLabsOverlayInjected) {
     };
     $("fab").addEventListener("click", () => setOpen(!open));
 
+    // "20 Aug" / "Today" / "Yesterday". Grouping by the day something was
+    // added is what makes this a daily routine rather than one ever-growing
+    // pile — you work today's batch, not all 60.
+    function dayLabel(iso) {
+      if (!iso) return "No date";
+      const d = new Date(`${String(iso).slice(0, 10)}T12:00:00`);
+      if (Number.isNaN(d.getTime())) return "No date";
+      const today = new Date(); today.setHours(12, 0, 0, 0);
+      const diff = Math.round((today - d) / 86400000);
+      if (diff === 0) return "Today";
+      if (diff === 1) return "Yesterday";
+      return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+    }
+
+    const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
     function renderRows(targets) {
       const list = $("list");
       if (!targets.length) {
-        list.innerHTML = `<div class="empty">Nothing on the list yet — visit a profile and add it, or right-click any name on LinkedIn.</div>`;
+        list.innerHTML = `<div class="empty">Nothing on the list yet.<br />Visit a profile and add it, or right-click any name on LinkedIn.</div>`;
         return;
       }
-      list.innerHTML = targets.slice().reverse().map((t) => `
-        <div class="row" data-id="${t.id}">
-          ${t.photoUrl ? `<img src="${t.photoUrl}" alt="" />` : `<span class="avatar-fallback">${initials(t.name)}</span>`}
-          <span class="name" title="${t.name || t.profileUrl}">${t.name || t.profileUrl}</span>
-          <a href="${t.profileUrl}" target="_blank" rel="noopener">Open</a>
-          <button class="remove-btn" data-remove-id="${t.id}" title="Remove from list" aria-label="Remove from list">✕</button>
-        </div>
-      `).join("");
+
+      // Newest day first, and newest-added first within a day.
+      const groups = new Map();
+      targets.slice().reverse().forEach((t) => {
+        const key = String(t.addedAt || "").slice(0, 10) || "none";
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(t);
+      });
+      const keys = [...groups.keys()].sort((a, b) => (a < b ? 1 : -1));
+
+      // Numbering runs continuously across the whole list rather than
+      // restarting per day, so "#14 of 23" stays meaningful while working
+      // down it.
+      let n = 0;
+      list.innerHTML = keys.map((key) => {
+        const items = groups.get(key);
+        const rows = items.map((t) => {
+          n += 1;
+          const label = t.name || t.profileUrl;
+          return `
+            <div class="row ${t.inSearch ? "done" : ""}" data-id="${esc(t.id)}">
+              <span class="idx">${n}</span>
+              <input class="tick" type="checkbox" data-tick-id="${esc(t.id)}" ${t.inSearch ? "checked" : ""}
+                     title="Added to my saved search" aria-label="Added to my saved search" />
+              ${t.photoUrl ? `<img src="${esc(t.photoUrl)}" alt="" />` : `<span class="avatar-fallback">${esc(initials(t.name))}</span>`}
+              <span class="name" title="${esc(label)}">${esc(label)}</span>
+              <a href="${esc(t.profileUrl)}" target="_blank" rel="noopener">Open</a>
+              <button class="remove-btn" data-remove-id="${esc(t.id)}" title="Remove from list" aria-label="Remove from list">✕</button>
+            </div>`;
+        }).join("");
+        return `
+          <div class="daygroup">
+            <div class="daylabel">${esc(dayLabel(key === "none" ? "" : key))}<span class="rule"></span><span class="n">${items.length}</span></div>
+            ${rows}
+          </div>`;
+      }).join("");
     }
 
     // One delegated listener rather than one per row — the list re-renders
@@ -507,15 +658,45 @@ if (!window.__edenLabsOverlayInjected) {
       });
     });
 
+    // The tick is applied optimistically: it's a checkbox, so it has already
+    // visually flipped by the time this fires, and a round trip before
+    // honouring it would feel broken. Reverted only if the save fails.
+    $("list").addEventListener("change", (e) => {
+      const box = e.target.closest?.("[data-tick-id]");
+      if (!box) return;
+      const id = box.dataset.tickId;
+      const inSearch = box.checked;
+      box.closest(".row")?.classList.toggle("done", inSearch);
+      updateProgressFromDom();
+      safeSendMessage({ type: "UPDATE_COMMENT_TARGET", id, patch: { inSearch } }, (result) => {
+        if (result?.ok) return;
+        box.checked = !inSearch;
+        box.closest(".row")?.classList.toggle("done", !inSearch);
+        updateProgressFromDom();
+        showToast(result?.error || "Couldn't save that tick — try again.", true);
+      });
+    });
+
+    // Recomputed from the DOM rather than refetching, so ticking stays
+    // instant and costs no request.
+    function updateProgressFromDom() {
+      const boxes = [...$("list").querySelectorAll("[data-tick-id]")];
+      const done = boxes.filter((b) => b.checked).length;
+      $("done-count").textContent = String(done);
+      $("count-hdr").textContent = String(boxes.length);
+      $("progress").style.transform = `scaleX(${boxes.length ? done / boxes.length : 0})`;
+    }
+
     function refreshList() {
       safeSendMessage({ type: "GET_COMMENT_TARGETS" }, (result) => {
         if (!result?.ok) {
-          $("list").innerHTML = `<div class="not-connected">${result?.error || "Not connected — open Settings to enter your PIN."}</div>`;
+          $("list").innerHTML = `<div class="not-connected">${esc(result?.error || "Not connected — open Settings to enter your PIN.")}</div>`;
           $("count").textContent = "0";
           return;
         }
         $("count").textContent = String(result.targets.length);
         renderRows(result.targets);
+        updateProgressFromDom();
       });
     }
 

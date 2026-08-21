@@ -9,14 +9,14 @@ import { sendEmail } from "../../lib/email";
 import { useCurrency } from "../../hooks/useCurrency";
 import { CURRENCIES, formatAmount, fetchUsdToInr } from "../../lib/currency";
 
-const EMPTY_FORM = { clientId: "", description: "", amount: "", currency: "USD", issueDate: today(), dueDate: addDays(today(), 14), notes: "" };
+const EMPTY_FORM = { clientId: "", description: "", amount: "", currency: "USD", issueDate: today(), dueDate: addDays(today(), 14), notes: "", accountId: "" };
 
 /**
  * Create a single ad-hoc invoice. Two phases in one modal: fill in the
  * details, then — once it exists — download it as a PDF or email it for
  * real. Nothing here touches the recurring "bill every active client" flow.
  */
-export default function InvoiceModal({ open, onClose, clients, invoices, onCreate }) {
+export default function InvoiceModal({ open, onClose, clients, invoices, accounts = [], onCreate }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [created, setCreated] = useState(null); // the invoice once it exists
   const [sendStatus, setSendStatus] = useState("");
@@ -106,6 +106,14 @@ export default function InvoiceModal({ open, onClose, clients, invoices, onCreat
       dueDate: form.dueDate,
       period: form.issueDate.slice(0, 7),
       status: "pending",
+      // Where the money lands when this gets paid. Recorded now, acted on
+      // later: marking the invoice paid credits THIS account (see
+      // updateInvoiceStatus), which is what makes income show up in balances
+      // instead of only in the invoice list.
+      accountId: form.accountId || null,
+      settledIntoAccountId: null,
+      settledAmount: null,
+      paidAt: "",
     };
     onCreate(invoice);
     setCreated(invoice);
@@ -190,6 +198,25 @@ export default function InvoiceModal({ open, onClose, clients, invoices, onCreat
                   and total they already have. */}
               {clients.filter((c) => !c.hidden).map((c) => <option key={c.id} value={c.id}>{c.name} · {c.company}</option>)}
             </select>
+          </div>
+
+          <div>
+            <label className="text-xs text-stone-500 font-medium">Receiving account</label>
+            <select
+              value={form.accountId}
+              onChange={(e) => setForm({ ...form, accountId: e.target.value })}
+              className={`${inputCls} mt-1`}
+            >
+              <option value="">Don't track against a balance</option>
+              {/* Credit cards excluded: an invoice is money coming IN, and a
+                  card is a liability — "receiving" into one has no meaning. */}
+              {accounts.filter((a) => a.type !== "credit").map((a) => (
+                <option key={a.id} value={a.id}>{a.name}{a.currency ? ` · ${a.currency}` : ""}</option>
+              ))}
+            </select>
+            <span className="block text-[10px] text-stone-400 mt-1">
+              The balance goes up when you mark this invoice paid.
+            </span>
           </div>
 
           <div>

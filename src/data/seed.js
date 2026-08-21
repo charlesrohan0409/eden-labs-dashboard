@@ -1,5 +1,6 @@
 import { MONTHS, computeCommissionTotal, commissionInstallment } from "../lib/utils.js";
 import { periodStartFor } from "../lib/recurrence.js";
+import { DEFAULT_EXPENSE_CATEGORIES } from "../lib/finance.js";
 
 // ---------- Client types ----------
 // Each service line gets its own delivery-metric template and its own set of
@@ -405,6 +406,9 @@ export const seedData = () => ({
   outgoings: [],
   // Spending limits per expense category, checked against `expenses`.
   budgets: [],
+  // The category vocabulary shared by expenses, budgets and recurring items.
+  // Owner-editable — see lib/finance.js.
+  expenseCategories: [...DEFAULT_EXPENSE_CATEGORIES],
   // Activity log — chronological record of key events per client.
   // Shape is Supabase-ready: each entry maps cleanly to a row.
   // clientId === null means an agency-level event (e.g. new expense).

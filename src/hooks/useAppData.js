@@ -206,7 +206,7 @@ export function useAppData(token, onUnauthorized) {
     addComment: (c) => update((d) => M.addComment(d, c)),
 
     // ---- finance ----
-    addExpense: (e) => update((d) => M.addExpense(d, e)),
+    addExpense: (e, rate) => update((d) => M.addExpense(d, e, rate)),
     updateExpense: (id, patch) => update((d) => M.updateExpense(d, id, patch)),
     deleteExpense: (id) => update((d) => M.deleteExpense(d, id)),
 
@@ -222,11 +222,15 @@ export function useAppData(token, onUnauthorized) {
     cancelOutgoing: (id) => update((d) => M.cancelOutgoing(d, id)),
     payOutgoing:    (id, opts) => update((d) => M.payOutgoing(d, id, opts)),
 
+    addExpenseCategory:    (name) => update((d) => M.addExpenseCategory(d, name)),
+    renameExpenseCategory: (from, to) => update((d) => M.renameExpenseCategory(d, from, to)),
+    deleteExpenseCategory: (name) => update((d) => M.deleteExpenseCategory(d, name)),
+
     addBudget:    (b) => update((d) => M.addBudget(d, b)),
     updateBudget: (id, patch) => update((d) => M.updateBudget(d, id, patch)),
     deleteBudget: (id) => update((d) => M.deleteBudget(d, id)),
     addInvoice: (i) => update((d) => M.addInvoice(d, i)),
-    updateInvoiceStatus: (id, status) => update((d) => M.updateInvoiceStatus(d, id, status)),
+    updateInvoiceStatus: (id, status, rate) => update((d) => M.updateInvoiceStatus(d, id, status, rate)),
     deleteInvoice: (id) => update((d) => M.deleteInvoice(d, id)),
     // Reads counts back out synchronously — functional setState updaters run
     // synchronously when called, so `result` is populated before update()

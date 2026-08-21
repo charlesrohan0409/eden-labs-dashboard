@@ -230,6 +230,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === "UPDATE_COMMENT_TARGET") {
+    extensionAction("updateCommentTarget", { id: msg.id, patch: msg.patch })
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
   if (msg.type === "DELETE_COMMENT_TARGET") {
     extensionAction("deleteCommentTarget", { id: msg.id })
       .then(() => sendResponse({ ok: true }))

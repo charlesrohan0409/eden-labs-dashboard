@@ -12,7 +12,7 @@ export function migrateData(loaded) {
     "clients", "contacts", "tasks", "posts", "dms", "expenses", "invoices",
     "growthLog", "outreachLog", "channelPerf", "integrations", "calls", "outreachByChannel",
     "comments", "swipeFile", "activityLog", "commentTargets",
-    "accounts", "outgoings", "budgets",
+    "accounts", "outgoings", "budgets", "expenseCategories",
   ].forEach((key) => {
     if (!Array.isArray(merged[key])) merged[key] = defaults[key];
   });
@@ -196,7 +196,24 @@ export function migrateData(loaded) {
   merged.expenses = merged.expenses.map((e) => ({
     currency: "USD",
     nativeAmount: e.amount,
+    // Which account the money left. Optional — a historical expense has no
+    // way of knowing, and guessing would corrupt a real balance.
+    accountId: null,
     ...e,
+  }));
+
+  // An empty saved list means "never customised", not "deliberately no
+  // categories" — an empty category picker would make expenses unloggable.
+  if (!merged.expenseCategories.length) merged.expenseCategories = [...defaults.expenseCategories];
+
+  // Invoices gained a destination account and a record of what was actually
+  // settled into it. `settledAmount` is stored rather than recomputed on
+  // reversal: the FX rate can move between marking an invoice paid and
+  // un-marking it, and reversing with today's rate instead of the one used
+  // at settlement would leave the account balance permanently drifted.
+  merged.invoices = merged.invoices.map((i) => ({
+    accountId: null, settledIntoAccountId: null, settledAmount: null, paidAt: "",
+    ...i,
   }));
 
   return merged;

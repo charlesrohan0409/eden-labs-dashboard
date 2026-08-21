@@ -167,6 +167,9 @@ export function migrateData(loaded) {
   // ---- personal finance ----
   merged.accounts = merged.accounts.map((a) => ({
     name: "", type: "main", balance: 0, currency: "INR", note: "",
+    // Brand mark: an uploaded image wins, otherwise a favicon is derived
+    // from `website`. See components/ui/BrandMark.jsx.
+    logoUrl: "", website: "",
     // Credit-card-only fields, harmless on a debit account.
     limit: 0, billDate: "", dueDate: "",
     ...a,
@@ -174,6 +177,7 @@ export function migrateData(loaded) {
 
   merged.outgoings = merged.outgoings.map((o) => ({
     name: "", kind: "subscription", amount: 0, currency: "INR",
+    logoUrl: "", website: "",
     cadence: "monthly", nextRenewal: "", accountId: null,
     category: "Software", status: "active", lastPaidDate: "", note: "",
     ...o,

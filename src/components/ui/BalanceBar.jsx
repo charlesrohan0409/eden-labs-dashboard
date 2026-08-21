@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Eye, EyeOff, Plus, Pencil, Trash2, CreditCard, Wallet } from "lucide-react";
 import Card from "./Card";
+import ImagePicker from "./ImagePicker";
+import BrandMark from "./BrandMark";
 import { useCurrency } from "../../hooks/useCurrency";
 import { ACCOUNT_TYPE_LIST, accountMeta, isCredit } from "../../lib/finance";
 import { CURRENCIES } from "../../lib/currency";
@@ -8,60 +10,66 @@ import { CURRENCIES } from "../../lib/currency";
 const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
 
 /**
- * The balance bar: what's actually in each account, plus net worth.
+ * Balances, split hard down the middle: what you HAVE and what you OWE.
  *
- * Balances start HIDDEN on every load and reveal only while this component is
- * mounted — deliberately not persisted, unlike the global "hide amounts"
- * setting. A persisted reveal defeats the point: the whole reason to hide a
- * bank balance is that someone might be looking at the screen, and that risk
- * resets every time the page opens, not once when you last chose.
+ * Those were previously one undifferentiated grid, which is the wrong shape
+ * for the question being asked. Cash and debt aren't two flavours of the same
+ * number — one goes up when things go well and the other goes down — and
+ * mixing them means the eye has to check each card's colour to work out which
+ * direction is good. Two labelled groups with their own subtotals, and a net
+ * figure on top, answers "how am I doing" without any per-card arithmetic.
  *
- * The global hideAmounts toggle still wins on top of this — if amounts are
- * hidden app-wide, no local reveal should override it.
+ * Balances start HIDDEN on every load and reveal only for the current mount,
+ * deliberately not persisted like the global "hide amounts" setting: the
+ * reason to hide a bank balance is that someone might be looking at the
+ * screen, and that risk resets every time the page opens.
  */
-export default function BalanceBar({ accounts = [], onAdd, onUpdate, onDelete }) {
+export default function BalanceBar({ accounts = [], onAdd, onUpdate, onDelete, token }) {
   const { moneyFrom, convertFrom, currency, hideAmounts } = useCurrency();
   const [revealed, setRevealed] = useState(false);
-  const [editing, setEditing] = useState(null); // account id, or "new"
+  const [editing, setEditing] = useState(null);
 
   const show = revealed && !hideAmounts;
+  const fmt = (n, from) => (show ? moneyFrom(n, from) : "••••••");
 
-  // Net worth sums everything into the DISPLAY currency — the one place where
-  // mixing a ₹ account and a $ account is meaningful, since it's explicitly a
-  // "what am I worth right now" number rather than a stored value.
-  const netWorth = accounts.reduce((sum, a) => {
-    const val = convertFrom(Number(a.balance) || 0, a.currency);
-    return sum + (isCredit(a) ? -val : val);
-  }, 0);
-
-  const assets = accounts.filter((a) => !isCredit(a));
+  const cash = accounts.filter((a) => !isCredit(a));
   const cards = accounts.filter(isCredit);
 
-  const fmt = (n, from) => (show ? moneyFrom(n, from) : "••••••");
+  const inDisplay = (a) => convertFrom(Number(a.balance) || 0, a.currency);
+  const cashTotal = cash.reduce((s, a) => s + inDisplay(a), 0);
+  const debtTotal = cards.reduce((s, a) => s + Math.abs(inDisplay(a)), 0);
+  const net = cashTotal - debtTotal;
 
   return (
     <Card className="p-4 sm:p-5">
-      <div className="flex items-center justify-between gap-3 mb-4">
+      {/* ── Net worth, and the two halves it's made of ── */}
+      <div className="flex items-start justify-between gap-3 mb-5 flex-wrap">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-[15px] font-semibold text-stone-900 tracking-tight">Balances</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-semibold text-stone-400 uppercase tracking-wide">Net worth</span>
             <button
               onClick={() => setRevealed((v) => !v)}
               aria-label={show ? "Hide balances" : "Show balances"}
               title={hideAmounts ? "Amounts are hidden app-wide — turn that off first" : undefined}
               disabled={hideAmounts}
-              className={`p-1.5 rounded-lg text-stone-400 transition-transform duration-150 ${EASE}
+              className={`p-1 rounded-md text-stone-400 transition-transform duration-150 ${EASE}
                 active:scale-[0.92] disabled:opacity-40 disabled:cursor-not-allowed
                 hover:bg-stone-100 hover:text-stone-700`}
             >
-              {show ? <EyeOff size={15} /> : <Eye size={15} />}
+              {show ? <EyeOff size={13} /> : <Eye size={13} />}
             </button>
           </div>
-          <div className="text-xs text-stone-400 mt-0.5">
-            {accounts.length === 0
-              ? "Add your accounts to see everything in one place"
-              : <>Net worth <span className="font-semibold text-stone-600 tabular-nums">{fmt(netWorth, currency)}</span></>}
+          <div className={`text-[30px] leading-tight font-bold tracking-tight tabular-nums mt-0.5 ${
+            net < 0 ? "text-rose-700" : "text-stone-900"
+          }`}>
+            {fmt(net, currency)}
           </div>
+          {accounts.length > 0 && (
+            <div className="text-xs text-stone-400 mt-1">
+              {fmt(cashTotal, currency)} cash
+              {debtTotal > 0 && <> · <span className="text-rose-500">{fmt(debtTotal, currency)} owed</span></>}
+            </div>
+          )}
         </div>
         <button
           onClick={() => setEditing("new")}
@@ -72,82 +80,45 @@ export default function BalanceBar({ accounts = [], onAdd, onUpdate, onDelete })
         </button>
       </div>
 
-      {accounts.length > 0 && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-          {[...assets, ...cards].map((a, i) => {
-            const meta = accountMeta(a.type);
-            const credit = isCredit(a);
-            const utilisation = credit && Number(a.limit) > 0
-              ? Math.min(100, (Math.abs(Number(a.balance) || 0) / Number(a.limit)) * 100)
-              : null;
-            return (
-              <div
-                key={a.id}
-                style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
-                className={`group relative rounded-xl border border-line p-3 bg-white
-                  motion-safe:animate-fade-up motion-safe:[animation-fill-mode:both]
-                  transition-colors duration-200 ${EASE} hover:border-stone-300`}
-              >
-                <div className="flex items-center gap-1.5 mb-2">
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${meta.dot}`} />
-                  <span className="text-[11px] font-medium text-stone-500 truncate">{a.name || meta.label}</span>
-                  {credit ? <CreditCard size={11} className="text-stone-300 shrink-0 ml-auto" />
-                          : <Wallet size={11} className="text-stone-300 shrink-0 ml-auto" />}
-                </div>
-
-                <div className={`text-[17px] font-semibold tabular-nums tracking-tight ${credit ? "text-rose-700" : "text-stone-900"}`}>
-                  {fmt(a.balance, a.currency)}
-                </div>
-
-                {/* A card's own currency is worth showing when it differs from
-                    what's on screen — otherwise "$1,200" next to "₹1,200" is
-                    ambiguous about whether conversion happened. */}
-                {a.currency !== currency && show && (
-                  <div className="text-[10px] text-stone-400 mt-0.5">
-                    {CURRENCIES[a.currency]?.symbol}{Number(a.balance).toLocaleString()} {a.currency}
-                  </div>
-                )}
-
-                {utilisation !== null && show && (
-                  <div className="mt-2">
-                    <div className="h-1 rounded-full bg-stone-100 overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-transform duration-300 ${EASE} origin-left
-                          ${utilisation >= 80 ? "bg-rose-500" : utilisation >= 50 ? "bg-amber-500" : "bg-emerald-500"}`}
-                        style={{ transform: `scaleX(${utilisation / 100})`, width: "100%" }}
-                      />
-                    </div>
-                    <div className="text-[10px] text-stone-400 mt-1">{Math.round(utilisation)}% of limit used</div>
-                  </div>
-                )}
-
-                {(a.billDate || a.dueDate) && (
-                  <div className="text-[10px] text-stone-400 mt-1.5">
-                    {a.billDate && <>Bills {a.billDate}</>}
-                    {a.billDate && a.dueDate && " · "}
-                    {a.dueDate && <>Due {a.dueDate}</>}
-                  </div>
-                )}
-
-                <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-150">
-                  <button onClick={() => setEditing(a.id)} aria-label="Edit account"
-                    className="p-1 rounded-md text-stone-300 hover:text-stone-700 hover:bg-stone-100 transition-colors">
-                    <Pencil size={11} />
-                  </button>
-                  <button onClick={() => onDelete?.(a.id)} aria-label="Delete account"
-                    className="p-1 rounded-md text-stone-300 hover:text-rose-500 hover:bg-rose-50 transition-colors">
-                    <Trash2 size={11} />
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+      {accounts.length === 0 && (
+        <div className="text-xs text-stone-300 py-6 text-center">
+          Add your accounts and cards to see everything in one place.
         </div>
       )}
+
+      <Section
+        title="Cash"
+        icon={Wallet}
+        total={cash.length ? fmt(cashTotal, currency) : null}
+        items={cash}
+        show={show}
+        fmt={fmt}
+        currency={currency}
+        onEdit={setEditing}
+        onDelete={onDelete}
+      />
+
+      <Section
+        title="Credit"
+        icon={CreditCard}
+        // Debt reads as a negative here so the sign matches its effect on the
+        // number above it — a card showing "₹18,500" next to "cash ₹50,000"
+        // invites adding them together.
+        total={cards.length ? `−${fmt(debtTotal, currency).replace("−", "")}` : null}
+        totalTone="text-rose-600"
+        items={cards}
+        show={show}
+        fmt={fmt}
+        currency={currency}
+        onEdit={setEditing}
+        onDelete={onDelete}
+        credit
+      />
 
       {editing && (
         <AccountForm
           account={editing === "new" ? null : accounts.find((a) => a.id === editing)}
+          token={token}
           onCancel={() => setEditing(null)}
           onSave={(patch) => {
             if (editing === "new") onAdd?.(patch);
@@ -160,7 +131,102 @@ export default function BalanceBar({ accounts = [], onAdd, onUpdate, onDelete })
   );
 }
 
-function AccountForm({ account, onSave, onCancel }) {
+function Section({ title, icon: Icon, total, totalTone = "text-stone-700", items, show, fmt, currency, onEdit, onDelete, credit = false }) {
+  if (!items.length) return null;
+  return (
+    <div className="mb-4 last:mb-0">
+      <div className="flex items-center gap-2 mb-2">
+        <Icon size={12} className="text-stone-400" />
+        <span className="text-[11px] font-semibold text-stone-400 uppercase tracking-wide">{title}</span>
+        <span className="h-px flex-1 bg-line" />
+        {total && <span className={`text-[12px] font-semibold tabular-nums ${totalTone}`}>{total}</span>}
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        {items.map((a, i) => {
+          const meta = accountMeta(a.type);
+          const owed = Math.abs(Number(a.balance) || 0);
+          const utilisation = credit && Number(a.limit) > 0
+            ? Math.min(100, (owed / Number(a.limit)) * 100)
+            : null;
+          return (
+            <div
+              key={a.id}
+              style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
+              className={`group relative rounded-xl border p-3 bg-white
+                motion-safe:animate-fade-up motion-safe:[animation-fill-mode:both]
+                transition-colors duration-200 ${EASE}
+                ${credit ? "border-rose-100 hover:border-rose-200" : "border-line hover:border-stone-300"}`}
+            >
+              <div className="flex items-center gap-2 mb-2.5">
+                <BrandMark
+                  name={a.name || meta.label}
+                  logoUrl={a.logoUrl}
+                  website={a.website}
+                  size={26}
+                  tone={credit ? "bg-rose-50 text-rose-600" : meta.chip}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[11.5px] font-medium text-stone-700 truncate">{a.name || meta.label}</span>
+                  <span className="block text-[10px] text-stone-400 truncate">{meta.label}</span>
+                </span>
+              </div>
+
+              <div className={`text-[17px] font-semibold tabular-nums tracking-tight ${credit ? "text-rose-700" : "text-stone-900"}`}>
+                {credit && show ? "−" : ""}{fmt(owed || a.balance, a.currency)}
+              </div>
+
+              {/* Its own currency, when that differs from what's on screen —
+                  otherwise a converted figure is indistinguishable from a
+                  native one. */}
+              {a.currency !== currency && show && (
+                <div className="text-[10px] text-stone-400 mt-0.5">
+                  {CURRENCIES[a.currency]?.symbol}{Number(a.balance).toLocaleString()} {a.currency}
+                </div>
+              )}
+
+              {utilisation !== null && show && (
+                <div className="mt-2">
+                  <div className="h-1 rounded-full bg-stone-100 overflow-hidden">
+                    <div
+                      className={`h-full w-full rounded-full origin-left transition-transform duration-300 ${EASE}
+                        ${utilisation >= 80 ? "bg-rose-500" : utilisation >= 50 ? "bg-amber-500" : "bg-emerald-500"}`}
+                      style={{ transform: `scaleX(${utilisation / 100})` }}
+                    />
+                  </div>
+                  <div className="text-[10px] text-stone-400 mt-1">
+                    {Math.round(utilisation)}% of {fmt(a.limit, a.currency)} limit
+                  </div>
+                </div>
+              )}
+
+              {(a.billDate || a.dueDate) && (
+                <div className="text-[10px] text-stone-400 mt-1.5">
+                  {a.billDate && <>Bills {a.billDate}</>}
+                  {a.billDate && a.dueDate && " · "}
+                  {a.dueDate && <>Due {a.dueDate}</>}
+                </div>
+              )}
+
+              <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-150">
+                <button onClick={() => onEdit(a.id)} aria-label="Edit account"
+                  className="p-1 rounded-md text-stone-300 hover:text-stone-700 hover:bg-stone-100 transition-colors">
+                  <Pencil size={11} />
+                </button>
+                <button onClick={() => onDelete?.(a.id)} aria-label="Delete account"
+                  className="p-1 rounded-md text-stone-300 hover:text-rose-500 hover:bg-rose-50 transition-colors">
+                  <Trash2 size={11} />
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AccountForm({ account, onSave, onCancel, token }) {
   const [form, setForm] = useState({
     name: account?.name || "",
     type: account?.type || "main",
@@ -169,6 +235,8 @@ function AccountForm({ account, onSave, onCancel }) {
     limit: account?.limit ?? "",
     billDate: account?.billDate || "",
     dueDate: account?.dueDate || "",
+    website: account?.website || "",
+    logoUrl: account?.logoUrl || "",
   });
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const credit = accountMeta(form.type).kind === "credit";
@@ -177,11 +245,21 @@ function AccountForm({ account, onSave, onCancel }) {
 
   return (
     <div className="mt-4 pt-4 border-t border-line motion-safe:animate-fade-up">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        <div className="col-span-2 sm:col-span-1">
-          <label className={label}>Name</label>
-          <input className={input} value={form.name} onChange={set("name")} placeholder="e.g. HDFC Main" autoFocus />
+      <div className="flex items-start gap-3 mb-3">
+        <BrandMark name={form.name} logoUrl={form.logoUrl} website={form.website} size={44} />
+        <div className="flex-1 min-w-0 grid grid-cols-2 gap-2.5">
+          <div>
+            <label className={label}>Name</label>
+            <input className={input} value={form.name} onChange={set("name")} placeholder="e.g. HDFC Main" autoFocus />
+          </div>
+          <div>
+            <label className={label}>Website (for logo)</label>
+            <input className={input} value={form.website} onChange={set("website")} placeholder="hdfcbank.com" />
+          </div>
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         <div>
           <label className={label}>Type</label>
           <select className={input} value={form.type} onChange={set("type")}>
@@ -215,13 +293,23 @@ function AccountForm({ account, onSave, onCancel }) {
           </>
         )}
       </div>
+
+      {/* Upload overrides the favicon — for banks whose site has no usable
+          icon, or anything you'd rather not resolve through a third party. */}
+      <div className="mt-3">
+        <ImagePicker
+          label="Custom logo (optional)"
+          hint="Overrides the website icon"
+          value={form.logoUrl}
+          onChange={(url) => setForm((f) => ({ ...f, logoUrl: url }))}
+          size={40}
+          token={token}
+        />
+      </div>
+
       <div className="flex gap-2 mt-3">
         <button
-          onClick={() => onSave({
-            ...form,
-            balance: Number(form.balance) || 0,
-            limit: Number(form.limit) || 0,
-          })}
+          onClick={() => onSave({ ...form, balance: Number(form.balance) || 0, limit: Number(form.limit) || 0 })}
           disabled={!form.name.trim()}
           className={`text-xs font-medium bg-emerald-800 text-white rounded-lg px-3 py-1.5
             transition-transform duration-150 ${EASE} active:scale-[0.97] hover:bg-emerald-900 disabled:opacity-40`}

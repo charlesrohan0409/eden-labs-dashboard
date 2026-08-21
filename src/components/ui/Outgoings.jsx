@@ -3,6 +3,8 @@ import { Plus, Pencil, Trash2, Check, RotateCcw, Ban } from "lucide-react";
 import Card from "./Card";
 import Badge from "./Badge";
 import PillTabs from "./PillTabs";
+import ImagePicker from "./ImagePicker";
+import BrandMark from "./BrandMark";
 import { useCurrency } from "../../hooks/useCurrency";
 import {
   OUTGOING_KIND_LIST, outgoingMeta, CADENCE_LIST, CADENCES,
@@ -20,7 +22,7 @@ const CATEGORIES = ["Software", "Utilities", "Rent", "Contractor", "Marketing", 
  * renewal date forward and adjusts the linked account. See lib/finance.js for
  * why that's deliberate rather than unfinished.
  */
-export default function Outgoings({ outgoings = [], accounts = [], onAdd, onUpdate, onDelete, onCancel, onPay }) {
+export default function Outgoings({ outgoings = [], accounts = [], onAdd, onUpdate, onDelete, onCancel, onPay, token }) {
   const { moneyFrom, convertFrom, currency } = useCurrency();
   const [filter, setFilter] = useState("all");
   const [editing, setEditing] = useState(null);
@@ -36,10 +38,24 @@ export default function Outgoings({ outgoings = [], accounts = [], onAdd, onUpda
 
   // Monthly run-rate, normalised across cadences so a yearly plan doesn't
   // look twelve times scarier than it is.
-  const monthlyTotal = active.reduce((sum, o) => {
+  const monthlyOf = (list) => list.reduce((sum, o) => {
     const months = (CADENCES[o.cadence] || CADENCES.monthly).months;
     return sum + convertFrom(Number(o.amount) || 0, o.currency) / months;
   }, 0);
+
+  const monthlyTotal = monthlyOf(active);
+  // Per-kind, so each tab can carry its own number — "what do subscriptions
+  // actually cost me" is a different question from the combined total, and
+  // it was previously unanswerable without adding the rows up by hand.
+  const byKind = Object.fromEntries(
+    OUTGOING_KIND_LIST.map((k) => [k.id, monthlyOf(active.filter((o) => o.kind === k.id))])
+  );
+  // The headline follows the filter: pick Subscriptions and the big number
+  // becomes what subscriptions cost.
+  const headline = filter === "all" || filter === "cancelled" ? monthlyTotal : (byKind[filter] || 0);
+  const headlineLabel = filter === "cancelled" ? "Cancelled"
+    : filter === "all" ? `across ${active.length} active`
+    : `${outgoingMeta(filter).plural.toLowerCase()} · ${active.filter((o) => o.kind === filter).length}`;
 
   const accountName = (id) => accounts.find((a) => a.id === id)?.name || "";
 
@@ -47,12 +63,20 @@ export default function Outgoings({ outgoings = [], accounts = [], onAdd, onUpda
     <Card className="p-4 sm:p-5">
       <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
         <div className="min-w-0">
-          <div className="text-[15px] font-semibold text-stone-900 tracking-tight">Recurring</div>
-          <div className="text-xs text-stone-400 mt-0.5">
-            {active.length === 0
-              ? "Subscriptions and fixed bills — nothing charges automatically"
-              : <>≈ <span className="font-semibold text-stone-600 tabular-nums">{moneyFrom(monthlyTotal, currency)}</span> a month across {active.length}</>}
-          </div>
+          <div className="text-[11px] font-semibold text-stone-400 uppercase tracking-wide">Recurring</div>
+          {active.length === 0 ? (
+            <div className="text-xs text-stone-400 mt-1">
+              Subscriptions and fixed bills — nothing charges automatically
+            </div>
+          ) : (
+            <>
+              <div className="text-[30px] leading-tight font-bold tracking-tight text-stone-900 tabular-nums mt-0.5">
+                {moneyFrom(headline, currency)}
+                <span className="text-sm font-medium text-stone-400 ml-1">/mo</span>
+              </div>
+              <div className="text-xs text-stone-400 mt-0.5">{headlineLabel}</div>
+            </>
+          )}
         </div>
         <button
           onClick={() => setEditing("new")}
@@ -69,7 +93,8 @@ export default function Outgoings({ outgoings = [], accounts = [], onAdd, onUpda
         options={[
           { value: "all", label: "All", count: active.length },
           ...OUTGOING_KIND_LIST.map((k) => ({
-            value: k.id, label: k.plural,
+            value: k.id,
+            label: k.plural,
             count: active.filter((o) => o.kind === k.id).length,
           })),
           { value: "cancelled", label: "Cancelled" },
@@ -90,7 +115,13 @@ export default function Outgoings({ outgoings = [], accounts = [], onAdd, onUpda
                 transition-colors duration-200 ${EASE}
                 ${cancelled ? "border-line opacity-50" : due.overdue ? "border-rose-200 bg-rose-50/40" : "border-line hover:border-stone-300"}`}
             >
-              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${meta.dot}`} />
+              <BrandMark
+                name={o.name}
+                logoUrl={o.logoUrl}
+                website={o.website}
+                size={30}
+                tone={meta.chip}
+              />
 
               <div className="min-w-0 flex-1">
                 <div className={`text-[13px] font-medium truncate ${cancelled ? "text-stone-400 line-through" : "text-stone-800"}`}>
@@ -154,6 +185,7 @@ export default function Outgoings({ outgoings = [], accounts = [], onAdd, onUpda
         <OutgoingForm
           outgoing={editing === "new" ? null : outgoings.find((o) => o.id === editing)}
           accounts={accounts}
+          token={token}
           onCancel={() => setEditing(null)}
           onSave={(patch) => {
             if (editing === "new") onAdd?.(patch);
@@ -166,7 +198,7 @@ export default function Outgoings({ outgoings = [], accounts = [], onAdd, onUpda
   );
 }
 
-function OutgoingForm({ outgoing, accounts, onSave, onCancel }) {
+function OutgoingForm({ outgoing, accounts, onSave, onCancel, token }) {
   const [form, setForm] = useState({
     name: outgoing?.name || "",
     kind: outgoing?.kind || "subscription",
@@ -176,6 +208,8 @@ function OutgoingForm({ outgoing, accounts, onSave, onCancel }) {
     nextRenewal: outgoing?.nextRenewal || "",
     category: outgoing?.category || "Software",
     accountId: outgoing?.accountId || "",
+    website: outgoing?.website || "",
+    logoUrl: outgoing?.logoUrl || "",
   });
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const input = "border border-line rounded-lg px-2.5 py-1.5 text-sm bg-white w-full focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
@@ -183,11 +217,21 @@ function OutgoingForm({ outgoing, accounts, onSave, onCancel }) {
 
   return (
     <div className="mt-4 pt-4 border-t border-line motion-safe:animate-fade-up">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        <div className="col-span-2 sm:col-span-2">
-          <label className={label}>Name</label>
-          <input className={input} value={form.name} onChange={set("name")} placeholder="e.g. Adobe, Electricity" autoFocus />
+      <div className="flex items-start gap-3 mb-3">
+        <BrandMark name={form.name} logoUrl={form.logoUrl} website={form.website} size={44} />
+        <div className="flex-1 min-w-0 grid grid-cols-2 gap-2.5">
+          <div>
+            <label className={label}>Name</label>
+            <input className={input} value={form.name} onChange={set("name")} placeholder="e.g. Adobe, Electricity" autoFocus />
+          </div>
+          <div>
+            <label className={label}>Website (for logo)</label>
+            <input className={input} value={form.website} onChange={set("website")} placeholder="adobe.com" />
+          </div>
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         <div>
           <label className={label}>Kind</label>
           <select className={input} value={form.kind} onChange={set("kind")}>
@@ -228,6 +272,17 @@ function OutgoingForm({ outgoing, accounts, onSave, onCancel }) {
           </select>
         </div>
       </div>
+      <div className="mt-3">
+        <ImagePicker
+          label="Custom logo (optional)"
+          hint="Overrides the website icon"
+          value={form.logoUrl}
+          onChange={(url) => setForm((f) => ({ ...f, logoUrl: url }))}
+          size={40}
+          token={token}
+        />
+      </div>
+
       <div className="flex gap-2 mt-3">
         <button
           onClick={() => onSave({ ...form, amount: Number(form.amount) || 0, accountId: form.accountId || null })}

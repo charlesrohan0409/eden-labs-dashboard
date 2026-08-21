@@ -212,6 +212,7 @@ export default function App() {
             onAddBudget={actions.addBudget}
             onUpdateBudget={actions.updateBudget}
             onDeleteBudget={actions.deleteBudget}
+            token={ownerAuth.token}
           />
         )}
 

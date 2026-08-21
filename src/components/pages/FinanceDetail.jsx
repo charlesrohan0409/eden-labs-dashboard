@@ -42,7 +42,7 @@ export default function FinanceDetail({
   onAddInvoice, onGenerateInvoices, onUpdateInvoiceStatus, onDeleteInvoice,
   onAddAccount, onUpdateAccount, onDeleteAccount,
   onAddOutgoing, onUpdateOutgoing, onDeleteOutgoing, onCancelOutgoing, onPayOutgoing,
-  onAddBudget, onUpdateBudget, onDeleteBudget,
+  onAddBudget, onUpdateBudget, onDeleteBudget, token,
 }) {
   const [activeTab, setActiveTab] = useState("overview");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -702,6 +702,7 @@ export default function FinanceDetail({
             onAdd={onAddAccount}
             onUpdate={onUpdateAccount}
             onDelete={onDeleteAccount}
+            token={token}
           />
           <div className="grid lg:grid-cols-2 gap-4 items-start">
             <Outgoings
@@ -712,6 +713,7 @@ export default function FinanceDetail({
               onDelete={onDeleteOutgoing}
               onCancel={onCancelOutgoing}
               onPay={onPayOutgoing}
+              token={token}
             />
             <Budgets
               budgets={data.budgets}

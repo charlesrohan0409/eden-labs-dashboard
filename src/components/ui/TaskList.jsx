@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import {
   Check, Plus, Trash2, CalendarDays, X, Pencil, Repeat, GripVertical,
-  ChevronUp, ChevronDown, ChevronRight, AlignLeft, ArrowDownUp,
+  ChevronUp, ChevronDown, ChevronRight, AlignLeft, ArrowDownUp, CalendarArrowUp,
 } from "lucide-react";
 import Card from "./Card";
 import Badge from "./Badge";
@@ -21,6 +21,15 @@ const PRIORITY_RANK = { high: 0, medium: 1, low: 2 };
 
 // Strong ease-out — the built-in CSS easings are too weak to read as
 // intentional at these durations.
+// Tomorrow, from today — never from the task's own (possibly long past) due
+// date, or "push to tomorrow" on an overdue task would land in the past.
+const tomorrowStr = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
 const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
 
 const BLANK_FORM = { title: "", clientId: "", dueDate: "", priority: "medium", recurrence: "none", category: "", description: "" };
@@ -520,6 +529,22 @@ export default function TaskList({
                       <ChevronDown size={14} />
                     </button>
                   </>
+                )}
+                {/* Push to tomorrow. The single most common thing done to a
+                    task that isn't finishing it — previously that meant
+                    opening the edit form and retyping a date, which is why
+                    overdue items just sat there instead. Bumps from TODAY,
+                    not from the old due date, so a task three days late
+                    lands tomorrow rather than two days ago. */}
+                {!t.done && (
+                  <button
+                    onClick={() => onUpdate?.(t.id, { dueDate: tomorrowStr() })}
+                    aria-label="Push to tomorrow"
+                    title="Push to tomorrow"
+                    className={`text-stone-300 hover:text-amber-600 p-1 transition-colors active:scale-[0.9] ${EASE}`}
+                  >
+                    <CalendarArrowUp size={14} />
+                  </button>
                 )}
                 <button
                   onClick={() => startEdit(t)}

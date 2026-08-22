@@ -266,6 +266,11 @@ export default function App() {
             onUpdateStage={actions.updateStage}
             onUpdateContact={actions.updateContact}
             onDeleteContact={actions.deleteContact}
+            onAddInbound={actions.addInbound}
+            onUpdateInboundStage={actions.updateInboundStage}
+            onToggleInboundReplied={actions.toggleInboundReplied}
+            onDeleteInbound={actions.deleteInbound}
+            onConvertInbound={actions.convertInboundToLead}
           />
         )}
 

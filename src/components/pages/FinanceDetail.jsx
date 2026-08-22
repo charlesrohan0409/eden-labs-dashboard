@@ -18,6 +18,7 @@ import InvoiceModal from "../ui/InvoiceModal";
 import PrivacyToggle from "../ui/PrivacyToggle";
 import BalanceBar from "../ui/BalanceBar";
 import CategorySelect from "../ui/CategorySelect";
+import FinanceActivity from "../ui/FinanceActivity";
 import Outgoings from "../ui/Outgoings";
 import Budgets from "../ui/Budgets";
 import { MONTHS, downloadCSV, today, computeMRR, billingTypeLabel } from "../../lib/utils";
@@ -765,6 +766,8 @@ export default function FinanceDetail({
               onDelete={onDeleteBudget}
             />
           </div>
+
+          <FinanceActivity log={data.financeLog} />
         </div>
       )}
 

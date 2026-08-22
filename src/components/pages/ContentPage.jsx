@@ -11,6 +11,8 @@ import ContentBoard from "../ui/ContentBoard";
 import SavedContent from "../ui/SavedContent";
 import ScheduleModal from "../ui/ScheduleModal";
 import ContentAnalytics from "../ui/ContentAnalytics";
+import RepurposePanel from "../ui/RepurposePanel";
+import ContentHeader from "../ui/ContentHeader";
 import { useBufferPerformance } from "../../hooks/useBufferPerformance";
 import { formatDateTime } from "../../lib/utils";
 import { normalizeStatus } from "../../lib/content";
@@ -182,6 +184,8 @@ export default function ContentPage({
   const [view, setView] = useState("board");
   const [filters, setFilters] = useState({});
   const [scheduling, setScheduling] = useState(null);
+  const [composerPostId, setComposerPostId] = useState(null);
+  const [repurposeSeed, setRepurposeSeed] = useState(null);
 
   // Agency content only — a client's posts live on their own page, where the
   // board additionally shows the approval column.
@@ -217,14 +221,11 @@ export default function ContentPage({
 
   return (
     <div className="space-y-5">
-      <div className="flex items-end justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-stone-900">Content</h1>
-          <p className="text-sm text-stone-500 mt-1">
-            {byStage("idea")} ideas · {byStage("writing")} writing · {byStage("scheduled")} scheduled · {byStage("published")} published
-          </p>
-        </div>
-      </div>
+      <ContentHeader
+        posts={agencyPosts}
+        bufferPosts={perf.data?.posts || []}
+        onCompose={() => { setComposerPostId(null); setView("composer"); }}
+      />
 
       <PillTabs
         size="md"
@@ -235,6 +236,7 @@ export default function ContentPage({
           { value: "composer", label: "Composer" },
           { value: "calendar", label: "Calendar" },
           { value: "analytics", label: "Analytics" },
+          { value: "repurpose", label: "Repurpose" },
           { value: "saved", label: "Saved content" },
         ]}
       />
@@ -251,7 +253,7 @@ export default function ContentPage({
             clientId={null}
             onUpdateStatus={onUpdatePostStatus}
             onDelete={onDeletePost}
-            onOpen={() => setView("composer")}
+            onOpen={(post) => { setComposerPostId(post.id); setView("composer"); }}
             onRequestSchedule={setScheduling}
             filters={filters}
             onFiltersChange={setFilters}
@@ -286,6 +288,10 @@ export default function ContentPage({
               bufferChannels={bufferIntegration.channels || []}
               bufferChannelId={bufferIntegration.agencyChannelId}
               onSetBufferChannel={onSetAgencyBufferChannel}
+              openPostId={composerPostId}
+              onOpened={() => setComposerPostId(null)}
+              repurposeSeed={repurposeSeed}
+              onSeedUsed={() => setRepurposeSeed(null)}
               token={token}
             />
           </Card>
@@ -314,6 +320,23 @@ export default function ContentPage({
           loading={perf.loading}
           error={bufferIntegration.connected ? perf.error : "Connect Buffer on the Integrations page to see what's working."}
           onRefresh={perf.refresh}
+        />
+      )}
+
+      {/* ══ Repurpose ══ */}
+      {view === "repurpose" && (
+        <RepurposePanel
+          posts={agencyPosts}
+          bufferPosts={perf.data?.posts || []}
+          onRepurpose={(post, angle) => {
+            // Hands the composer a STARTING POINT, not a finished draft:
+            // the original text plus an explicit instruction for the new
+            // angle. Rewriting is the owner's job — an auto-paraphrase
+            // reads as a repeat, which is worse than not reposting.
+            setRepurposeSeed({ post, angle });
+            setComposerPostId(null);
+            setView("composer");
+          }}
         />
       )}
 

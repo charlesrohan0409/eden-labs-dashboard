@@ -202,6 +202,58 @@ export function deleteContact(d, id) {
   return d;
 }
 
+// ---- inbound enquiries ----
+// Someone messaged first. Kept apart from `contacts` on purpose — see
+// lib/inbound.js for why replied-ness is a flag rather than a stage.
+export function addInbound(d, e) {
+  if (!Array.isArray(d.inbound)) d.inbound = [];
+  d.inbound.push({
+    id: uid(), channel: "linkedin", stage: "new", replied: false, repliedAt: "",
+    clientId: null, receivedAt: today(), notes: "", ...e,
+  });
+  return d;
+}
+export function updateInbound(d, id, patch) {
+  const e = (d.inbound || []).find((x) => x.id === id);
+  if (e) Object.assign(e, patch);
+  return d;
+}
+export function updateInboundStage(d, id, stage) {
+  const e = (d.inbound || []).find((x) => x.id === id);
+  if (e) e.stage = stage;
+  return d;
+}
+// Stamped with WHEN, so "3 days to reply" is answerable later. Un-replying
+// clears the stamp rather than leaving a misleading one behind.
+export function toggleInboundReplied(d, id) {
+  const e = (d.inbound || []).find((x) => x.id === id);
+  if (!e) return d;
+  e.replied = !e.replied;
+  e.repliedAt = e.replied ? new Date().toISOString() : "";
+  return d;
+}
+export function deleteInbound(d, id) {
+  d.inbound = (d.inbound || []).filter((x) => x.id !== id);
+  return d;
+}
+// An enquiry that turns into a real opportunity graduates onto the CRM board.
+// The enquiry stays (closed) rather than being deleted — it's the record of
+// where the lead came from, which is the whole point of tracking inbound.
+export function convertInboundToLead(d, id) {
+  const e = (d.inbound || []).find((x) => x.id === id);
+  if (!e) return d;
+  addContact(d, {
+    name: e.name, company: "", title: e.headline || "",
+    stage: "lead", source: `Inbound · ${e.channel}`,
+    url: e.profileUrl || "", notes: e.message || "", email: "", phone: "",
+    photoUrl: e.photoUrl || "", dealValue: e.dealValue || null,
+    clientId: e.clientId || null, closedDate: null, addedDate: today(),
+  });
+  e.stage = "closed";
+  e.convertedAt = new Date().toISOString();
+  return d;
+}
+
 // ---- content ----
 export function addPost(d, p) {
   const post = { id: uid(), ...p };
@@ -325,10 +377,11 @@ export function deleteDM(d, id) {
 }
 
 // ---- finance ----
-// `rate` is the live USD->INR rate, needed only when the expense and the
-// account it left are in different currencies. Optional: an expense with no
-// linked account touches no balance and needs no conversion.
+// `rate` is the live USD->INR rate, needed when the expense and the account
+// it left are in different currencies, and again when checking whether this
+// spend pushed a budget over its limit.
 export function addExpense(d, e, rate) {
+  const convert = (amt, from, to) => convertBetween(amt, from, to, rate);
   const expense = { id: uid(), ...e };
   d.expenses.push(expense);
   const account = (d.accounts || []).find((a) => a.id === expense.accountId);
@@ -343,7 +396,42 @@ export function addExpense(d, e, rate) {
     expense.settledFromAccountId = account.id;
     expense.settledAmount = debited;
   }
+
+  logFinance(d, {
+    type: "expense_recorded", title: expense.vendor || expense.category,
+    description: `${expense.vendor || "Expense"}${account ? ` from ${account.name}` : ""}`,
+    amount: -(Number(expense.nativeAmount ?? expense.amount) || 0),
+    currency: expense.currency || "USD",
+    meta: { category: expense.category, accountId: expense.accountId || null },
+  });
+
+  // A breach is only newsworthy the first time it happens in a period —
+  // logging it on every subsequent spend would bury the moment it mattered.
+  if (rate != null) {
+    budgetsOver(d, expense.category, convert).forEach(({ budget, spent, over }) => {
+      if (!over) return;
+      const already = (d.financeLog || []).some(
+        (l) => l.type === "budget_exceeded" && l.meta?.budgetId === budget.id && l.meta?.period === periodOf(budget)
+      );
+      if (already) return;
+      logFinance(d, {
+        type: "budget_exceeded", title: budget.category,
+        description: `${budget.category} budget exceeded`,
+        amount: spent - (Number(budget.limit) || 0), currency: budget.currency,
+        meta: { budgetId: budget.id, period: periodOf(budget), limit: budget.limit, spent },
+      });
+    });
+  }
   return d;
+}
+
+// The period key a budget is currently measuring, used to make "already
+// logged this breach" a per-period question rather than a forever one.
+function periodOf(budget) {
+  const now = new Date();
+  return budget.period === "yearly"
+    ? String(now.getFullYear())
+    : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 export function updateExpense(d, id, patch) {
   const e = d.expenses.find((x) => x.id === id);
@@ -365,11 +453,55 @@ export function deleteExpense(d, id) {
   return d;
 }
 
+// ---- finance activity log ----
+// Every money event, in one chronological place. Balances tell you WHERE you
+// are; this tells you HOW you got there — which is the difference between
+// "why is this ₹4,000 off?" being answerable and not.
+//
+// Appended by the mutations themselves rather than by the UI, so an event
+// can't be missed by a caller that forgot to log it.
+function logFinance(d, entry) {
+  if (!Array.isArray(d.financeLog)) d.financeLog = [];
+  d.financeLog.push({ id: uid(), at: new Date().toISOString(), ...entry });
+  // Unbounded growth would eventually be the same blob-size problem that
+  // caused the bandwidth blowout, and nobody scrolls past a few hundred
+  // events. Trim oldest-first.
+  if (d.financeLog.length > 400) d.financeLog = d.financeLog.slice(-400);
+  return d;
+}
+
+// A budget crossing its limit is a moment worth recording, but it isn't an
+// action anyone takes — it's a side effect of a spend. Detected by comparing
+// before/after around whatever just changed.
+function budgetsOver(d, category, convert) {
+  return (d.budgets || [])
+    .filter((b) => b.category === category)
+    .map((b) => {
+      const now = new Date();
+      const key = b.period === "yearly"
+        ? String(now.getFullYear())
+        : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+      const spent = (d.expenses || [])
+        .filter((e) => e.category === b.category && String(e.date || "").startsWith(key))
+        .reduce((sum, e) => {
+          const amt = Number(e.nativeAmount ?? e.amount) || 0;
+          const from = e.currency || "USD";
+          return sum + (from === b.currency ? amt : convert(amt, from, b.currency));
+        }, 0);
+      return { budget: b, spent, over: spent > (Number(b.limit) || 0) };
+    });
+}
+
 // ---- personal finance: accounts, outgoings, budgets ----
 export function addAccount(d, a) {
   if (!Array.isArray(d.accounts)) d.accounts = [];
-  d.accounts.push({ id: uid(), type: "main", balance: 0, currency: "INR", ...a });
-  return d;
+  const account = { id: uid(), type: "main", balance: 0, currency: "INR", ...a };
+  d.accounts.push(account);
+  return logFinance(d, {
+    type: "account_added", title: account.name,
+    description: `${account.name} added`,
+    amount: Number(account.balance) || 0, currency: account.currency,
+  });
 }
 export function updateAccount(d, id, patch) {
   const a = (d.accounts || []).find((x) => x.id === id);
@@ -386,11 +518,17 @@ export function deleteAccount(d, id) {
 
 export function addOutgoing(d, o) {
   if (!Array.isArray(d.outgoings)) d.outgoings = [];
-  d.outgoings.push({
+  const item = {
     id: uid(), kind: "subscription", cadence: "monthly", currency: "INR",
     status: "active", lastPaidDate: "", ...o,
+  };
+  d.outgoings.push(item);
+  return logFinance(d, {
+    type: item.kind === "fixed" ? "bill_added" : "subscription_added",
+    title: item.name,
+    description: `${item.name} added — ${item.cadence}`,
+    amount: Number(item.amount) || 0, currency: item.currency,
   });
-  return d;
 }
 export function updateOutgoing(d, id, patch) {
   const o = (d.outgoings || []).find((x) => x.id === id);
@@ -406,8 +544,14 @@ export function deleteOutgoing(d, id) {
 // in the expense list and every budget that counted it.
 export function cancelOutgoing(d, id) {
   const o = (d.outgoings || []).find((x) => x.id === id);
-  if (o) o.status = o.status === "cancelled" ? "active" : "cancelled";
-  return d;
+  if (!o) return d;
+  o.status = o.status === "cancelled" ? "active" : "cancelled";
+  return logFinance(d, {
+    type: o.status === "cancelled" ? "subscription_cancelled" : "subscription_resumed",
+    title: o.name,
+    description: `${o.name} ${o.status === "cancelled" ? "cancelled" : "resumed"}`,
+    amount: Number(o.amount) || 0, currency: o.currency,
+  });
 }
 
 // Books one payment of a recurring outgoing: writes the expense, rolls the
@@ -436,7 +580,12 @@ export function payOutgoing(d, id, { date, nextRenewal }) {
   // card's balance is read as debt.
   const account = (d.accounts || []).find((a) => a.id === o.accountId);
   if (account) account.balance = (Number(account.balance) || 0) - (Number(o.amount) || 0);
-  return d;
+  return logFinance(d, {
+    type: "outgoing_paid", title: o.name,
+    description: `${o.name} paid${account ? ` from ${account.name}` : ""}`,
+    amount: -(Number(o.amount) || 0), currency: o.currency,
+    meta: { category: o.category, accountId: o.accountId || null },
+  });
 }
 
 // ---- expense categories ----
@@ -472,8 +621,14 @@ export function deleteExpenseCategory(d, name) {
 
 export function addBudget(d, b) {
   if (!Array.isArray(d.budgets)) d.budgets = [];
-  d.budgets.push({ id: uid(), period: "monthly", currency: "INR", ...b });
-  return d;
+  const budget = { id: uid(), period: "monthly", currency: "INR", ...b };
+  d.budgets.push(budget);
+  return logFinance(d, {
+    type: "budget_created", title: budget.category,
+    description: `${budget.category} budget set — ${budget.period}`,
+    amount: Number(budget.limit) || 0, currency: budget.currency,
+    meta: { budgetId: budget.id },
+  });
 }
 export function updateBudget(d, id, patch) {
   const b = (d.budgets || []).find((x) => x.id === id);
@@ -521,6 +676,14 @@ export function updateInvoiceStatus(d, id, status, rate) {
       i.settledAmount = credited;
     }
     i.paidAt = today();
+    logFinance(d, {
+      type: "income_recorded",
+      title: (d.clients || []).find((c) => c.id === i.clientId)?.name || "Invoice",
+      description: `Invoice paid${i.settledIntoAccountId ? ` into ${(d.accounts || []).find((a) => a.id === i.settledIntoAccountId)?.name || "account"}` : ""}`,
+      amount: Number(i.nativeAmount ?? i.amount) || 0,
+      currency: i.currency || "USD",
+      meta: { invoiceId: i.id, clientId: i.clientId || null },
+    });
   } else {
     const account = accounts.find((a) => a.id === i.settledIntoAccountId);
     if (account && i.settledAmount != null) {
@@ -529,6 +692,14 @@ export function updateInvoiceStatus(d, id, status, rate) {
     i.settledIntoAccountId = null;
     i.settledAmount = null;
     i.paidAt = "";
+    logFinance(d, {
+      type: "income_reversed",
+      title: (d.clients || []).find((c) => c.id === i.clientId)?.name || "Invoice",
+      description: "Invoice marked unpaid",
+      amount: -(Number(i.nativeAmount ?? i.amount) || 0),
+      currency: i.currency || "USD",
+      meta: { invoiceId: i.id },
+    });
   }
   return d;
 }

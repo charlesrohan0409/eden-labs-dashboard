@@ -409,6 +409,13 @@ export const seedData = () => ({
   // The category vocabulary shared by expenses, budgets and recurring items.
   // Owner-editable — see lib/finance.js.
   expenseCategories: [...DEFAULT_EXPENSE_CATEGORIES],
+  // Chronological record of money events — see lib/finance.js. Derived data
+  // could reconstruct most of this, but not WHEN you recorded something or
+  // that a budget was breached at a moment now buried under later spending.
+  financeLog: [],
+  // Inbound enquiries: people who messaged first. Separate from `contacts`
+  // on purpose — see lib/inbound.js.
+  inbound: [],
   // Activity log — chronological record of key events per client.
   // Shape is Supabase-ready: each entry maps cleanly to a row.
   // clientId === null means an agency-level event (e.g. new expense).

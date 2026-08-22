@@ -1,4 +1,4 @@
-import { CheckCircle2, Receipt, Send, Clock, CreditCard, ArrowRight, Sparkles } from "lucide-react";
+import { CheckCircle2, Receipt, Send, Clock, CreditCard, ArrowRight, Sparkles, MessageSquare } from "lucide-react";
 import { buildToday, dueLabel } from "../../lib/today";
 
 const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
@@ -9,6 +9,7 @@ const KIND_ICON = {
   post: Send,
   review: Clock,
   money: CreditCard,
+  inbound: MessageSquare,
 };
 
 // Urgency reads through colour on the dot alone. The rows themselves stay

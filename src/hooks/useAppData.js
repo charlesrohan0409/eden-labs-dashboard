@@ -222,6 +222,14 @@ export function useAppData(token, onUnauthorized) {
     cancelOutgoing: (id) => update((d) => M.cancelOutgoing(d, id)),
     payOutgoing:    (id, opts) => update((d) => M.payOutgoing(d, id, opts)),
 
+    // ---- inbound enquiries ----
+    addInbound:           (e) => update((d) => M.addInbound(d, e)),
+    updateInbound:        (id, patch) => update((d) => M.updateInbound(d, id, patch)),
+    updateInboundStage:   (id, stage) => update((d) => M.updateInboundStage(d, id, stage)),
+    toggleInboundReplied: (id) => update((d) => M.toggleInboundReplied(d, id)),
+    deleteInbound:        (id) => update((d) => M.deleteInbound(d, id)),
+    convertInboundToLead: (id) => update((d) => M.convertInboundToLead(d, id)),
+
     addExpenseCategory:    (name) => update((d) => M.addExpenseCategory(d, name)),
     renameExpenseCategory: (from, to) => update((d) => M.renameExpenseCategory(d, from, to)),
     deleteExpenseCategory: (name) => update((d) => M.deleteExpenseCategory(d, name)),

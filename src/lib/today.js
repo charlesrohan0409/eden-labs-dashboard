@@ -13,6 +13,7 @@ import { relativeDays } from "./utils.js";
 import { nextOccurrenceFor } from "./recurrence.js";
 import { normalizeStatus } from "./content.js";
 import { daysUntil } from "./finance.js";
+import { awaitingReply, waitingDays } from "./inbound.js";
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
@@ -100,6 +101,22 @@ export function buildToday(data, { limit = 12 } = {}) {
     });
   });
 
+  // ---- inbound enquiries awaiting a reply ----
+  // These have no due date — they're urgent from the moment they arrive and
+  // stay on the list until answered, which is the whole point of tracking
+  // them separately from CRM leads.
+  awaitingReply(data.inbound).forEach((e) => {
+    const days = waitingDays(e.receivedAt) ?? 0;
+    items.push({
+      id: `inbound-${e.id}`, kind: "inbound",
+      urgency: days >= 2 ? "overdue" : days >= 1 ? "today" : "soon",
+      days: -days,
+      title: `Reply to ${e.name || "an enquiry"}`,
+      context: e.clientId ? clientName(e.clientId) : "Inbound",
+      view: "crm",
+    });
+  });
+
   // ---- recurring money out ----
   (data.outgoings || []).forEach((o) => {
     if (o.status === "cancelled" || !o.nextRenewal) return;
@@ -124,6 +141,12 @@ export function buildToday(data, { limit = 12 } = {}) {
 }
 
 export function dueLabel(item) {
+  // Inbound counts UP (how long they've waited), not down to a deadline.
+  if (item.kind === "inbound") {
+    const waited = Math.abs(item.days || 0);
+    if (waited === 0) return "Just now";
+    return waited === 1 ? "1 day waiting" : `${waited} days waiting`;
+  }
   if (item.days === null || item.days === undefined) return "";
   if (item.days < 0) return `${Math.abs(item.days)}d overdue`;
   if (item.days === 0) return "Today";

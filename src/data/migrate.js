@@ -12,7 +12,7 @@ export function migrateData(loaded) {
     "clients", "contacts", "tasks", "posts", "dms", "expenses", "invoices",
     "growthLog", "outreachLog", "channelPerf", "integrations", "calls", "outreachByChannel",
     "comments", "swipeFile", "activityLog", "commentTargets",
-    "accounts", "outgoings", "budgets", "expenseCategories",
+    "accounts", "outgoings", "budgets", "expenseCategories", "financeLog", "inbound",
   ].forEach((key) => {
     if (!Array.isArray(merged[key])) merged[key] = defaults[key];
   });
@@ -199,6 +199,13 @@ export function migrateData(loaded) {
     // Which account the money left. Optional — a historical expense has no
     // way of knowing, and guessing would corrupt a real balance.
     accountId: null,
+    ...e,
+  }));
+
+  merged.inbound = merged.inbound.map((e) => ({
+    name: "", profileUrl: "", photoUrl: "", headline: "", channel: "linkedin",
+    clientId: null, message: "", receivedAt: "", stage: "new",
+    replied: false, repliedAt: "", notes: "", dealValue: null,
     ...e,
   }));
 

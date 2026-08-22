@@ -38,6 +38,7 @@ export default function PostComposer({
   clientId, posts, onAddPost, onUpdatePost, onDeletePost, onPushForApproval,
   author = "Eden Labs", headline = "LinkedIn content & client acquisition", avatarUrl = "",
   bufferConnected = false, bufferChannels = [], bufferChannelId = null, onSetBufferChannel = null,
+  openPostId = null, onOpened, repurposeSeed = null, onSeedUsed,
   token,
 }) {
   const [text, setText] = useState("");
@@ -92,6 +93,42 @@ export default function PostComposer({
     setError("");
     setStatus("");
   };
+
+  // Opening a card on the board switches to this tab AND loads that post —
+  // previously it only switched tabs, so the composer sat empty and the
+  // click looked broken. onOpened clears the request so re-selecting the
+  // same card later still works.
+  useEffect(() => {
+    if (!openPostId) return;
+    const target = posts.find((p) => p.id === openPostId);
+    if (target) loadForEditing(target);
+    onOpened?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openPostId]);
+
+  // Repurposing starts a NEW post (editingId stays null) seeded with the
+  // original text under a heading naming the angle. Deliberately not an
+  // auto-rewrite: a paraphrase reads as a repeat, which is worse than not
+  // reposting at all. The original is left in place to cut from, and the
+  // owner deletes it as they replace it.
+  useEffect(() => {
+    if (!repurposeSeed?.post) return;
+    const { post, angle } = repurposeSeed;
+    setEditingId(null);
+    setType("text");
+    setMedia(null);
+    setPoll(EMPTY_POLL);
+    setContentType(angle?.type || "");
+    setTopic(post.topic || "");
+    setText(
+      `[${angle?.label || "New angle"}] ${angle?.hint || ""}\n\n` +
+      `--- original below, rewrite over it ---\n\n${post.content || ""}`
+    );
+    setStatus(`Repurposing under a new angle: ${angle?.label || ""}`);
+    setError("");
+    onSeedUsed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repurposeSeed]);
 
   // LinkedIn has no rich text, so formatting swaps characters for their
   // unicode bold/italic equivalents.

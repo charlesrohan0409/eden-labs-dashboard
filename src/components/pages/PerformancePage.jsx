@@ -11,6 +11,7 @@ import Badge from "../ui/Badge";
 import IconStat from "../ui/IconStat";
 import PillTabs from "../ui/PillTabs";
 import PrimaryButton from "../ui/PrimaryButton";
+import PerformanceHero from "../ui/PerformanceHero";
 import { useBufferPerformance, RANGES } from "../../hooks/useBufferPerformance";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 
@@ -63,20 +64,17 @@ export default function PerformancePage({ data }) {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-stone-900">Performance</h1>
-          <p className="text-sm text-stone-500 mt-1">
-            Live from Buffer{fetchedAt ? ` · synced ${new Date(fetchedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <PillTabs value={range} onChange={setRange} options={RANGES.map((r) => ({ value: r.value, label: r.label }))} />
-          <PrimaryButton variant="ghost" icon={loading ? Loader2 : RefreshCw} onClick={refresh} disabled={loading}>
-            {loading ? "Syncing…" : "Refresh"}
-          </PrimaryButton>
-        </div>
+      <PerformanceHero
+        totals={totals || {}}
+        deltas={deltas || {}}
+        rangeLabel={RANGES.find((r) => r.value === range)?.label}
+        loading={loading}
+        onRefresh={refresh}
+        fetchedAt={fetchedAt}
+      />
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <PillTabs value={range} onChange={setRange} options={RANGES.map((r) => ({ value: r.value, label: r.label }))} />
       </div>
 
       {error && (
@@ -97,30 +95,6 @@ export default function PerformancePage({ data }) {
         </Card>
       ) : (
         <>
-          {/* Headline stats */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <IconStat
-              dark icon={Eye} label="Impressions" value={compact(totals.impressions)}
-              trend={deltas?.impressions} trendLabel="vs previous period"
-              spark={
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={byMonth}>
-                    <defs>
-                      <linearGradient id="gPerfHero" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={COLORS.accentSoft} stopOpacity={0.5} />
-                        <stop offset="95%" stopColor={COLORS.accentSoft} stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <Area type="monotone" dataKey="impressions" stroke={COLORS.accentSoft} strokeWidth={2} fill="url(#gPerfHero)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              }
-            />
-            <IconStat icon={Users} tone="teal" label="Reach" value={compact(totals.reach)} trend={deltas?.reach} trendLabel="unique people" />
-            <IconStat icon={TrendingUp} tone="violet" label="Engagement rate" value={totals.engagementRate} unit="%" trendLabel={`${totals.engagements} total engagements`} />
-            <IconStat icon={BarChart3} tone="amber" label="Posts published" value={totals.posts} trend={deltas?.posts} trendLabel={`${compact(totals.avgImpressions)} avg impressions`} />
-          </div>
-
           {/* Secondary stat strip */}
           <Card className="p-1">
             <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-stone-100">

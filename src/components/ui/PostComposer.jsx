@@ -6,7 +6,7 @@ import {
 import Badge from "./Badge";
 import PrimaryButton from "./PrimaryButton";
 import PostPreview from "./PostPreview";
-import { toUnicodeBold, toUnicodeItalic, nowLocalISO, formatDateTime } from "../../lib/utils";
+import { toUnicodeBold, toUnicodeItalic, nowLocalISO, formatDateTime, uid } from "../../lib/utils";
 import { fileToImage, fileToVideo, fileToDocument } from "../../lib/media";
 import { createBufferPost } from "../../lib/buffer";
 import { normalizeStatus, STAGE_META, POST_TYPE_META, hookOf, CONTENT_TYPES, topicsInUse } from "../../lib/content";
@@ -53,8 +53,12 @@ export default function PostComposer({
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [editingId, setEditingId] = useState(null);
+  const [autosaved, setAutosaved] = useState(false);
   const taRef = useRef(null);
   const fileRef = useRef(null);
+  // What was last written to the store, so re-rendering or merely LOADING a
+  // post doesn't trigger a pointless save.
+  const lastSavedRef = useRef("");
 
   // Grows with the text instead of staying pinned at a small fixed height —
   // LinkedIn's own composer does this, and a cramped fixed box was exactly
@@ -92,6 +96,17 @@ export default function PostComposer({
     setScheduledAt(p.scheduledAt || nowLocalISO(60));
     setError("");
     setStatus("");
+    setAutosaved(false);
+    // Seed the guard with what was just loaded, or the autosave effect would
+    // immediately write the post straight back unchanged.
+    lastSavedRef.current = JSON.stringify({
+      text: p.content || "",
+      media: p.media || null,
+      poll: p.poll || EMPTY_POLL,
+      type: p.type || "text",
+      contentType: p.contentType || "",
+      topic: p.topic || "",
+    });
   };
 
   // Opening a card on the board switches to this tab AND loads that post —
@@ -231,7 +246,66 @@ export default function PostComposer({
     setContentType("");
     setTopic("");
     setEditingId(null);
+    setAutosaved(false);
+    lastSavedRef.current = "";
   };
+
+  // ---- Autosave ----------------------------------------------------------
+  //
+  // Writing in the composer used to leave no trace until you explicitly hit
+  // "Save as draft", so a half-written post existed nowhere and the board
+  // showed nothing. Now it registers itself in Writing as you type.
+  //
+  // Debounced at 2.5s of idle, not per keystroke: every save rewrites the
+  // whole JSON blob, and a save-per-character is precisely the write
+  // amplification that blew the bandwidth budget once already.
+  const snapshot = JSON.stringify({ text, media, poll, type, contentType, topic });
+
+  const statusForAutosave = () => {
+    if (!editingId) return "writing";           // brand-new post
+    const existing = posts.find((p) => p.id === editingId);
+    const current = normalizeStatus(existing?.status);
+    // An idea you've started writing is no longer just an idea. Anything
+    // further along (ready/scheduled/published) keeps its status — autosaving
+    // a scheduled post must not quietly drag it back into Writing.
+    return current === "idea" ? "writing" : existing?.status;
+  };
+
+  useEffect(() => {
+    if (!hasBody) return;
+    if (busy || publishing) return;             // don't race an upload/publish
+    if (snapshot === lastSavedRef.current) return;
+
+    const timer = setTimeout(() => {
+      const nextStatus = statusForAutosave();
+      const draft = buildPost(nextStatus);
+      // Autosave must never invent a schedule — buildPost only fills
+      // scheduledAt for the "scheduled" status, and a scheduled post keeps
+      // whatever it already had.
+      if (nextStatus === "scheduled") {
+        const existing = posts.find((p) => p.id === editingId);
+        draft.scheduledAt = existing?.scheduledAt ?? null;
+        draft.date = existing?.date ?? draft.date;
+      }
+
+      if (editingId) {
+        onUpdatePost?.(editingId, draft);
+      } else {
+        // The id is generated here rather than inside addPost so the composer
+        // can keep editing the post it just created instead of spawning a new
+        // one on every subsequent keystroke. addPost spreads the payload after
+        // its own `id: uid()`, so a supplied id wins.
+        const newId = uid();
+        onAddPost({ ...draft, id: newId });
+        setEditingId(newId);
+      }
+      lastSavedRef.current = snapshot;
+      setAutosaved(true);
+    }, 2500);
+
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot, hasBody, busy, publishing, editingId]);
 
   const submit = async (postStatus) => {
     if (!hasBody) {
@@ -295,8 +369,14 @@ export default function PostComposer({
         {editingId && (
           <div className="flex items-center gap-2 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2 mb-3 text-xs text-sky-800">
             <Pencil size={13} className="shrink-0" />
-            <span className="flex-1">Editing a saved post — saving will update it, not create a new one.</span>
-            <button onClick={reset} className="text-sky-600 hover:text-sky-900 font-medium shrink-0">Cancel</button>
+            <span className="flex-1">
+              {autosaved
+                ? "Saved automatically — it's on the board under Writing."
+                : "Editing a saved post — saving will update it, not create a new one."}
+            </span>
+            <button onClick={reset} className="text-sky-600 hover:text-sky-900 font-medium shrink-0">
+              {autosaved ? "New post" : "Cancel"}
+            </button>
           </div>
         )}
 

@@ -42,6 +42,16 @@ chrome.runtime.onInstalled.addListener(() => {
     contexts: ["selection"],
     documentUrlPatterns: ["*://*.linkedin.com/*"],
   });
+
+  // Capture a DM as an inbound enquiry. Restricted to /messaging/ pages so
+  // it doesn't clutter the menu everywhere — and because sender detection
+  // only has anything to work with inside a thread.
+  chrome.contextMenus.create({
+    id: "save-inbound",
+    title: 'Log "%s" as an inbound enquiry',
+    contexts: ["selection"],
+    documentUrlPatterns: ["*://*.linkedin.com/messaging/*"],
+  });
 });
 
 // Chrome's contextMenus API hands the click handler a linkUrl but never the
@@ -100,6 +110,15 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     extensionAction("addCommentTarget", target)
       .then(() => chrome.tabs.sendMessage(tab.id, { type: "TOAST", text: `✓ Added ${target.name || "profile"} to comment list` }))
       .catch((err) => chrome.tabs.sendMessage(tab.id, { type: "TOAST", error: true, text: err.message }));
+    return;
+  }
+
+  if (info.menuItemId === "save-inbound") {
+    const text = (info.selectionText || "").trim();
+    if (!text) return;
+    // overlay.js does the sender detection, because it can read the live DOM
+    // and the still-live selection; background has neither.
+    chrome.tabs.sendMessage(tab.id, { type: "SHOW_INBOUND_WIDGET", seed: { message: text } });
     return;
   }
 
@@ -211,6 +230,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === "LOG_OUTREACH") {
     extensionAction("logOutreach", msg.entry)
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (msg.type === "SAVE_INBOUND") {
+    extensionAction("saveInbound", msg.enquiry)
       .then(() => sendResponse({ ok: true }))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;

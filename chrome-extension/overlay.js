@@ -194,6 +194,216 @@ if (!window.__edenLabsOverlayInjected) {
     });
   }, true);
 
+  // ---- Inbound enquiry capture (right-click in a DM thread) ---------------
+  //
+  // LinkedIn's messaging DOM changes often, so this tries several independent
+  // strategies and stops at the first that works, rather than betting on one
+  // selector. Everything it finds is a GUESS presented in an editable card —
+  // the human confirms before anything is saved, which is what keeps this
+  // robust against LinkedIn shipping a redesign next week.
+  function detectMessageSender() {
+    const out = { name: "", headline: "", profileUrl: "", photoUrl: "" };
+
+    // 1. Walk up from the selection to the message group it belongs to, then
+    //    find the profile link inside it. Most reliable, because it's scoped
+    //    to the specific message you right-clicked rather than the thread.
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount && !sel.isCollapsed) {
+      let el = sel.anchorNode;
+      if (el && el.nodeType === Node.TEXT_NODE) el = el.parentElement;
+      for (let hops = 0; el && hops < 14; hops++, el = el.parentElement) {
+        const link = el.querySelector?.('a[href*="/in/"]');
+        if (link) {
+          out.name = extractNameFromLink(link);
+          out.profileUrl = link.href.split("?")[0].replace(/\/$/, "");
+          out.photoUrl = findNearbyPhoto(link);
+          if (out.name) break;
+        }
+      }
+    }
+
+    // 2. The thread header — whoever the conversation is with. Used when the
+    //    selection sat in a bare text bubble with no link near it.
+    if (!out.name) {
+      const header = document.querySelector(
+        ".msg-thread__link-to-profile, .msg-entity-lockup a[href*='/in/'], .msg-thread a[href*='/in/']"
+      );
+      if (header) {
+        out.name = extractNameFromLink(header);
+        out.profileUrl = header.href.split("?")[0].replace(/\/$/, "");
+        out.photoUrl = out.photoUrl || findNearbyPhoto(header);
+      }
+    }
+
+    // 3. Last resort: the document title on a thread reads "Messaging |
+    //    <Name> | LinkedIn" often enough to be worth trying before giving up.
+    if (!out.name) {
+      const parts = (document.title || "").split("|").map((x) => x.trim());
+      const candidate = parts.find((x) => x && !/messaging|linkedin|\(\d+\)/i.test(x));
+      if (candidate) out.name = candidate;
+    }
+
+    return out;
+  }
+
+  const INBOUND_HOST_ID = "eden-labs-inbound-widget-host";
+  function removeInboundWidget() { document.getElementById(INBOUND_HOST_ID)?.remove(); }
+
+  function showInboundWidget(seed) {
+    removeInboundWidget();
+    const guess = detectMessageSender();
+
+    const host = document.createElement("div");
+    host.id = INBOUND_HOST_ID;
+    host.style.all = "initial";
+    host.style.position = "fixed";
+    host.style.top = "0";
+    host.style.left = "0";
+    host.style.zIndex = "2147483647";
+    document.documentElement.appendChild(host);
+    const shadow = host.attachShadow({ mode: "closed" });
+
+    shadow.innerHTML = `
+      <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; }
+        .card {
+          position: fixed; top: 24px; right: 24px; width: 380px;
+          max-height: calc(100vh - 48px); overflow-y: auto;
+          border-radius: 18px;
+          background: rgba(255,255,255,.78);
+          -webkit-backdrop-filter: blur(24px) saturate(180%);
+          backdrop-filter: blur(24px) saturate(180%);
+          border: 1px solid rgba(255,255,255,.75);
+          box-shadow: 0 2px 8px rgba(0,0,0,.06), 0 18px 52px rgba(0,0,0,.20);
+          font-size: 14px; color: #1c1917;
+          animation: rise .22s cubic-bezier(0.23,1,0.32,1) both;
+        }
+        @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .header {
+          background: linear-gradient(135deg, rgba(20,83,45,.94), rgba(6,54,30,.94));
+          color: #fff; padding: 14px 16px 12px;
+          display: flex; align-items: center; gap: 10px;
+          border-bottom: 1px solid rgba(255,255,255,.10);
+        }
+        .logo { width: 28px; height: 28px; background: rgba(255,255,255,.16); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+        .htext { flex: 1; min-width: 0; }
+        .htitle { font-size: 14px; font-weight: 650; }
+        .hsub { font-size: 10.5px; opacity: .62; margin-top: 1px; }
+        .close-btn { background: rgba(255,255,255,.14); border: none; border-radius: 8px; color: rgba(255,255,255,.8); cursor: pointer; width: 24px; height: 24px; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+        .close-btn:hover { background: rgba(255,255,255,.24); color: #fff; }
+        .body { padding: 14px 16px 16px; }
+        .field { margin-bottom: 10px; }
+        label { display: block; font-size: 10px; font-weight: 650; color: #78716c; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+        input, textarea {
+          width: 100%; padding: 8px 11px; border: 1px solid rgba(0,0,0,.10); border-radius: 10px;
+          background: rgba(255,255,255,.9); font-size: 12.5px; color: #1c1917; outline: none; font-family: inherit;
+        }
+        input:focus, textarea:focus { border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,.14); }
+        textarea { resize: vertical; min-height: 76px; line-height: 1.45; }
+        .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .save-btn {
+          width: 100%; padding: 10px; border: none; border-radius: 12px;
+          background: linear-gradient(135deg, #14532d, #0b3d20); color: #fff;
+          font-size: 13px; font-weight: 650; cursor: pointer;
+          display: flex; align-items: center; justify-content: center; gap: 6px;
+          transition: transform .15s cubic-bezier(0.23,1,0.32,1), box-shadow .18s ease;
+          box-shadow: 0 2px 6px rgba(20,83,45,.20), 0 8px 20px rgba(20,83,45,.16);
+        }
+        .save-btn:active:not(:disabled) { transform: scale(0.98); }
+        .save-btn:disabled { opacity: .5; cursor: default; box-shadow: none; }
+        #status { margin-bottom: 10px; padding: 9px 12px; border-radius: 10px; font-size: 12px; display: none; }
+        #status.success { background: rgba(240,253,244,.95); color: #166534; border: 1px solid rgba(187,247,208,.9); }
+        #status.error { background: rgba(255,241,242,.95); color: #9f1239; border: 1px solid rgba(254,205,211,.9); }
+        .note { font-size: 10.5px; color: #a8a29e; line-height: 1.5; margin-top: -4px; margin-bottom: 10px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spin { animation: spin .7s linear infinite; display: inline-block; }
+        @media (prefers-reduced-motion: reduce) { .card { animation: none; } * { transition-duration: .01ms !important; } }
+      </style>
+
+      <div class="card">
+        <div class="header">
+          <div class="logo">EL</div>
+          <div class="htext">
+            <div class="htitle">Log inbound enquiry</div>
+            <div class="hsub">Goes to your CRM · Inbound board</div>
+          </div>
+          <button class="close-btn" id="close">✕</button>
+        </div>
+        <div class="body">
+          <div id="status"></div>
+          <div class="row">
+            <div class="field">
+              <label>Name</label>
+              <input id="name" placeholder="Who messaged" />
+            </div>
+            <div class="field">
+              <label>Received</label>
+              <input id="received" type="date" />
+            </div>
+          </div>
+          <div class="field">
+            <label>Their message</label>
+            <textarea id="message"></textarea>
+          </div>
+          <div class="field">
+            <label>Profile URL</label>
+            <input id="url" placeholder="linkedin.com/in/…" />
+          </div>
+          <div class="note">
+            Lands as unreplied, so it stays on your dashboard's Today list until you tick it off.
+          </div>
+          <button class="save-btn" id="save">Log enquiry</button>
+        </div>
+      </div>
+    `;
+
+    const $ = (id) => shadow.getElementById(id);
+    $("name").value = guess.name || "";
+    $("url").value = guess.profileUrl || "";
+    $("message").value = seed?.message || "";
+    $("received").value = new Date().toISOString().slice(0, 10);
+
+    $("close").addEventListener("click", removeInboundWidget);
+    const onKey = (e) => { if (e.key === "Escape") { removeInboundWidget(); window.removeEventListener("keydown", onKey); } };
+    window.addEventListener("keydown", onKey);
+    if (!guess.name) $("name").focus();
+
+    const showStatus = (type, text) => {
+      const el = $("status");
+      el.className = type; el.textContent = text; el.style.display = "block";
+    };
+
+    $("save").addEventListener("click", () => {
+      const name = $("name").value.trim();
+      if (!name) { showStatus("error", "Who sent it? Name is required."); $("name").focus(); return; }
+      const btn = $("save");
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin">⟳</span> Saving…';
+      safeSendMessage({
+        type: "SAVE_INBOUND",
+        enquiry: {
+          name,
+          headline: guess.headline || "",
+          profileUrl: $("url").value.trim(),
+          photoUrl: guess.photoUrl || "",
+          message: $("message").value.trim(),
+          channel: "linkedin",
+          receivedAt: $("received").value || undefined,
+        },
+      }, (result) => {
+        if (result?.ok) {
+          showStatus("success", "✓ Logged as an inbound enquiry.");
+          btn.innerHTML = "✓ Logged";
+          setTimeout(removeInboundWidget, 1200);
+        } else {
+          showStatus("error", result?.error || "Something went wrong.");
+          btn.disabled = false;
+          btn.innerHTML = "Log enquiry";
+        }
+      });
+    });
+  }
+
   // ---- Save-content widget (right-click a selection → "Save to content") --
 
   const SWIPE_HOST_ID = "eden-labs-swipe-widget-host";
@@ -360,6 +570,7 @@ if (!window.__edenLabsOverlayInjected) {
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === "TOAST") showToast(msg.text, msg.error);
     if (msg.type === "SHOW_SWIPE_WIDGET") showSwipeWidget(msg.swipe);
+    if (msg.type === "SHOW_INBOUND_WIDGET") showInboundWidget(msg.seed);
   });
 
   // ---- Pinned comment-list panel -------------------------------------------

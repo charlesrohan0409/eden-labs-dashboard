@@ -305,6 +305,11 @@ export async function handlePortalAction(headers, body) {
 const EXTENSION_ACTIONS = {
   saveLead:            { ownerOnly: false },
   logOutreach:         { ownerOnly: false },
+  // NOT owner-only: a Chrome profile signed in with a client's PIN is
+  // sitting in that client's LinkedIn inbox, so enquiries captured there
+  // belong to them. The clientId hinge below assigns it from the token, so
+  // a client session physically cannot file one against someone else.
+  saveInbound:         { ownerOnly: false },
   saveSwipe:           { ownerOnly: true },
   addCommentTarget:    { ownerOnly: true },
   updateCommentTarget: { ownerOnly: true },
@@ -359,6 +364,22 @@ export async function handleExtension(headers, body) {
     case "logOutreach": {
       if (!p.date) return { status: 400, body: { error: "`date` is required." } };
       M.logOutreachDay(data, { ...p, clientId });
+      break;
+    }
+    case "saveInbound": {
+      if (!p.name?.trim()) return { status: 400, body: { error: "`name` is required." } };
+      M.addInbound(data, {
+        name: p.name.trim(),
+        headline: p.headline || "",
+        profileUrl: p.profileUrl || "",
+        photoUrl: p.photoUrl || "",
+        message: p.message || "",
+        channel: p.channel || "linkedin",
+        // From the token for a client session; from the payload (or null =
+        // the owner's own inbox) for an owner session.
+        clientId,
+        receivedAt: p.receivedAt || new Date().toISOString().slice(0, 10),
+      });
       break;
     }
     case "saveSwipe": {

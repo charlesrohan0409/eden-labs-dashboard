@@ -21,6 +21,24 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 // outrank a task without the two needing to know about each other.
 export const URGENCY = { overdue: 0, today: 1, soon: 2 };
 
+// Every item kind maps to exactly one section. This is what stops the panel
+// reading as one undifferentiated pile — a call and a bill are not the same
+// KIND of thing to deal with, even when they're equally urgent, and mixing
+// them made the whole list look interchangeable. Order here is the render
+// order: today's fixed-time commitments first (a call can't be moved once
+// it's on the calendar), then what's waiting on a reply, then work, then
+// content, then money.
+export const TODAY_GROUPS = [
+  { id: "calls",   label: "Today's calls",  kinds: ["call"] },
+  { id: "replies", label: "Needs a reply",  kinds: ["inbound"] },
+  { id: "tasks",   label: "Tasks",          kinds: ["task"] },
+  { id: "content", label: "Content",        kinds: ["post", "review"] },
+  { id: "money",   label: "Money",          kinds: ["invoice", "money"] },
+];
+const GROUP_OF = Object.fromEntries(
+  TODAY_GROUPS.flatMap((g) => g.kinds.map((k) => [k, g.id]))
+);
+
 function urgencyFromDays(d) {
   if (d === null || d === undefined) return null;
   if (d < 0) return "overdue";
@@ -30,14 +48,34 @@ function urgencyFromDays(d) {
 }
 
 /**
- * Everything needing attention, newest-urgency first.
+ * Everything needing attention, newest-urgency first within its group.
  * `limit` caps the list — a "today" view that shows forty things is a backlog,
- * not a plan.
+ * not a plan. `calendarEvents` is optional (Google Calendar may not be
+ * connected) and is expected to already be filtered to not-yet-ended events,
+ * same shape useGoogleCalendar's `upcoming` returns.
  */
-export function buildToday(data, { limit = 12 } = {}) {
+export function buildToday(data, { limit = 14, calendarEvents = [] } = {}) {
   if (!data) return [];
   const items = [];
   const clientName = (id) => data.clients?.find((c) => c.id === id)?.name || "";
+
+  // ---- today's calls ----
+  // Only TODAY's — a call three days out belongs in the calendar page, not
+  // in "what needs me right now". A call that's already ended today doesn't
+  // need anything further from you, so it isn't listed as needing attention
+  // either; `calendarEvents` being pre-filtered to not-yet-ended handles that.
+  const today = todayStr();
+  (calendarEvents || []).forEach((e) => {
+    const start = new Date(e.start);
+    if (Number.isNaN(start.getTime()) || start.toISOString().slice(0, 10) !== today) return;
+    items.push({
+      id: `call-${e.uid}`, kind: "call", urgency: "today", days: 0,
+      title: e.summary || "Meeting",
+      context: e.allDay ? "All day" : start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }),
+      startMs: start.getTime(),
+      view: "calendar",
+    });
+  });
 
   // ---- tasks ----
   // `recurrence` is a STRING and non-recurring tasks carry "none", not null —
@@ -135,12 +173,20 @@ export function buildToday(data, { limit = 12 } = {}) {
     .sort((a, b) => {
       const ua = URGENCY[a.urgency] - URGENCY[b.urgency];
       if (ua !== 0) return ua;
-      return (a.days ?? 99) - (b.days ?? 99);
+      const da = a.days ?? 99, db = b.days ?? 99;
+      if (da !== db) return da - db;
+      // Ties within "today" (e.g. two calls) fall back to actual clock time.
+      return (a.startMs ?? 0) - (b.startMs ?? 0);
     })
     .slice(0, limit);
 }
 
+export const groupIdFor = (kind) => GROUP_OF[kind] || "tasks";
+
 export function dueLabel(item) {
+  // The call's time already IS the context line (e.g. "2:30 PM") — repeating
+  // it as a trailing label would just say the same thing twice.
+  if (item.kind === "call") return "";
   // Inbound counts UP (how long they've waited), not down to a deadline.
   if (item.kind === "inbound") {
     const waited = Math.abs(item.days || 0);

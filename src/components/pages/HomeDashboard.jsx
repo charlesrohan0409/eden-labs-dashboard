@@ -131,6 +131,7 @@ export default function HomeDashboard({ data, setView, setSelectedClient, onAddT
           what to DO, and nothing here answered that before. */}
       <TodayPanel
         data={data}
+        calendarEvents={calendar.upcoming}
         onGo={setView}
         onOpenClient={(id) => { setSelectedClient(id); setView("client-detail"); }}
       />

@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import {
-  ChevronLeft, ChevronRight, Lock, Plus, Radio, CalendarDays,
+  ChevronLeft, ChevronRight, Radio, CalendarDays,
 } from "lucide-react";
 import Card from "./Card";
 import Avatar from "./Avatar";
@@ -20,37 +20,41 @@ const iso = (d) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
 
-// The date a post sits on: its scheduled slot if it has one, otherwise the
-// day it was created/published.
-const dateOf = (p) => (p.scheduledAt ? p.scheduledAt.slice(0, 10) : p.date || "");
+// The date a post sits on — always its Buffer-scheduled slot, since every
+// post reaching this calendar is guaranteed to have one (see the filter
+// below). No fallback to `date` here: that field is when a post was
+// created or last edited, not when it's going out.
+const dateOf = (p) => (p.scheduledAt ? p.scheduledAt.slice(0, 10) : "");
 
 /**
  * Content calendar.
  *
- * Rebuilt from a grid of near-unreadable one-line chips into something you can
- * actually plan a month from. Three things it now does that it didn't:
+ * Shows ONLY posts genuinely queued on Buffer (`bufferPostId` set) — not
+ * drafts, not ideas that merely have a day picked, not anything "scheduled"
+ * locally without an actual Buffer channel behind it. A calendar is a
+ * commitment view: if it's on here, it is really going out at that time,
+ * full stop. Everything else (ideas, drafts, writing-in-progress) lives on
+ * the Board instead, where "when" isn't settled yet.
  *
- *  - Shows the HOOK, not just a client name, so a day tells you what's going
- *    out rather than merely that something is.
- *  - Lets you drag a post to another day to reschedule — EXCEPT when it's
- *    already queued on Buffer. Buffer holds its own copy at its own time, and
- *    moving the card here would not move it there, so those are locked with
- *    an explanation rather than silently desynced.
- *  - Surfaces cadence: how many posts went out per week, which is the number
- *    that actually tells you whether you're publishing consistently.
+ * One consequence worth knowing: because every visible post is Buffer-
+ * confirmed, none of them can be dragged to a new day from here — moving a
+ * card wouldn't move Buffer's own copy, so this calendar is read-only by
+ * design rather than an editing surface. Reschedule the old-fashioned way:
+ * open the post and change its time in the composer/Buffer.
  */
-export default function ContentCalendar({
-  posts, clients, onOpenPost, onReschedule, onAddIdea,
-}) {
+export default function ContentCalendar({ posts, clients, onOpenPost }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
   const [viewing, setViewing] = useState(null);
-  const [dragId, setDragId] = useState(null);
-  const [overDay, setOverDay] = useState(null);
-  const enterCount = useRef({});
 
   const clientOf = (id) => clients?.find((c) => c.id === id);
+
+  // Only posts truly queued on Buffer belong on a calendar — see file doc.
+  const scheduledPosts = useMemo(
+    () => (posts || []).filter((p) => !!p.bufferPostId),
+    [posts]
+  );
 
   // Monday-first: the working week starts on Monday, and a content calendar
   // is a working calendar.
@@ -61,18 +65,18 @@ export default function ContentCalendar({
 
   const byDay = useMemo(() => {
     const map = {};
-    (posts || []).forEach((p) => {
+    scheduledPosts.forEach((p) => {
       const key = dateOf(p);
       if (!key) return;
       (map[key] = map[key] || []).push(p);
     });
-    // Within a day, scheduled ones first and in time order — that's the
-    // order they'll actually happen in.
+    // Within a day, in time order — that's the order they'll actually
+    // happen in.
     Object.values(map).forEach((list) =>
       list.sort((a, b) => String(a.scheduledAt || "").localeCompare(String(b.scheduledAt || "")))
     );
     return map;
-  }, [posts]);
+  }, [scheduledPosts]);
 
   const cells = Array.from({ length: totalCells }, (_, i) => {
     const dayNum = i - startOffset + 1;
@@ -103,20 +107,6 @@ export default function ContentCalendar({
     setMonth(d.getMonth());
   };
 
-  const handleDrop = (e, dayKey) => {
-    e.preventDefault();
-    enterCount.current[dayKey] = 0;
-    setOverDay(null);
-    const id = e.dataTransfer.getData("text/plain") || dragId;
-    setDragId(null);
-    const post = (posts || []).find((p) => p.id === id);
-    if (!post || !dayKey || dateOf(post) === dayKey) return;
-    // Preserve the time of day, only move the date — dragging to a different
-    // day shouldn't silently reset a carefully chosen 9am slot to midnight.
-    const time = post.scheduledAt ? post.scheduledAt.slice(11, 16) : "09:00";
-    onReschedule?.(post, `${dayKey}T${time}`);
-  };
-
   return (
     <Card className="p-4 sm:p-5">
       <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
@@ -141,7 +131,7 @@ export default function ContentCalendar({
         </div>
 
         <div className="flex items-center gap-3 text-xs text-stone-400">
-          <span><span className="font-semibold text-stone-600 tabular-nums">{monthCount}</span> posts</span>
+          <span><span className="font-semibold text-stone-600 tabular-nums">{monthCount}</span> queued on Buffer</span>
           <span className="w-px h-3 bg-line" />
           <span className="flex items-center gap-1">
             <CalendarDays size={12} />
@@ -160,70 +150,29 @@ export default function ContentCalendar({
         {cells.map((dayKey, i) => {
           const isToday = dayKey === iso(now);
           const list = dayKey ? byDay[dayKey] || [] : [];
-          const isOver = overDay === dayKey;
           return (
             <div
               key={i}
-              onDragOver={(e) => { if (dayKey) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; } }}
-              onDragEnter={() => {
-                if (!dayKey) return;
-                enterCount.current[dayKey] = (enterCount.current[dayKey] || 0) + 1;
-                setOverDay(dayKey);
-              }}
-              onDragLeave={() => {
-                if (!dayKey) return;
-                enterCount.current[dayKey] = Math.max(0, (enterCount.current[dayKey] || 0) - 1);
-                if (enterCount.current[dayKey] === 0) setOverDay((d) => (d === dayKey ? null : d));
-              }}
-              onDrop={(e) => handleDrop(e, dayKey)}
-              className={`group/day min-h-[6.5rem] p-1.5 flex flex-col gap-1 transition-colors duration-150 ${EASE} ${
-                !dayKey ? "bg-stone-50/60"
-                : isOver ? "bg-emerald-50"
-                : "bg-white"
-              }`}
+              className={`min-h-[6.5rem] p-1.5 flex flex-col gap-1 ${!dayKey ? "bg-stone-50/60" : "bg-white"}`}
             >
               {dayKey && (
-                <div className="flex items-center justify-between">
-                  <span className={`text-[11px] w-5 h-5 flex items-center justify-center rounded-full font-medium ${
-                    isToday ? "bg-emerald-700 text-white" : "text-stone-400"
-                  }`}>
-                    {Number(dayKey.slice(-2))}
-                  </span>
-                  {onAddIdea && (
-                    <button
-                      onClick={() => onAddIdea(dayKey)}
-                      aria-label="Add an idea for this day"
-                      className={`opacity-0 group-hover/day:opacity-100 p-0.5 rounded text-stone-300
-                        hover:text-emerald-700 hover:bg-emerald-50 transition-all duration-150 ${EASE}`}
-                    >
-                      <Plus size={12} />
-                    </button>
-                  )}
-                </div>
+                <span className={`text-[11px] w-5 h-5 flex items-center justify-center rounded-full font-medium ${
+                  isToday ? "bg-emerald-700 text-white" : "text-stone-400"
+                }`}>
+                  {Number(dayKey.slice(-2))}
+                </span>
               )}
 
               {list.map((p) => {
                 const stage = normalizeStatus(p.status);
                 const meta = STAGE_META[stage] || STAGE_META.idea;
                 const typeMeta = POST_TYPE_META[p.type] || POST_TYPE_META.text;
-                // Locked because Buffer holds its own copy at its own time.
-                const locked = !!p.bufferPostId;
                 return (
                   <button
                     key={p.id}
-                    draggable={!locked}
-                    onDragStart={(e) => {
-                      if (locked) { e.preventDefault(); return; }
-                      e.dataTransfer.setData("text/plain", p.id);
-                      e.dataTransfer.effectAllowed = "move";
-                      setDragId(p.id);
-                    }}
-                    onDragEnd={() => setDragId(null)}
                     onClick={() => setViewing(p)}
-                    title={locked ? "Queued on Buffer — reschedule it there" : hookOf(p.content)}
+                    title={hookOf(p.content)}
                     className={`text-left w-full rounded-lg px-1.5 py-1 border transition-all duration-150 ${EASE}
-                      ${dragId === p.id ? "opacity-40" : ""}
-                      ${locked ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"}
                       border-stone-100 bg-stone-50 hover:bg-white hover:border-stone-300 active:scale-[0.98]`}
                   >
                     <span className="flex items-center gap-1">
@@ -231,7 +180,6 @@ export default function ContentCalendar({
                       <span className="text-[9.5px] text-stone-400 truncate flex-1">
                         {p.scheduledAt ? p.scheduledAt.slice(11, 16) : typeMeta.label}
                       </span>
-                      {locked && <Lock size={8} className="text-stone-300 shrink-0" />}
                     </span>
                     <span className="block text-[10.5px] leading-tight text-stone-700 line-clamp-2 mt-0.5">
                       {hookOf(p.content) || "(media only)"}
@@ -245,14 +193,14 @@ export default function ContentCalendar({
       </div>
 
       <div className="flex flex-wrap gap-3 mt-3 text-[11px] text-stone-400">
-        {["idea", "writing", "ready", "scheduled", "published"].map((s) => (
+        {["scheduled", "published"].map((s) => (
           <span key={s} className="flex items-center gap-1">
             <span className={`w-2 h-2 rounded-full ${STAGE_META[s].dot}`} />
             {STAGE_META[s].label}
           </span>
         ))}
         <span className="flex items-center gap-1 ml-auto">
-          <Lock size={10} /> queued on Buffer — drag to move the others
+          <Radio size={10} /> only posts queued on Buffer show here — drafts and ideas live on the Board
         </span>
       </div>
 
@@ -277,11 +225,9 @@ export default function ContentCalendar({
                   <span className="text-xs text-stone-500">{clientOf(viewing.clientId).name}</span>
                 </span>
               )}
-              {viewing.bufferPostId && (
-                <span className="flex items-center gap-1 text-[11px] text-emerald-700">
-                  <Radio size={11} /> queued on Buffer
-                </span>
-              )}
+              <span className="flex items-center gap-1 text-[11px] text-emerald-700">
+                <Radio size={11} /> queued on Buffer
+              </span>
             </div>
 
             <p className="text-sm text-stone-700 whitespace-pre-wrap leading-relaxed max-h-[45vh] overflow-y-auto">

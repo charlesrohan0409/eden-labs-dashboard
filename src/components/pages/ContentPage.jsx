@@ -154,21 +154,6 @@ export default function ContentPage({
           posts={data.posts}
           clients={data.clients}
           onOpenPost={(post) => { setComposerPostId(post.id); setView("composer"); }}
-          onReschedule={(post, nextScheduledAt) => {
-            // Moving a card changes OUR record. Anything already queued on
-            // Buffer isn't draggable (the calendar locks it), because Buffer
-            // holds its own copy at its own time and this wouldn't move it.
-            onUpdatePost(post.id, {
-              scheduledAt: nextScheduledAt,
-              date: nextScheduledAt.slice(0, 10),
-            });
-          }}
-          onAddIdea={(dayKey) =>
-            onAddPost({
-              clientId: null, content: "", status: "idea", type: "text",
-              media: null, poll: null, scheduledAt: null, date: dayKey,
-            })
-          }
         />
       )}
 

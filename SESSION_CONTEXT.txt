@@ -1715,3 +1715,163 @@ STILL OPEN AFTER THIS SESSION:
     before the blob grows.
   - Everything still open from §14/§15: Vercel paused (bandwidth), Fathom
     key likely 401, README stale, no regenerate-PIN flow.
+
+--------------------------------------------------------------------------------
+17. FINANCE DEPTH, INBOUND CRM, CONTENT REBUILD, DM CAPTURE (2026-08-21/22)
+--------------------------------------------------------------------------------
+  Long continuation of the V11/V12 session (§16), same architecture and same
+  discipline (pure mutations, optimistic locking, live-data verification
+  with explicit cleanup). Commits, oldest first: 494274f, 565e917, d428693,
+  3ae5689, 3fd977a, 6a4f8f3, b102319.
+
+  FINANCE POLISH (494274f). Brand logos everywhere (BrandMark.jsx): uploaded
+  image wins, else a favicon derived from a `website` field via Google's
+  favicon service, else initials — never a blank hole. Balance bar splits
+  hard into Cash vs Credit sections with their own subtotals rather than one
+  undifferentiated grid, since a debit balance and a card's debt move in
+  opposite directions and mixing them invited adding them together. Debt
+  renders with a leading minus. Recurring's monthly total is now a 30px
+  headline that FOLLOWS the active filter (pick Subscriptions, the number
+  becomes what subscriptions cost). New push-to-tomorrow icon button on every
+  open task, snoozing from TODAY not the task's old due date.
+
+  EXTENSION GLASS UI + CUSTOM CATEGORIES + INVOICE SYNC (565e917).
+  Glassmorphism across overlay/popup/settings — the overlay uses REAL
+  backdrop-filter (a LinkedIn page sits behind it); the popup can't (nothing
+  behind a browser action popup to blur) so it fakes the look with layered
+  translucency over a gradient instead. Comment list gained continuous
+  numbering, day-grouped headers (Today/Yesterday/dated), and a checkbox
+  wired to `inSearch` for ticking off once added to a saved LinkedIn search.
+  Category vocabulary moved from two hardcoded arrays into
+  data.expenseCategories with inline "+ New category…" in every picker
+  (CategorySelect.jsx) — found the old expense-form list had "Advertising"
+  nowhere else and was MISSING Marketing/Utilities/Rent/Travel, so budgets on
+  those could never match an expense. Invoices gained a receiving account:
+  marking one paid credits that account (reversal uses the exact
+  `settledAmount` applied, not a recompute, because the FX rate can move
+  between pay and un-pay). Expenses mirror it with a debiting account, with
+  the credit-card sign handled correctly (a card spend INCREASES its debt).
+
+  INBOUND CRM + CONTENT REVAMP + FINANCE ACTIVITY (d428693). New
+  lib/inbound.js + InboundBoard.jsx: a second CRM board for people who
+  messaged YOU, deliberately separate from `contacts` (a lead is chosen to
+  chase and can sit a week; an enquiry is waiting on you NOW) with
+  `replied` as a FLAG rather than a pipeline stage (you can have replied to
+  a brand-new enquiry, or be mid-negotiation with someone whose last message
+  is unanswered — collapsing those onto one axis loses what matters).
+  Unreplied enquiries surface on the Today panel and stay there, counting UP
+  in days-waiting rather than down to a deadline.
+
+  Fixed a REAL bug found by the user: clicking a content-board card switched
+  to the Composer tab but never loaded the post — PostCard passed the post
+  to onOpen, ContentPage threw the argument away. New ContentHeader.jsx
+  (dark hero, pipeline/scheduled/shipped-this-week/engagement-rate tiles,
+  "—" not "0%" when Buffer has no data yet) and RepurposePanel.jsx (ranks
+  published posts by real engagement, opens into 6 concrete angles that seed
+  the composer with the original text under an explicit instruction — NOT
+  an auto-rewrite, since a paraphrase reads as a repeat). New
+  PerformanceHero.jsx modelled on a user-supplied reference, with deltas as
+  real up/down/flat states (not green-on-everything) that only render when
+  there's an actual prior period to compare. New FinanceActivity.jsx: every
+  money event (income, expense, subscription added/cancelled, budget
+  created/exceeded, account added) logged by the MUTATIONS themselves via a
+  new logFinance() helper in mutations.js, so a caller can't forget to log
+  one; capped at 400 entries so the log itself can't become the next blob-
+  growth problem. Budget-exceeded logs once per period, not on every
+  subsequent spend.
+
+  DM CAPTURE + CALENDAR REBUILD (3ae5689). Extension: right-click a message
+  in a LinkedIn DM thread → "Log as an inbound enquiry". Sender detection
+  tries 3 independent strategies in order (selection→nearest message's
+  profile link; thread header; document.title parsing) and stops at the
+  first that works — LinkedIn's messaging DOM changes often, and everything
+  detected is presented in an editable card for human confirmation before
+  saving, which is what keeps this robust when a strategy eventually breaks.
+  New saveInbound extension action, deliberately NOT owner-only — a Chrome
+  profile signed in with a client's PIN is sitting in THAT client's inbox,
+  so enquiries captured there are theirs; the existing clientId-from-token
+  hinge makes this safe. Content calendar (ContentCalendar.jsx) fully
+  rebuilt from a grid of near-unreadable client-name chips into something a
+  month can actually be planned from: shows the post's hook and scheduled
+  time, Monday-first weeks, drag-to-reschedule (preserving time of day), a
+  cadence readout (posts/week published). Posts already queued on Buffer
+  are explicitly NOT draggable (locked, with a lock icon) — Buffer holds its
+  own copy at its own time, so dragging here wouldn't move it there, and
+  this is a deliberate constraint rather than a silent desync.
+
+  COMPOSER AUTOSAVE (3fd977a). The board-card-click fix above surfaced a
+  real gap: writing in the composer left NO trace anywhere until "Save as
+  draft" was explicitly clicked. Now debounced-autosaves (2.5s idle, not per
+  keystroke — every save rewrites the whole blob) into the board: a
+  brand-new post creates itself with status "writing"; an existing IDEA
+  being edited is promoted to "writing"; anything further along
+  (ready/scheduled/published) keeps its status untouched, verified
+  explicitly so autosave can never drag a scheduled post backward or touch
+  its schedule. Root-caused the user's earlier "scheduling doesn't move the
+  card" report to the SAME upstream bug (clicking an idea never loaded it
+  into the composer, so scheduling silently created a second post while the
+  original idea sat untouched) — confirmed fixed by reproducing the whole
+  flow live.
+  INCIDENT DURING THIS FIX: reproducing the scheduling bug queued a real,
+  unfinished test post to the live LinkedIn account via Buffer. Caught
+  immediately, deleted it from Buffer via a direct GraphQL mutation
+  (`deletePost` — payload is `DeletePostSuccess`/`VoidMutationError`, NOT
+  the `PostActionSuccess`/`MutationError` shape most other Buffer mutations
+  use), and restored the local post to its prior "idea" state. LESSON:
+  always use a channel-less / "don't queue" path when testing the schedule
+  flow against real Buffer credentials, exactly as already done in §16 —
+  this was a lapse back into the same risk, caught and fixed but should not
+  recur.
+
+  TODAY PANEL GROUPING (6a4f8f3). User feedback: the Today panel's flat list
+  made a call, a bill and a task look interchangeable. Now sections by kind
+  — Today's calls / Needs a reply / Tasks / Content / Money — each only
+  rendered when non-empty, still backed by ONE urgency-sorted list
+  (lib/today.js) so grouping is purely a rendering concern and "what's most
+  overdue" isn't computed twice. buildToday gained real calendar awareness
+  for the first time (an optional `calendarEvents` param, fed
+  HomeDashboard's existing `calendar.upcoming` — no new fetch), filtered to
+  events starting today; a call that already ended needs nothing further so
+  it's excluded for free since `upcoming` is pre-filtered to not-yet-ended.
+
+  INFRA RESOLVED (b102319). User upgraded both Supabase and Vercel to paid
+  plans — confirmed via get_organization (plan: "pro"). Supabase Pro takes
+  AUTOMATIC DAILY BACKUPS, 7-day retention, zero setup — this closes the "no
+  backup existed" gap behind the §16 data-loss incident; a repeat of that
+  mistake today is recoverable from Database → Backups within ~24h (still
+  NOT a reason to be less careful — recorded explicitly in the
+  eden-labs-testing-caused-data-loss memory file). Vercel's Fast Origin
+  Transfer cap no longer applies. PITR (second-level recovery) is a paid
+  add-on and deliberately NOT enabled — not needed at this write volume,
+  and it's the user's recurring-cost call, not something to opt into on
+  their behalf. README.md rewritten top to bottom: was still describing a
+  localStorage-only, no-backend app; now documents the real architecture
+  (shared mutations, optimistic locking, credential tables), correct env
+  vars (was missing SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SESSION_SECRET
+  entirely), the Chrome extension, and a known-limitations list that
+  includes a genuinely-found dead `team_members` table sitting in Supabase
+  with zero code referencing it anywhere.
+
+STILL OPEN AFTER THIS SESSION:
+  - Content calendar was just told (by the user, next message after this
+    handoff) to stop showing every post and show ONLY posts actually
+    scheduled on Buffer (i.e. `bufferPostId` set) — not merely status
+    "scheduled" locally and not drafts/ideas being edited. This is the very
+    next task, not yet done as of this handoff.
+  - Buffer QUEUE path (real publish) still only verified via the accidental
+    live-post-then-delete incident above, never a clean intentional
+    end-to-end test. Owed: one deliberate throwaway post, far-future date,
+    confirmed in Buffer's queue, then deleted.
+  - Inbound board has no "mark as commented"-equivalent bulk action and the
+    extension's DM capture has not been smoke-tested in a real loaded
+    Chrome extension (verified at the API/logic layer only, same caveat as
+    every other extension feature this project has shipped).
+  - The single-JSON-blob persistence model is still open — now explicitly
+    lower-urgency given Pro Supabase headroom, but still the largest
+    remaining structural lever if write volume or concurrent editors grow.
+    Candidates to move first if it's ever tackled: expenses, financeLog,
+    outreachLog (fastest-growing collections).
+  - Everything still open from §13 except README (now fixed): Fathom key
+    likely still 401 (not re-verified), team access UI absent (table exists,
+    nothing wired), no regenerate-PIN flow, delivery-metric direction:"lower"
+    only half-wired.

@@ -1624,14 +1624,32 @@ STILL OPEN AFTER THIS SESSION:
   - V10 Phase 4 loose ends — see the "NOT DONE" list in §15 immediately
     above (SAVE_SWIPE UI, comment-list remove/mark-commented, search-page
     bulk add, real-Chrome smoke test, deeper visual revamp).
-  - VERCEL ACCOUNT IS PAUSED (Fast Origin Transfer 30.27GB/10GB on Hobby).
-    Nothing from this session is live until Charles upgrades or the period
-    resets. The loop fix should stop it recurring.
-  - The Vercel-32GB vs Supabase-15GB discrepancy (ask for the usage page).
-  - Everything still open from §13: Fathom key likely still 401, team access
-    UI, no regenerate-PIN flow, delivery-metric direction:"lower" only
-    half-wired, README is stale (still says localStorage, missing
-    SESSION_SECRET/SUPABASE_* env vars).
+  - RESOLVED 2026-08-22: Charles upgraded both Supabase and Vercel to paid
+    plans. Confirmed via get_organization (plan: "pro"). Vercel's Fast
+    Origin Transfer cap no longer applies (was already moot after the
+    refetch-loop fix, but the account being paused on top of it is gone
+    too). Supabase Pro takes automatic daily backups, 7-day retention, no
+    setup needed — directly closes the "no backup existed" gap from the
+    data-loss incident earlier this same session (see the
+    eden-labs-testing-caused-data-loss memory file). PITR (second-level
+    granularity) is available as a paid add-on and deliberately NOT
+    enabled — not needed at this write volume. README.md rewritten to
+    match current reality (was still describing localStorage-only,
+    no-backend; now documents Supabase, the mutation/locking architecture,
+    the Chrome extension, and accurate env vars).
+  - Everything still open from §13 except README: Fathom key likely still
+    401 (not re-verified this session), team access UI absent (a
+    `team_members` table exists in Supabase with nothing wired to it — now
+    called out in the README so it isn't mistaken for a working feature),
+    no regenerate-PIN flow, delivery-metric direction:"lower" only
+    half-wired.
+  - The single-JSON-blob persistence model is unchanged by the plan
+    upgrades — still the biggest structural lever available if write
+    volume or concurrent-editor count ever grows. Worth a dedicated
+    planning pass (which collections move to real tables first — expenses,
+    financeLog and outreachLog are the fastest-growing) rather than an
+    inline rewrite, given the blast radius of touching the persistence
+    layer directly.
 
 --------------------------------------------------------------------------------
 16. V11 + V12 (2026-08-20, same long session)

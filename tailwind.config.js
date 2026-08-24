@@ -23,9 +23,29 @@ export default {
           "0%": { opacity: "0", transform: "translateY(6px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
+        "fade-in": {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
+        // Modals scale from near-full, never from 0 — nothing in the real
+        // world appears out of nothing. Origin stays centred: a modal isn't
+        // anchored to a trigger the way a popover is.
+        "pop-in": {
+          "0%": { opacity: "0", transform: "scale(0.96)" },
+          "100%": { opacity: "1", transform: "scale(1)" },
+        },
+        // Mobile bottom-sheet variant of the same entrance. Percentage
+        // translate so it works at any sheet height.
+        "sheet-up": {
+          "0%": { opacity: "0", transform: "translateY(100%)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
       },
       animation: {
         "fade-up": "fade-up 0.32s cubic-bezier(0.23,1,0.32,1) both",
+        "fade-in": "fade-in 0.2s cubic-bezier(0.23,1,0.32,1) both",
+        "pop-in": "pop-in 0.2s cubic-bezier(0.23,1,0.32,1) both",
+        "sheet-up": "sheet-up 0.28s cubic-bezier(0.32,0.72,0,1) both",
       },
     },
   },

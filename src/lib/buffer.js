@@ -129,6 +129,184 @@ export async function createBufferPost({ text, channelId, scheduledAt, media = n
   return result.post;
 }
 
+/**
+ * Moves a post OUT of Buffer's queue without destroying it — Buffer keeps the
+ * text and media as a draft on its side, we keep our own copy either way.
+ *
+ * Deliberately `saveToDraft` rather than `deletePost`: unscheduling is a
+ * change of mind about *timing*, not about the post. Deleting would make an
+ * undo impossible and would throw away anything that had been edited on
+ * Buffer's side since it was queued.
+ */
+export async function unscheduleBufferPost(id) {
+  const data = await bufferGraphQL(
+    `mutation Unschedule($input: EditPostInput!) {
+      editPost(input: $input) {
+        __typename
+        ... on PostActionSuccess { post { id status } }
+        ... on NotFoundError { message }
+        ... on UnauthorizedError { message }
+        ... on InvalidInputError { message }
+        ... on UnexpectedError { message }
+      }
+    }`,
+    { input: { id, saveToDraft: true } }
+  );
+  const r = data?.editPost;
+  if (r?.message) throw new Error(r.message);
+  if (r?.__typename !== "PostActionSuccess") {
+    throw new Error("Buffer didn't confirm the post was unscheduled.");
+  }
+  return r.post;
+}
+
+/** Moves a queued post to a new time, on Buffer itself. */
+export async function rescheduleBufferPost(id, scheduledAt) {
+  const data = await bufferGraphQL(
+    `mutation Reschedule($input: EditPostInput!) {
+      editPost(input: $input) {
+        __typename
+        ... on PostActionSuccess { post { id dueAt status } }
+        ... on NotFoundError { message }
+        ... on UnauthorizedError { message }
+        ... on InvalidInputError { message }
+        ... on UnexpectedError { message }
+      }
+    }`,
+    { input: { id, dueAt: new Date(scheduledAt).toISOString(), mode: "customScheduled" } }
+  );
+  const r = data?.editPost;
+  if (r?.message) throw new Error(r.message);
+  if (r?.__typename !== "PostActionSuccess") {
+    throw new Error("Buffer didn't confirm the new time.");
+  }
+  return r.post;
+}
+
+/** Hard-deletes a post from Buffer. Not undoable — prefer unschedule. */
+export async function deleteBufferPost(id) {
+  const data = await bufferGraphQL(
+    `mutation DeletePost($input: DeletePostInput!) {
+      deletePost(input: $input) {
+        __typename
+        ... on VoidMutationError { message }
+      }
+    }`,
+    { input: { id } }
+  );
+  const r = data?.deletePost;
+  if (r?.message) throw new Error(r.message);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// The queue — what is ACTUALLY scheduled
+// ---------------------------------------------------------------------------
+//
+// `fetchBufferPerformance` below filters to `status: [sent]`, so nothing in
+// the app ever knew about posts that haven't gone out yet. That made the
+// content calendar wrong in a way that was easy to miss: it rendered our own
+// `posts` records, which only carry a `bufferPostId` when the post was
+// scheduled THROUGH this dashboard. Anything queued in Buffer's own app was
+// invisible here, and any local record whose time had drifted showed the
+// stale time rather than the real one.
+//
+// Buffer is the source of truth for what is going out and when. This fetches
+// that directly, and the calendar renders it.
+
+export const QUEUE_STATUSES = ["scheduled", "draft", "sending", "error"];
+
+async function fetchOrgsAndChannels() {
+  const orgData = await bufferGraphQL(`query { account { organizations { id name } } }`);
+  const orgs = orgData?.account?.organizations || [];
+  if (!orgs.length) return { orgs: [], channels: [] };
+
+  const channelLists = await Promise.all(
+    orgs.map((org) =>
+      bufferGraphQL(
+        `query GetChannels($orgId: OrganizationId!) {
+          channels(input: { organizationId: $orgId }) { id name service avatar type }
+        }`,
+        { orgId: org.id }
+      ).then((d) => (d?.channels || []).map((c) => ({ ...c, organizationId: org.id })))
+    )
+  );
+  return { orgs, channels: channelLists.flat() };
+}
+
+const QUEUE_QUERY = `query GetQueue($orgId: OrganizationId!, $statuses: [PostStatus!], $first: Int, $after: String) {
+  posts(input: { organizationId: $orgId, filter: { status: $statuses } }, first: $first, after: $after) {
+    pageInfo { hasNextPage endCursor }
+    edges {
+      node {
+        id text status dueAt via isCustomScheduled createdAt updatedAt
+        channelId channelService
+        channel { id name service avatar }
+        tags { id name }
+        assets { __typename type thumbnail }
+        error { __typename }
+      }
+    }
+  }
+}`;
+
+/**
+ * Every post sitting in Buffer's queue (scheduled, draft, sending, failed),
+ * soonest first. `dueAt` comes back as a UTC instant — callers must convert
+ * to local rather than slicing the string, or a late-evening post lands on
+ * the wrong calendar day.
+ */
+export async function fetchBufferQueue() {
+  const { orgs, channels } = await fetchOrgsAndChannels();
+  if (!orgs.length) return { posts: [], channels: [] };
+
+  const all = [];
+  for (const org of orgs) {
+    let after = null;
+    for (let page = 0; page < 25; page++) {
+      const data = await bufferGraphQL(QUEUE_QUERY, {
+        orgId: org.id, statuses: QUEUE_STATUSES, first: 100, after,
+      });
+      const conn = data?.posts;
+      (conn?.edges || []).forEach((e) => {
+        const n = e.node;
+        all.push({
+          id: n.id,
+          text: n.text || "",
+          status: n.status,
+          dueAt: n.dueAt,
+          via: n.via,
+          isCustomScheduled: n.isCustomScheduled,
+          createdAt: n.createdAt,
+          updatedAt: n.updatedAt,
+          channelId: n.channelId,
+          service: n.channelService,
+          channelName: n.channel?.name || "Unknown channel",
+          channelAvatar: n.channel?.avatar || "",
+          organizationId: org.id,
+          tags: n.tags || [],
+          assets: (n.assets || []).map((a) => ({
+            kind: a.type || "",
+            thumbnail: a.thumbnail || "",
+          })),
+          hasError: !!n.error,
+        });
+      });
+      if (!conn?.pageInfo?.hasNextPage) break;
+      after = conn.pageInfo.endCursor;
+    }
+  }
+
+  // Soonest first. Anything without a dueAt (an untimed draft) sorts last
+  // rather than to 1970, which is where `new Date(null)` would put it.
+  all.sort((a, b) => {
+    if (!a.dueAt) return 1;
+    if (!b.dueAt) return -1;
+    return new Date(a.dueAt) - new Date(b.dueAt);
+  });
+  return { posts: all, channels };
+}
+
 // ---------------------------------------------------------------------------
 // Performance / analytics
 // ---------------------------------------------------------------------------

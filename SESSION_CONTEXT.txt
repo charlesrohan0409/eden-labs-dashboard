@@ -1875,3 +1875,78 @@ STILL OPEN AFTER THIS SESSION:
     likely still 401 (not re-verified), team access UI absent (table exists,
     nothing wired), no regenerate-PIN flow, delivery-metric direction:"lower"
     only half-wired.
+
+--------------------------------------------------------------------------------
+18. CALENDAR RENDERS BUFFER, NOT OUR MIRROR OF IT (2026-08-24)
+--------------------------------------------------------------------------------
+  The §17 change (calendar filtered to `bufferPostId`) was correct in
+  intent and still WRONG in practice, which the user caught immediately: a
+  post they had scheduled days earlier, due that same day, never appeared.
+
+  ROOT CAUSE, two independent halves:
+   1. `bufferPostId` is only ever written when a post is scheduled THROUGH
+      this dashboard (PostComposer / ScheduleModal). Anything scheduled in
+      Buffer's own app has no local record at all, so no filter over
+      `data.posts` could ever surface it. Of the 9 posts really in the
+      queue, the board knew about 3.
+   2. `fetchBufferPerformance()` queries `filter: { status: [sent] }` —
+      only posts already published. NOTHING in the app had ever fetched
+      Buffer's pending queue, so there was no data source that could have
+      answered "what's scheduled" even in principle.
+   Compounding both: local `scheduledAt` is never re-synced when a time is
+   changed in Buffer, so the three posts it DID show were on the wrong days
+   (Personal Branding 101 rendered on Aug 24; Buffer had it on Aug 26).
+
+  FIX: Buffer is now the source of truth for this view. New
+  `fetchBufferQueue()` (lib/buffer.js) pulls `status: [scheduled, draft,
+  sending, error]` with channel, tags and asset thumbnails; new
+  `useBufferQueue` hook caches it at module level, SEPARATE from the
+  performance cache (the queue changes on every schedule/unschedule, sent
+  metrics don't — one cache would serve a stale queue or refetch metrics
+  for nothing). The calendar renders the queue and JOINS our own records
+  onto it by bufferPostId for client/board context. Posts with no local
+  match render an explicit "not in your board" note rather than being
+  hidden or silently faked.
+  TIMEZONE: Buffer returns `dueAt` as a UTC instant. Every day-bucket and
+  time label converts to local first — the old code sliced the ISO string,
+  which drops an evening post onto the next day for anyone east of UTC.
+
+  UNSCHEDULE (new). `editPost(input: { id, saveToDraft: true })` — verified
+  by introspection that EditPostInput carries `saveToDraft` and that the
+  payload union is PostActionPayload (PostActionSuccess / NotFoundError /
+  UnauthorizedError / UnexpectedError / RestProxyError / LimitReachedError /
+  InvalidInputError). Deliberately NOT `deletePost`: unscheduling is a
+  change of mind about timing, not about the post, so Buffer keeps it as a
+  draft and our record goes back to "ready". Buffer is called FIRST and the
+  local record only updated once it confirms — the reverse would leave the
+  board claiming "Ready" for a post still in the queue. Two-step confirm in
+  the UI, no browser confirm().
+  Drag-to-reschedule now calls `editPost({ id, dueAt, mode })` so it moves
+  the post ON BUFFER, not just locally — the thing §17 removed as inert is
+  back and now actually means something.
+
+  WEEK VIEW + UI PASS. Month/Week segmented toggle (one sliding pill on a
+  transform, not a colour swap on two buttons). Cards carry a status rail,
+  time, thumbnail, client avatar. Live strip shows real queue depth and
+  what goes out next. RESPONSIVE: a 7-column grid at 375px gives each day
+  ~45px and wraps post text to one character per line, so the phone
+  layouts are a real JS branch, not smaller classes — month becomes a
+  tap-through dot density map, week becomes a vertical agenda. Modal.jsx
+  gained an entrance (fade+scale on desktop, sheet-up on mobile) which
+  every modal in the app inherits.
+
+STILL OPEN AFTER THIS SESSION:
+  - NOT LIVE-TESTED: the unschedule and drag-reschedule network calls.
+    Verifying them properly needs a throwaway post created in the real
+    Buffer account, and creating one was correctly blocked by the sandbox
+    as an outward-facing write. Mutation shapes are introspection-verified
+    and the UI paths (confirm step, busy state, error surface) were
+    exercised; the actual editPost round-trip was not. Do this WITH the
+    user, on a post they nominate, before trusting it.
+  - Local `posts` records remain a lossy mirror: nothing back-fills a local
+    card for a post scheduled straight in Buffer, and nothing reconciles a
+    drifted local `scheduledAt` against Buffer's `dueAt`. The calendar now
+    routes around this rather than fixing it. A real reconcile pass (adopt
+    orphan Buffer posts into the board, correct drifted times) is the
+    obvious follow-up.
+  - Everything else from §17 still stands.

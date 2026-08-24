@@ -15,8 +15,20 @@ import RepurposePanel from "../ui/RepurposePanel";
 import ContentHeader from "../ui/ContentHeader";
 import ContentCalendar from "../ui/ContentCalendar";
 import { useBufferPerformance } from "../../hooks/useBufferPerformance";
+import { useBufferQueue } from "../../hooks/useBufferQueue";
+import { unscheduleBufferPost, rescheduleBufferPost } from "../../lib/buffer";
 import { formatDateTime } from "../../lib/utils";
 import { normalizeStatus } from "../../lib/content";
+
+// Our own records store `scheduledAt` the way a datetime-local input writes
+// it — local wall-clock, no zone. Buffer speaks UTC. This converts back so a
+// reschedule driven from Buffer doesn't quietly write a UTC string into a
+// field everything else reads as local.
+function toLocalInputValue(utcIso) {
+  const d = new Date(utcIso);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
 
 export default function ContentPage({
   data, onAddPost, onUpdatePost, onDeletePost, onUpdatePostStatus,
@@ -36,6 +48,29 @@ export default function ContentPage({
   const bufferIntegration = data.integrations.find((i) => i.id === "buffer") || { connected: false, channels: [] };
   // 90 days keeps the comment list to conversations still worth joining.
   const perf = useBufferPerformance({ enabled: bufferIntegration.connected, range: "90" });
+  // What's actually queued — the calendar's source of truth. Separate from
+  // `perf`, which only ever sees posts that have already gone out.
+  const bufferQueue = useBufferQueue({ enabled: bufferIntegration.connected });
+
+  // Both of these hit Buffer first and only touch our own record once Buffer
+  // has confirmed. Doing it the other way round would leave the board saying
+  // "Ready" for a post still sitting in the queue.
+  const handleUnschedule = async (queuePost, localPost) => {
+    await unscheduleBufferPost(queuePost.id);
+    if (localPost) {
+      onUpdatePost(localPost.id, { status: "ready", scheduledAt: null, bufferPostId: null });
+    }
+    bufferQueue.refresh();
+  };
+
+  const handleReschedule = async (queuePost, localPost, nextIsoUtc) => {
+    await rescheduleBufferPost(queuePost.id, nextIsoUtc);
+    if (localPost) {
+      const local = toLocalInputValue(nextIsoUtc);
+      onUpdatePost(localPost.id, { scheduledAt: local, date: local.slice(0, 10) });
+    }
+    bufferQueue.refresh();
+  };
 
   // Auto-move scheduled -> published once Buffer says the post actually went
   // out. Runs on whatever Buffer data is already loaded rather than polling,
@@ -153,7 +188,15 @@ export default function ContentPage({
         <ContentCalendar
           posts={data.posts}
           clients={data.clients}
+          queue={bufferQueue.queue}
+          loading={bufferQueue.loading}
+          error={bufferQueue.error}
+          fetchedAt={bufferQueue.fetchedAt}
+          bufferConnected={bufferIntegration.connected}
+          onRefresh={bufferQueue.refresh}
           onOpenPost={(post) => { setComposerPostId(post.id); setView("composer"); }}
+          onUnschedule={handleUnschedule}
+          onReschedule={handleReschedule}
         />
       )}
 

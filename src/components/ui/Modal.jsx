@@ -21,11 +21,15 @@ export default function Modal({ open, onClose, title, subtitle, children, footer
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="absolute inset-0 bg-night/40 backdrop-blur-[2px]" onClick={onClose} />
+      <div
+        className="absolute inset-0 bg-night/40 backdrop-blur-[2px] motion-safe:animate-fade-in"
+        onClick={onClose}
+      />
       <div
         role="dialog"
         aria-modal="true"
-        className={`relative w-full ${WIDTHS[width]} bg-white rounded-t-2xl sm:rounded-2xl border border-line shadow-xl max-h-[92vh] sm:max-h-[86vh] flex flex-col`}
+        className={`relative w-full ${WIDTHS[width]} bg-white rounded-t-2xl sm:rounded-2xl border border-line shadow-xl max-h-[92vh] sm:max-h-[86vh] flex flex-col
+          motion-safe:animate-sheet-up sm:motion-safe:animate-pop-in`}
       >
         <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-stone-100 shrink-0">
           <div className="min-w-0">

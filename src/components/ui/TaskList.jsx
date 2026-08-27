@@ -153,7 +153,6 @@ export default function TaskList({
   const [draggingId, setDraggingId] = useState(null);
   const [dropTarget, setDropTarget] = useState(null); // { id, pos: "before" | "after" }
   const [sortMode, setSortMode] = useState("manual");
-  const dragCleanup = useRef(null);
 
   const client = (id) => clients.find((c) => c.id === id);
   const clientName = (id) => client(id)?.name;

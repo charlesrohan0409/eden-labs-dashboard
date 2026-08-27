@@ -47,7 +47,13 @@ export default function ClientPortalLogin({ onLogin, onExit }) {
           <div className="text-xl font-bold tracking-tight text-stone-900">Client Portal</div>
           <div className="text-xs text-stone-400 mt-1 mb-6">Enter your PIN to view your dashboard</div>
 
+          {/* type="password" and autoFocus were on the owner's login but not
+              here, so a client's PIN rendered in plaintext on screen — the one
+              login most likely to be opened on a shared screen or in a call. */}
           <input
+            autoFocus
+            type="password"
+            autoComplete="one-time-code"
             value={pin}
             onChange={(e) => { setPin(e.target.value); setError(""); }}
             onKeyDown={(e) => e.key === "Enter" && submit()}

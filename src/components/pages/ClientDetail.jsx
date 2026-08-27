@@ -20,7 +20,7 @@ import TaskList from "../ui/TaskList";
 import Modal from "../ui/Modal";
 import ImagePicker from "../ui/ImagePicker";
 import {
-  MONTHS, computeHealthScore, healthTone, relativeDays, formatDateTime, escapeHtml, isMetricOnTrack, metricProgressPct, portalLinkFor,
+  monthBuckets, computeHealthScore, healthTone, relativeDays, formatDateTime, escapeHtml, isMetricOnTrack, metricProgressPct, portalLinkFor,
   contractValueLabel, billingTypeLabel, computeCommissionTotal, commissionInstallment, today } from "../../lib/utils";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { CLIENT_TYPES, DEFAULT_CLIENT_TYPE, INDUSTRIES } from "../../data/seed";
@@ -125,34 +125,28 @@ export default function ClientDetail({
   const [notesText, setNotesText] = useState("");
   const [addingKpi, setAddingKpi] = useState(false);
   const [kpiForm, setKpiForm] = useState({ metric: "", target: "", direction: "higher", cadence: "none" });
-  const [editingKpiIdx, setEditingKpiIdx] = useState(null);
+  // Keyed by metric id, not array index — deleting a metric above the one
+  // being edited used to leave this pointing at a different KPI.
+  const [editingKpiId, setEditingKpiId] = useState(null);
   const { money } = useCurrency();
 
   const client = data.clients.find((c) => c.id === clientId);
   const clientDms = data.dms.filter((d) => d.clientId === clientId);
 
   const clientGrowth = useMemo(() => {
-    const byMonth = {};
-    MONTHS.forEach((m) => (byMonth[m] = { month: m, posts: 0, dms: 0 }));
-    data.posts.filter((p) => p.clientId === clientId).forEach((p) => {
-      const m = MONTHS[new Date(p.date).getMonth() - 2];
-      if (byMonth[m]) byMonth[m].posts += 1;
-    });
-    data.dms.filter((d) => d.clientId === clientId).forEach((d) => {
-      const m = MONTHS[new Date(d.date).getMonth() - 2];
-      if (byMonth[m]) byMonth[m].dms += 1;
-    });
-    return MONTHS.map((m) => byMonth[m]);
+    const b = monthBuckets(() => ({ posts: 0, dms: 0 }));
+    data.posts.filter((p) => p.clientId === clientId)
+      .forEach((p) => b.add(p.date, (m) => { m.posts += 1; }));
+    data.dms.filter((d) => d.clientId === clientId)
+      .forEach((d) => b.add(d.date, (m) => { m.dms += 1; }));
+    return b.series();
   }, [data.posts, data.dms, clientId]);
 
   const clientRevenue = useMemo(() => {
-    const byMonth = {};
-    MONTHS.forEach((m) => (byMonth[m] = { month: m, revenue: 0 }));
-    data.invoices.filter((i) => i.clientId === clientId && i.status === "paid").forEach((i) => {
-      const m = MONTHS[new Date(i.date).getMonth() - 2];
-      if (byMonth[m]) byMonth[m].revenue += i.amount;
-    });
-    return MONTHS.map((m) => byMonth[m]);
+    const b = monthBuckets(() => ({ revenue: 0 }));
+    data.invoices.filter((i) => i.clientId === clientId && i.status === "paid")
+      .forEach((i) => b.add(i.date, (m) => { m.revenue += i.amount; }));
+    return b.series();
   }, [data.invoices, clientId]);
 
   // Sync scratchpad when switching between clients
@@ -382,19 +376,19 @@ export default function ClientDetail({
     setKpiForm({ metric: "", target: "", direction: "higher", cadence: "none" });
     setAddingKpi(false);
   };
-  const submitEditKpi = (idx) => {
+  const submitEditKpi = (metricId) => {
     if (!kpiForm.metric.trim()) return;
-    onUpdateDeliveryMetric(client.id, idx, {
+    onUpdateDeliveryMetric(client.id, metricId, {
       metric: kpiForm.metric.trim(),
       target: Number(kpiForm.target) || 0,
       direction: kpiForm.direction,
       cadence: kpiForm.cadence,
     });
-    setEditingKpiIdx(null);
+    setEditingKpiId(null);
   };
-  const startEditKpi = (idx, d) => {
+  const startEditKpi = (d) => {
     setKpiForm({ metric: d.metric, target: String(d.target), direction: d.direction || "higher", cadence: d.cadence || "none" });
-    setEditingKpiIdx(idx);
+    setEditingKpiId(d.id);
     setAddingKpi(false);
   };
 
@@ -532,7 +526,7 @@ export default function ClientDetail({
               action={
                 !addingKpi && (
                   <button
-                    onClick={() => { setAddingKpi(true); setEditingKpiIdx(null); setKpiForm({ metric: "", target: "", direction: "higher", cadence: "none" }); }}
+                    onClick={() => { setAddingKpi(true); setEditingKpiId(null); setKpiForm({ metric: "", target: "", direction: "higher", cadence: "none" }); }}
                     className="flex items-center gap-1 text-xs font-medium text-emerald-700 hover:text-emerald-800"
                   >
                     <Plus size={13} /> Add KPI
@@ -545,15 +539,15 @@ export default function ClientDetail({
             <div className="space-y-3">
               {client.delivery.map((d, idx) => {
                 const onTrack = isMetricOnTrack(d);
-                if (editingKpiIdx === idx) {
+                if (editingKpiId === d.id) {
                   return (
-                    <div key={idx} className="flex items-center gap-2 flex-wrap bg-stone-50 rounded-xl p-3">
+                    <div key={d.id} className="flex items-center gap-2 flex-wrap bg-stone-50 rounded-xl p-3">
                       <input
                         autoFocus
                         placeholder="KPI name"
                         value={kpiForm.metric}
                         onChange={(e) => setKpiForm({ ...kpiForm, metric: e.target.value })}
-                        onKeyDown={(e) => e.key === "Enter" && submitEditKpi(idx)}
+                        onKeyDown={(e) => e.key === "Enter" && submitEditKpi(d.id)}
                         className={`${inputCls} flex-1 min-w-[9rem]`}
                       />
                       <input
@@ -561,7 +555,7 @@ export default function ClientDetail({
                         placeholder="Target"
                         value={kpiForm.target}
                         onChange={(e) => setKpiForm({ ...kpiForm, target: e.target.value })}
-                        onKeyDown={(e) => e.key === "Enter" && submitEditKpi(idx)}
+                        onKeyDown={(e) => e.key === "Enter" && submitEditKpi(d.id)}
                         className={`${inputCls} w-24`}
                       />
                       <select
@@ -581,15 +575,15 @@ export default function ClientDetail({
                         <option value="daily">Resets daily</option>
                         <option value="weekly">Resets weekly</option>
                       </select>
-                      <PrimaryButton size="sm" onClick={() => submitEditKpi(idx)}>Save</PrimaryButton>
-                      <button onClick={() => setEditingKpiIdx(null)} className="text-stone-400 hover:text-stone-700 p-1.5">
+                      <PrimaryButton size="sm" onClick={() => submitEditKpi(d.id)}>Save</PrimaryButton>
+                      <button onClick={() => setEditingKpiId(null)} className="text-stone-400 hover:text-stone-700 p-1.5">
                         <X size={15} />
                       </button>
                     </div>
                   );
                 }
                 return (
-                  <div key={idx} className="group flex items-center gap-3 flex-wrap">
+                  <div key={d.id} className="group flex items-center gap-3 flex-wrap">
                     <span className="text-sm text-stone-600 w-full sm:w-48">
                       {d.metric}{d.direction === "lower" && <span className="text-stone-400"> (lower is better)</span>}
                       {d.cadence && d.cadence !== "none" && (
@@ -598,7 +592,7 @@ export default function ClientDetail({
                     </span>
                     <NumberField
                       value={d.current}
-                      onCommit={(n) => onUpdateDelivery(client.id, idx, n)}
+                      onCommit={(n) => onUpdateDelivery(client.id, d.id, n)}
                       className={`${inputCls} w-20`}
                     />
                     <span className="text-xs text-stone-400">/ target {d.target}</span>
@@ -612,10 +606,10 @@ export default function ClientDetail({
                       {onTrack ? "on track" : "behind"}
                     </Badge>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => startEditKpi(idx, d)} aria-label="Edit KPI" className="text-stone-400 hover:text-stone-700 p-1">
+                      <button onClick={() => startEditKpi(d)} aria-label="Edit KPI" className="text-stone-400 hover:text-stone-700 p-1">
                         <Pencil size={13} />
                       </button>
-                      <button onClick={() => onDeleteDeliveryMetric(client.id, idx)} aria-label="Delete KPI" className="text-stone-400 hover:text-rose-600 p-1">
+                      <button onClick={() => onDeleteDeliveryMetric(client.id, d.id)} aria-label="Delete KPI" className="text-stone-400 hover:text-rose-600 p-1">
                         <Trash2 size={13} />
                       </button>
                     </div>

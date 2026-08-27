@@ -1,7 +1,51 @@
 // Cross-cutting helpers that more than one page needs. Anything used by a
 // single component stays in that component's file.
 
-export const MONTHS = ["Mar", "Apr", "May", "Jun", "Jul", "Aug"];
+/**
+ * The last `count` months ending with the current one, oldest first.
+ *
+ * This replaces a hardcoded `MONTHS = ["Mar".."Aug"]` that every chart in the
+ * app bucketed into via `MONTHS[new Date(x).getMonth() - 2]`. That expression
+ * returns undefined for any month outside Mar–Aug, so Jan, Feb and Sep–Dec
+ * data was silently dropped on the floor — and from 1 September every revenue,
+ * content, calls and deals chart (owner dashboard AND client portal) would
+ * have frozen and never recorded another data point.
+ *
+ * Buckets are keyed "YYYY-MM" rather than by bare month name, so the same
+ * month in different years can't collide, and `monthKeyOf` reads the key
+ * straight off the stored "YYYY-MM-DD" string — no Date parsing, and
+ * therefore no timezone slippage.
+ */
+export function recentMonths(count = 6, from = new Date()) {
+  const out = [];
+  for (let i = count - 1; i >= 0; i--) {
+    const d = new Date(from.getFullYear(), from.getMonth() - i, 1);
+    out.push({
+      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+      label: d.toLocaleDateString(undefined, { month: "short" }),
+    });
+  }
+  return out;
+}
+
+/** "2026-08-27" -> "2026-08". Tolerates null/undefined. */
+export const monthKeyOf = (dateStr) => String(dateStr || "").slice(0, 7);
+
+/**
+ * Builds an empty {key: bucket} map plus the ordered month list, so every
+ * chart builder is three lines instead of a hand-rolled loop with index math.
+ */
+export function monthBuckets(seed, count = 6) {
+  const months = recentMonths(count);
+  const byKey = {};
+  months.forEach((m) => { byKey[m.key] = { month: m.label, ...seed() }; });
+  return {
+    months,
+    byKey,
+    add: (dateStr, fn) => { const b = byKey[monthKeyOf(dateStr)]; if (b) fn(b); },
+    series: () => months.map((m) => byKey[m.key]),
+  };
+}
 
 // ---------- Unicode text formatting (LinkedIn-style bold/italic) ----------
 export const toUnicodeBold = (str) =>

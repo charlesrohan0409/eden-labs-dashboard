@@ -23,13 +23,18 @@ export function CurrencyProvider({ currency = "USD", children }) {
   const [fx, setFx] = useState({ rate: null, fetchedAt: null, stale: false, loading: true });
   const [hideAmounts, setHideAmounts] = useState(() => localStorage.getItem(HIDE_KEY) === "1");
 
+  // The write stays OUT of the updater. StrictMode double-invokes updaters in
+  // dev, so a side effect in there runs twice — harmless for an idempotent
+  // localStorage write like this one, but it is the exact impure-updater shape
+  // that caused a real data-loss bug in this codebase before, and it stops
+  // being harmless the moment anything order-dependent moves inside.
   const toggleHideAmounts = () => {
-    setHideAmounts((h) => {
-      const next = !h;
-      localStorage.setItem(HIDE_KEY, next ? "1" : "0");
-      return next;
-    });
+    setHideAmounts((h) => !h);
   };
+
+  useEffect(() => {
+    localStorage.setItem(HIDE_KEY, hideAmounts ? "1" : "0");
+  }, [hideAmounts]);
 
   useEffect(() => {
     // Only bother hitting the FX API when a non-USD currency is actually

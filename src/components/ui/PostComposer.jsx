@@ -35,6 +35,7 @@ const EMPTY_POLL = { question: "", options: [{ text: "", votes: 0 }, { text: "",
  * client approving their own post makes no sense.
  */
 export default function PostComposer({
+  isOwnerView = true,
   clientId, posts, onAddPost, onUpdatePost, onDeletePost, onPushForApproval,
   author = "Eden Labs", headline = "LinkedIn content & client acquisition", avatarUrl = "",
   bufferConnected = false, bufferChannels = [], bufferChannelId = null, onSetBufferChannel = null,
@@ -321,7 +322,9 @@ export default function PostComposer({
     let successMessage = {
       draft: "Saved as a draft.",
       pending_review: "Sent to the client for approval.",
-      scheduled: `Scheduled for ${formatDateTime(scheduledAt)}. Connect Buffer on Integrations, then pick a channel below, to publish automatically.`,
+      scheduled: isOwnerView
+        ? `Scheduled for ${formatDateTime(scheduledAt)}. Connect Buffer on Integrations, then pick a channel below, to publish automatically.`
+        : `Scheduled for ${formatDateTime(scheduledAt)}.`,
     }[postStatus];
 
     if (postStatus === "scheduled" && canPublishToBuffer) {
@@ -640,7 +643,10 @@ export default function PostComposer({
             {publishing ? "Publishing to Buffer…" : canPublishToBuffer ? "Schedule via Buffer" : editingId ? "Save & schedule" : "Schedule"}
           </PrimaryButton>
         </div>
-        {!bufferConnected && (
+        {/* Owner-only: a client has no Integrations page, so telling them to
+            go connect Buffer there is both confusing and slightly alarming
+            about their own posts. They just see it as scheduled. */}
+        {!bufferConnected && isOwnerView && (
           <div className="text-[11px] text-stone-400 mt-2">
             Buffer isn't connected — scheduled posts are stored here until you connect it on Integrations.
           </div>

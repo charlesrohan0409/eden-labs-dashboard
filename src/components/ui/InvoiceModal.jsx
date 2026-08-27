@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef} from "react";
 import { Plus, Download, Send, Loader2, CheckCircle2, FileText } from "lucide-react";
 import Modal from "./Modal";
 import Badge from "./Badge";
@@ -21,6 +21,8 @@ export default function InvoiceModal({ open, onClose, clients, invoices, account
   const [created, setCreated] = useState(null); // the invoice once it exists
   const [sendStatus, setSendStatus] = useState("");
   const [sendError, setSendError] = useState("");
+  const resetTimer = useRef(null);
+  useEffect(() => () => clearTimeout(resetTimer.current), []);
   const [sending, setSending] = useState(false);
   const { moneyIn } = useCurrency();
   // The invoice's OWN currency — not the dashboard's display setting.
@@ -53,8 +55,10 @@ export default function InvoiceModal({ open, onClose, clients, invoices, account
 
   const close = () => {
     onClose();
-    // Reset after the close animation would run, if there were one.
-    setTimeout(() => {
+    // Reset after the close animation would run, if there were one. Tracked
+    // so reopening inside 200ms doesn't get the form wiped out from under it.
+    clearTimeout(resetTimer.current);
+    resetTimer.current = setTimeout(() => {
       setForm(EMPTY_FORM);
       setCreated(null);
       setSendStatus("");

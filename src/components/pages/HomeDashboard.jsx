@@ -13,7 +13,7 @@ import Avatar from "../ui/Avatar";
 import TaskList from "../ui/TaskList";
 import MeetingRow from "../ui/MeetingRow";
 import TodayPanel from "../ui/TodayPanel";
-import { MONTHS, computeHealthScore, healthTone, STAGE_WEIGHTS, relativeDays, isMetricOnTrack, metricProgressPct, computeMRR, toDateKey} from "../../lib/utils";
+import { computeHealthScore, healthTone, STAGE_WEIGHTS, relativeDays, isMetricOnTrack, metricProgressPct, computeMRR, toDateKey, monthBuckets } from "../../lib/utils";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { useBufferPerformance } from "../../hooks/useBufferPerformance";
 import { useCurrency } from "../../hooks/useCurrency";
@@ -29,17 +29,12 @@ function greetingFor(hour) {
 export default function HomeDashboard({ data, setView, setSelectedClient, onAddTask, onToggleTask, onDeleteTask, onUpdateTask, onReorderTasks }) {
   const { money } = useCurrency();
   const finSeries = useMemo(() => {
-    const byMonth = {};
-    MONTHS.forEach((m) => (byMonth[m] = { month: m, revenue: 0, cost: 0 }));
+    const b = monthBuckets(() => ({ revenue: 0, cost: 0 }));
     data.invoices.forEach((i) => {
-      const m = MONTHS[new Date(i.date).getMonth() - 2];
-      if (byMonth[m] && i.status === "paid") byMonth[m].revenue += i.amount;
+      if (i.status === "paid") b.add(i.date, (m) => { m.revenue += i.amount; });
     });
-    data.expenses.forEach((e) => {
-      const m = MONTHS[new Date(e.date).getMonth() - 2];
-      if (byMonth[m]) byMonth[m].cost += e.amount;
-    });
-    return MONTHS.map((m) => byMonth[m]);
+    data.expenses.forEach((e) => b.add(e.date, (m) => { m.cost += e.amount; }));
+    return b.series();
   }, [data.invoices, data.expenses]);
 
   const totalRevenue = finSeries.reduce((s, m) => s + m.revenue, 0);

@@ -14,7 +14,7 @@ import PendingApproval from "../ui/PendingApproval";
 import CommentThread from "../ui/CommentThread";
 import MiniCalendar from "../ui/MiniCalendar";
 import CrmBoard from "../ui/CrmBoard";
-import { MONTHS, isMetricOnTrack, metricProgressPct, contractValueLabel } from "../../lib/utils";
+import { isMetricOnTrack, metricProgressPct, contractValueLabel, monthBuckets, toDateKey } from "../../lib/utils";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { listFathomMeetings, matchMeetingsToClient } from "../../lib/fathom";
 import { CLIENT_TYPES, DEFAULT_CLIENT_TYPE } from "../../data/seed";
@@ -33,6 +33,7 @@ export default function ClientPortal({
   onAddComment, onUpdatePostStatus, token,
 }) {
   const [tab, setTab] = useState("overview");
+  const [approvingId, setApprovingId] = useState(null);
   const [contentView, setContentView] = useState("list");
   const [transcripts, setTranscripts] = useState([]);
   const [transcriptsLoading, setTranscriptsLoading] = useState(false);
@@ -53,34 +54,28 @@ export default function ClientPortal({
   // actually getting it onto LinkedIn is still a manual step for Charles.
 
   const postsSeries = useMemo(() => {
-    const byMonth = {};
-    MONTHS.forEach((m) => (byMonth[m] = { month: m, published: 0, scheduled: 0 }));
+    const b = monthBuckets(() => ({ published: 0, scheduled: 0 }));
     clientPosts.forEach((p) => {
-      const m = MONTHS[new Date(p.date).getMonth() - 2];
-      if (byMonth[m] && (p.status === "published" || p.status === "scheduled")) byMonth[m][p.status] += 1;
+      if (p.status !== "published" && p.status !== "scheduled") return;
+      b.add(p.date, (m) => { m[p.status] += 1; });
     });
-    return MONTHS.map((m) => byMonth[m]);
+    return b.series();
   }, [clientPosts]);
 
   const callsSeries = useMemo(() => {
-    const byMonth = {};
-    MONTHS.forEach((m) => (byMonth[m] = { month: m, inbound: 0, outbound: 0 }));
-    clientCalls.forEach((c) => {
-      const m = MONTHS[new Date(c.date).getMonth() - 2];
-      if (byMonth[m]) byMonth[m][c.direction] += 1;
-    });
-    return MONTHS.map((m) => byMonth[m]);
+    const b = monthBuckets(() => ({ inbound: 0, outbound: 0 }));
+    clientCalls.forEach((c) => b.add(c.date, (m) => {
+      if (c.direction === "inbound" || c.direction === "outbound") m[c.direction] += 1;
+    }));
+    return b.series();
   }, [clientCalls]);
 
   const dealsSeries = useMemo(() => {
-    const byMonth = {};
-    MONTHS.forEach((m) => (byMonth[m] = { month: m, value: 0 }));
-    clientDeals.forEach((c) => {
-      if (!c.closedDate) return;
-      const m = MONTHS[new Date(c.closedDate).getMonth() - 2];
-      if (byMonth[m]) byMonth[m].value += Number(c.dealValue) || 0;
-    });
-    return MONTHS.map((m) => byMonth[m]);
+    const b = monthBuckets(() => ({ value: 0 }));
+    clientDeals.forEach((c) => b.add(c.closedDate, (m) => {
+      m.value += Number(c.dealValue) || 0;
+    }));
+    return b.series();
   }, [clientDeals]);
 
   if (!client) return null;
@@ -100,8 +95,6 @@ export default function ClientPortal({
       setTranscriptsLoading(false);
     }
   };
-
-  const inputCls = "border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
   const totalClosed = clientDeals.reduce((s, d) => s + (Number(d.dealValue) || 0), 0);
 
   // Only the tabs this client's service line uses — a book-editing client has
@@ -237,19 +230,36 @@ export default function ClientPortal({
               author={client.name}
               headline={client.company}
               avatarUrl={client.photoUrl}
-              onApprove={(id) => onUpdatePostStatus(id, "scheduled")}
-              onRequestChanges={(id, feedback) => {
-                onUpdatePostStatus(id, "draft");
-                onAddComment({
-                  clientId, tab: "content", author: "Client",
-                  text: `Requested changes: ${feedback}`,
-                  date: new Date().toISOString().slice(0, 10) + " " + new Date().toTimeString().slice(0, 5),
-                });
+              // PendingApproval already implements a full pending state; the
+              // prop driving it was simply never passed, so the portal's most
+              // consequential action gave no feedback and invited a double-click.
+              approvingId={approvingId}
+              onApprove={async (id) => {
+                setApprovingId(id);
+                try { await onUpdatePostStatus(id, "scheduled"); }
+                finally { setApprovingId(null); }
+              }}
+              onRequestChanges={async (id, feedback) => {
+                setApprovingId(id);
+                try {
+                  // Sequential, not fired in parallel. Both are read-modify-write
+                  // on the same blob, so firing them together meant one silently
+                  // overwrote the other — you got the status revert OR the
+                  // feedback comment, never reliably both.
+                  await onUpdatePostStatus(id, "draft");
+                  const now = new Date();
+                  await onAddComment({
+                    clientId, tab: "content", author: "Client",
+                    text: `Requested changes: ${feedback}`,
+                    date: `${toDateKey(now)} ${now.toTimeString().slice(0, 5)}`,
+                  });
+                } finally { setApprovingId(null); }
               }}
             />
 
             <Card className="p-4 sm:p-5">
               <PostComposer
+                isOwnerView={false}
                 clientId={client.id}
                 posts={data.posts}
                 onAddPost={onAddPost}

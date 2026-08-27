@@ -85,6 +85,7 @@ export default function PendingApproval({ posts, onApprove, onRequestChanges, au
                   <div className="flex items-center gap-2 flex-wrap">
                     <PrimaryButton
                       icon={approvingId === p.id ? Loader2 : CheckCircle2}
+                      iconClassName={approvingId === p.id ? "animate-spin" : ""}
                       onClick={() => onApprove(p.id)}
                       disabled={approvingId === p.id}
                     >

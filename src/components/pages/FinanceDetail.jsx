@@ -21,7 +21,7 @@ import CategorySelect from "../ui/CategorySelect";
 import FinanceActivity from "../ui/FinanceActivity";
 import Outgoings from "../ui/Outgoings";
 import Budgets from "../ui/Budgets";
-import { MONTHS, downloadCSV, today, computeMRR, billingTypeLabel } from "../../lib/utils";
+import { downloadCSV, today, computeMRR, billingTypeLabel , monthBuckets } from "../../lib/utils";
 import { useCurrency } from "../../hooks/useCurrency";
 import { formatAmount, CURRENCIES } from "../../lib/currency";
 import { invoiceNumber } from "../../lib/invoice";
@@ -89,24 +89,18 @@ export default function FinanceDetail({
 
   // Revenue and cost per month, the series behind every chart on this page.
   const finSeries = useMemo(() => {
-    const byMonth = {};
-    MONTHS.forEach((m) => (byMonth[m] = { month: m, revenue: 0, cost: 0 }));
-    data.invoices.filter((i) => i.status === "paid").forEach((i) => {
-      const m = MONTHS[new Date(i.date).getMonth() - 2];
-      if (byMonth[m]) byMonth[m].revenue += i.amount;
-    });
-    data.expenses.forEach((e) => {
-      const m = MONTHS[new Date(e.date).getMonth() - 2];
-      if (byMonth[m]) byMonth[m].cost += e.amount;
-    });
-    return MONTHS.map((m) => byMonth[m]);
+    const b = monthBuckets(() => ({ revenue: 0, cost: 0 }));
+    data.invoices.filter((i) => i.status === "paid")
+      .forEach((i) => b.add(i.date, (m) => { m.revenue += i.amount; }));
+    data.expenses.forEach((e) => b.add(e.date, (m) => { m.cost += e.amount; }));
+    return b.series();
   }, [data.invoices, data.expenses]);
 
   // Month-over-month only means something once the current month has payments
   // in it; before that a "-100%" headline is technically true and useless.
   const lastMonthRev = finSeries.at(-2)?.revenue || 0;
   const thisMonthRev = finSeries.at(-1)?.revenue || 0;
-  const currentMonth = MONTHS.at(-1);
+  const currentMonth = finSeries.at(-1)?.month;
   const revTrend = thisMonthRev && lastMonthRev
     ? Math.round(((thisMonthRev - lastMonthRev) / lastMonthRev) * 100)
     : null;

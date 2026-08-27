@@ -12,8 +12,8 @@ const SIZES = {
 };
 
 export default function PrimaryButton({
-  children, onClick, icon: Icon, className = "", variant = "primary", size = "md",
-  disabled = false, type = "button", title,
+  children, onClick, icon: Icon, iconClassName = "", className = "",
+  variant = "primary", size = "md", disabled = false, type = "button", title,
 }) {
   return (
     <button
@@ -21,9 +21,16 @@ export default function PrimaryButton({
       title={title}
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex items-center justify-center font-medium rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${VARIANTS[variant]} ${SIZES[size]} ${className}`}
+      // Press feedback on the app's primary pressable. It had none: a click
+      // produced no acknowledgement until the resulting work finished, which
+      // on a slow save reads as "did that register?". Transform-only and
+      // motion-safe, so it costs nothing and respects reduced-motion.
+      className={`inline-flex items-center justify-center font-medium rounded-full
+        transition-[background-color,color,border-color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)]
+        motion-safe:active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100
+        ${VARIANTS[variant]} ${SIZES[size]} ${className}`}
     >
-      {Icon && <Icon size={size === "sm" ? 13 : 15} />}
+      {Icon && <Icon size={size === "sm" ? 13 : 15} className={iconClassName} />}
       {children}
     </button>
   );

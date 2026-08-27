@@ -58,12 +58,18 @@ export function migrateData(loaded) {
       billingType: "retainer", payoutMonths: null, commissionPct: null, commissionBasis: null,
       ...(c.contract || {}),
     },
-    delivery: (Array.isArray(c.delivery) ? c.delivery : []).map((m) => ({
+    delivery: (Array.isArray(c.delivery) ? c.delivery : []).map((m, i) => ({
       // Delivery entries never got per-field backfilling before — a metric
       // saved before recurring cadence existed just accumulates forever,
       // same as it always has, unless the owner opts a KPI into resetting.
       cadence: "none", periodStart: "",
       ...m,
+      // Stable identity. These were addressed purely by array index — state,
+      // React key and the mutations all — so deleting a metric above the one
+      // being edited silently retargeted the edit onto whatever slid into
+      // that slot. Derived from the position at migrate time (once), then
+      // carried on the record forever.
+      id: m.id || `dm-${c.id}-${i}-${Math.random().toString(36).slice(2, 7)}`,
     })),
   }));
 

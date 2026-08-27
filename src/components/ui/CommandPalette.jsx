@@ -34,13 +34,14 @@ export default function CommandPalette({ open, onClose, data, setView, setSelect
   const listRef = useRef(null);
 
   useEffect(() => {
-    if (open) {
-      setQuery("");
-      setActive(0);
-      // rAF rather than a bare focus() — the input doesn't exist until this
-      // render is painted.
-      requestAnimationFrame(() => inputRef.current?.focus());
-    }
+    if (!open) return;
+    setQuery("");
+    setActive(0);
+    // rAF rather than a bare focus() — the input doesn't exist until this
+    // render is painted. Cancelled on close so a rapid toggle can't focus
+    // an input that's already gone.
+    const raf = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(raf);
   }, [open]);
 
   const commands = useMemo(() => {

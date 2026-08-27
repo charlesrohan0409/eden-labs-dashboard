@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toDateKey } from "../../lib/utils";
 import { MessageSquare } from "lucide-react";
 import Card from "./Card";
 import PrimaryButton from "./PrimaryButton";
@@ -7,12 +8,24 @@ export default function CommentThread({ comments, clientId, tabKey, author, onAd
   const [text, setText] = useState("");
   const filtered = comments.filter((c) => c.clientId === clientId && c.tab === tabKey);
 
-  const post = () => {
-    if (!text.trim()) return;
+  // Clear only once the save has actually gone through. This used to clear
+  // unconditionally, so a failed write (the portal's act() swallows the error
+  // into a banner) took the client's typed comment with it, with nothing to
+  // retry from.
+  const [sending, setSending] = useState(false);
+  const post = async () => {
+    if (!text.trim() || sending) return;
     const now = new Date();
-    const stamp = now.toISOString().slice(0, 10) + " " + now.toTimeString().slice(0, 5);
-    onAdd({ clientId, tab: tabKey, author, text, date: stamp });
-    setText("");
+    const stamp = `${toDateKey(now)} ${now.toTimeString().slice(0, 5)}`;
+    setSending(true);
+    try {
+      await onAdd({ clientId, tab: tabKey, author, text, date: stamp });
+      setText("");
+    } catch {
+      /* leave the text in place so it can be sent again */
+    } finally {
+      setSending(false);
+    }
   };
 
   return (

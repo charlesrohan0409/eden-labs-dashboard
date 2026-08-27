@@ -105,11 +105,18 @@ export function updateContract(d, id, contract) {
   if (c) c.contract = contract;
   return d;
 }
-export function updateDelivery(d, id, idx, val) {
+// Addressed by metric id, not array position — see migrate.js. `ref` accepts
+// an id; a number is still tolerated so nothing breaks if a caller is missed.
+const findMetric = (c, ref) =>
+  typeof ref === "number" ? c.delivery[ref] : c.delivery.find((m) => m.id === ref);
+
+export function updateDelivery(d, id, ref, val) {
   const c = d.clients.find((x) => x.id === id);
-  if (c && c.delivery[idx]) c.delivery[idx].current = val;
+  const m = c && findMetric(c, ref);
+  if (m) m.current = Number(val) || 0;
   return d;
 }
+
 // ---- custom KPIs (delivery metric definitions, not just their progress) ----
 // Every client type ships with defaultDelivery metrics (seed.js), but those
 // are just a starting template — this is what lets the owner add, rename,
@@ -120,6 +127,7 @@ export function addDeliveryMetric(d, id, metric) {
   const cadence = metric.cadence || "none";
   if (c) {
     c.delivery.push({
+      id: uid(),
       metric: metric.metric, target: Number(metric.target) || 0, current: 0, direction: metric.direction || "higher",
       cadence,
       // Seeded now for the same reason addTask seeds periodStart — correct
@@ -129,14 +137,18 @@ export function addDeliveryMetric(d, id, metric) {
   }
   return d;
 }
-export function updateDeliveryMetric(d, id, idx, patch) {
+export function updateDeliveryMetric(d, id, ref, patch) {
   const c = d.clients.find((x) => x.id === id);
-  if (c && c.delivery[idx]) Object.assign(c.delivery[idx], patch);
+  const m = c && findMetric(c, ref);
+  if (m) Object.assign(m, patch);
   return d;
 }
-export function deleteDeliveryMetric(d, id, idx) {
+export function deleteDeliveryMetric(d, id, ref) {
   const c = d.clients.find((x) => x.id === id);
-  if (c) c.delivery = c.delivery.filter((_, i) => i !== idx);
+  if (!c) return d;
+  c.delivery = typeof ref === "number"
+    ? c.delivery.filter((_, i) => i !== ref)
+    : c.delivery.filter((m) => m.id !== ref);
   return d;
 }
 // Permanently removes a client and everything tied to them — distinct from

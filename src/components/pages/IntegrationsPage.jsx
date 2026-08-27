@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Check, Plug, Loader2, AlertCircle, RefreshCw, User, Coins } from "lucide-react";
 import Card, { CardTitle } from "../ui/Card";
 import Badge from "../ui/Badge";
@@ -173,11 +173,21 @@ function FathomCard({ integration, onConnected, onDisconnected }) {
 function ProfileCard({ profile, onUpdateProfile, token }) {
   const [form, setForm] = useState(profile);
   const [saved, setSaved] = useState(false);
+  const savedTimer = useRef(null);
+
+  // Re-sync when the server copy changes (a conflict replay, a fresh load).
+  // Without this the form kept showing stale values while `dirty` compared
+  // against the NEW prop — so the Save button lit up on its own and re-saved
+  // the old data over the new.
+  useEffect(() => { setForm(profile); }, [profile]);
+
+  useEffect(() => () => clearTimeout(savedTimer.current), []);
 
   const save = () => {
     onUpdateProfile(form);
     setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    clearTimeout(savedTimer.current);
+    savedTimer.current = setTimeout(() => setSaved(false), 2500);
   };
 
   const dirty = JSON.stringify(form) !== JSON.stringify(profile);

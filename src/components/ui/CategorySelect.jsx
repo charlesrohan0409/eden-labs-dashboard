@@ -21,6 +21,7 @@ export default function CategorySelect({
 }) {
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState("");
+  const discardedRef = useRef(false);
   const inputRef = useRef(null);
 
   const options = categoryOptions(categories, value);
@@ -52,9 +53,19 @@ export default function CategorySelect({
               if (e.key === "Enter") { e.preventDefault(); commit(); }
               // Escape backs out without creating anything — an accidental
               // click on "New category" shouldn't trap you in this state.
-              if (e.key === "Escape") { e.preventDefault(); setCreating(false); setDraft(""); }
+              // Same Firefox blur-on-unmount trap as ContentBoard: without
+              // the ref, Escape created the category it was meant to discard.
+              if (e.key === "Escape") {
+                e.preventDefault();
+                discardedRef.current = true;
+                setCreating(false);
+                setDraft("");
+              }
             }}
-            onBlur={commit}
+            onBlur={() => {
+              if (discardedRef.current) { discardedRef.current = false; return; }
+              commit();
+            }}
             placeholder="Category name"
             className={base}
           />

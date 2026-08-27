@@ -32,27 +32,40 @@ async function apiAction(token, action, payload) {
 export function usePortalData(token, onUnauthorized) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!token) { setData(null); return; }
-    let cancelled = false;
-    apiGet(token)
-      .then((json) => { if (!cancelled) setData(json.data); })
-      .catch((e) => {
-        if (cancelled) return;
-        if (e.unauthorized) onUnauthorized?.();
-        else setError(e.message);
-      });
-    return () => { cancelled = true; };
+    setRefreshing(true);
+    try {
+      const json = await apiGet(token);
+      setData(json.data);
+      setError("");
+    } catch (e) {
+      if (e.unauthorized) onUnauthorized?.();
+      else setError(e.message);
+    } finally {
+      setRefreshing(false);
+    }
   }, [token, onUnauthorized]);
 
-  const act = useCallback((action, payload) => {
-    apiAction(token, action, payload)
-      .then((json) => { setData(json.data); setError(""); })
-      .catch((e) => {
-        if (e.unauthorized) { onUnauthorized?.(); return; }
-        setError(e.message);
-      });
+  useEffect(() => { load(); }, [load]);
+
+  // Returns a PROMISE and rethrows. It used to swallow the error and return
+  // undefined, so callers couldn't show a pending state or react to a
+  // failure — which is why the approve button gave no feedback at all and
+  // why a failed comment was cleared from the box as if it had sent.
+  const act = useCallback(async (action, payload) => {
+    try {
+      const json = await apiAction(token, action, payload);
+      setData(json.data);
+      setError("");
+      return json.data;
+    } catch (e) {
+      if (e.unauthorized) { onUnauthorized?.(); throw e; }
+      setError(e.message);
+      throw e;
+    }
   }, [token, onUnauthorized]);
 
   const actions = {
@@ -64,5 +77,5 @@ export function usePortalData(token, onUnauthorized) {
     addComment: (c) => act("addComment", c),
   };
 
-  return { data, actions, error, dismissError: () => setError("") };
+  return { data, actions, error, refreshing, refresh: load, dismissError: () => setError("") };
 }

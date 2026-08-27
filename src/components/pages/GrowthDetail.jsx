@@ -11,7 +11,7 @@ import IconStat from "../ui/IconStat";
 import Avatar from "../ui/Avatar";
 import PrimaryButton from "../ui/PrimaryButton";
 import Badge from "../ui/Badge";
-import { MONTHS, computeHealthScore, healthTone, today, toDateKey} from "../../lib/utils";
+import { computeHealthScore, healthTone, today, toDateKey, monthBuckets } from "../../lib/utils";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { useBufferPerformance } from "../../hooks/useBufferPerformance";
 import { useCurrency } from "../../hooks/useCurrency";
@@ -111,13 +111,13 @@ export default function GrowthDetail({ data, setView, onLogOutreachDay, onDelete
   }, [data.posts]);
 
   const dealsByMonth = useMemo(() => {
-    const byMonth = {};
-    MONTHS.forEach((m) => (byMonth[m] = { month: m, deals: 0, value: 0 }));
-    data.contacts.filter((c) => c.stage === "closed" && c.closedDate).forEach((c) => {
-      const m = MONTHS[new Date(c.closedDate).getMonth() - 2];
-      if (byMonth[m]) { byMonth[m].deals += 1; byMonth[m].value += Number(c.dealValue) || 0; }
-    });
-    return MONTHS.map((m) => byMonth[m]);
+    const b = monthBuckets(() => ({ deals: 0, value: 0 }));
+    data.contacts.filter((c) => c.stage === "closed" && c.closedDate)
+      .forEach((c) => b.add(c.closedDate, (m) => {
+        m.deals += 1;
+        m.value += Number(c.dealValue) || 0;
+      }));
+    return b.series();
   }, [data.contacts]);
 
   const trend = (arr, key) => {

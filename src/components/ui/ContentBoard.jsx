@@ -151,6 +151,7 @@ export default function ContentBoard({
   const [draggingId, setDraggingId] = useState(null);
   const [dragOverStage, setDragOverStage] = useState(null);
   const [ideaText, setIdeaText] = useState("");
+  const discardedRef = useRef(false);
   const [addingIdea, setAddingIdea] = useState(false);
   // Drag events fire on children too; count enter/leave so the column
   // highlight doesn't flicker as the pointer crosses a card.
@@ -257,9 +258,22 @@ export default function ContentBoard({
                         onChange={(e) => setIdeaText(e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitIdea(); }
-                          if (e.key === "Escape") { setAddingIdea(false); setIdeaText(""); }
+                          // The ref, not just the state: Escape unmounts a
+                          // focused textarea, and Firefox fires blur on
+                          // removal. onBlur closes over the pre-clear draft,
+                          // so without this guard Esc SAVED the idea you were
+                          // discarding. Chrome doesn't fire it, which is why
+                          // this only ever broke for some people.
+                          if (e.key === "Escape") {
+                            discardedRef.current = true;
+                            setAddingIdea(false);
+                            setIdeaText("");
+                          }
                         }}
-                        onBlur={submitIdea}
+                        onBlur={() => {
+                          if (discardedRef.current) { discardedRef.current = false; return; }
+                          submitIdea();
+                        }}
                         placeholder="What's the idea?"
                         className="w-full text-[13px] leading-snug resize-none focus:outline-none placeholder:text-stone-300"
                       />

@@ -211,9 +211,45 @@ export async function handleDeleteClientPin(headers, body) {
 }
 
 // ---------------------------------------------------------- client portal ---
+/**
+ * What the client is allowed to see of their own record.
+ *
+ * ALLOWLIST, not a denylist, deliberately. This used to be
+ * `const { pin, ...rest } = c` — which was correct on the day it was written
+ * and silently wrong the moment anyone added a field. By the time this was
+ * caught it was shipping `notes` (the owner's private notes — the UI that
+ * edits them is literally labelled "private, not shown to the client"),
+ * `contract.notes`, `contract.history` and `hidden` into the client's own
+ * browser on every portal load. Not rendered, but one devtools tab away.
+ *
+ * A new field on the client record is now invisible to the portal until
+ * someone deliberately adds it here, which is the safe direction to fail.
+ */
 function stripClientForPortal(c) {
-  const { pin, ...rest } = c;
-  return rest;
+  return {
+    id: c.id,
+    name: c.name,
+    company: c.company,
+    photoUrl: c.photoUrl,
+    logoUrl: c.logoUrl,
+    type: c.type,
+    delivery: c.delivery || [],
+    contract: {
+      value: c.contract?.value ?? 0,
+      status: c.contract?.status || "",
+      cycle: c.contract?.cycle || "",
+      serviceType: c.contract?.serviceType || "",
+      startDate: c.contract?.startDate || "",
+      renewalDate: c.contract?.renewalDate || "",
+      bodyText: c.contract?.bodyText || "",
+      // The signed document itself. Was withheld entirely, so a client whose
+      // real contract had been uploaded still only ever saw the generated
+      // template — see the portal's Contract tab.
+      fileUrl: c.contract?.fileUrl || "",
+      fileName: c.contract?.fileName || "",
+      fileType: c.contract?.fileType || "",
+    },
+  };
 }
 
 function buildPortalData(full, clientId) {

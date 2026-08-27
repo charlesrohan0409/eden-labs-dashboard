@@ -26,6 +26,7 @@ import { useCurrency } from "../../hooks/useCurrency";
 import { formatAmount, CURRENCIES } from "../../lib/currency";
 import { invoiceNumber } from "../../lib/invoice";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
+import { effectiveInvoiceStatus } from "../../lib/finance.js";
 
 // A function rather than a shared object literal — resetting the form must
 // hand back a fresh copy, not a reference every reset then mutates in common.
@@ -74,8 +75,10 @@ export default function FinanceDetail({
   // Every total below sums `amount`, the per-invoice USD snapshot, so mixed
   // currencies stay addable. This flag just drives an honest footnote.
   const hasMixedCurrency = data.invoices.some((i) => (i.currency || "USD") !== "USD");
-  const pending = data.invoices.filter((i) => i.status === "pending").reduce((s, i) => s + i.amount, 0);
-  const overdue = data.invoices.filter((i) => i.status === "overdue").reduce((s, i) => s + i.amount, 0);
+  // Derived, not stored — see effectiveInvoiceStatus. These three numbers
+  // used to read ~0 forever because nothing ever wrote status "overdue".
+  const pending = data.invoices.filter((i) => effectiveInvoiceStatus(i) === "pending").reduce((s, i) => s + i.amount, 0);
+  const overdue = data.invoices.filter((i) => effectiveInvoiceStatus(i) === "overdue").reduce((s, i) => s + i.amount, 0);
 
   const mrr = computeMRR(data.clients);
   // One-time and commission contracts don't belong in MRR, but their value
@@ -109,7 +112,7 @@ export default function FinanceDetail({
     : null;
 
   const filteredInvoices = data.invoices.filter((i) => {
-    const matchesStatus = filterStatus === "all" || i.status === filterStatus;
+    const matchesStatus = filterStatus === "all" || effectiveInvoiceStatus(i) === filterStatus;
     const q = search.trim().toLowerCase();
     const client = clientOf(i.clientId);
     const matchesSearch = !q || (client?.name || "").toLowerCase().includes(q) || (client?.company || "").toLowerCase().includes(q);
@@ -121,8 +124,8 @@ export default function FinanceDetail({
   const counts = {
     all: data.invoices.length,
     paid: data.invoices.filter((i) => i.status === "paid").length,
-    pending: data.invoices.filter((i) => i.status === "pending").length,
-    overdue: data.invoices.filter((i) => i.status === "overdue").length,
+    pending: data.invoices.filter((i) => effectiveInvoiceStatus(i) === "pending").length,
+    overdue: data.invoices.filter((i) => effectiveInvoiceStatus(i) === "overdue").length,
   };
 
   const inputCls = "border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
@@ -471,7 +474,7 @@ export default function FinanceDetail({
                         </td>
                         <td className="py-3 px-3 text-right">
                           <div className="flex items-center justify-end gap-2">
-                            {(i.status === "pending" || i.status === "overdue") && (
+                            {effectiveInvoiceStatus(i) !== "paid" && (
                               <button
                                 onClick={() => sendReminder(i)}
                                 disabled={reminderStatus[i.id] === "sending"}

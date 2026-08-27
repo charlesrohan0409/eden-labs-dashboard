@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
-import { LogOut, FileText, Phone, DollarSign, CheckCircle2 } from "lucide-react";
+import { LogOut, FileText, Phone, DollarSign, CheckCircle2, Download } from "lucide-react";
 import Card, { CardTitle } from "../ui/Card";
 import Badge from "../ui/Badge";
 import Avatar from "../ui/Avatar";
@@ -20,12 +20,15 @@ import { listFathomMeetings, matchMeetingsToClient } from "../../lib/fathom";
 import { CLIENT_TYPES, DEFAULT_CLIENT_TYPE } from "../../data/seed";
 import { useCurrency } from "../../hooks/useCurrency";
 
+const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
+
 const TAB_LABELS = {
   overview: "Overview", content: "Content", outreach: "Outreach", crm: "CRM",
   transcripts: "Transcripts", dms: "Messages", contract: "Contract",
 };
 
 export default function ClientPortal({
+  exitLabel = "Exit preview",
   data, clientId, onExit, onAddPost, onUpdatePost, onAddContact, onUpdateStage,
   onAddComment, onUpdatePostStatus, token,
 }) {
@@ -117,11 +120,18 @@ export default function ClientPortal({
             <div className="text-xs text-stone-400">Eden Labs · Client Dashboard</div>
           </div>
         </div>
-        {/* Only present for the owner's own "Preview client portal" — a real
-            client viewing their actual dashboard isn't "previewing" anything. */}
+        {/* Label differs by who's looking: the owner is leaving a PREVIEW and
+            goes back to their dashboard; a real client is ending their
+            SESSION, which matters now that the token persists across
+            refreshes and "close the tab" no longer signs anyone out. */}
         {onExit && (
-          <button onClick={onExit} className="text-xs text-stone-300 flex items-center gap-1.5 hover:text-white border border-white/10 rounded-full px-3.5 py-2">
-            <LogOut size={13} /> Exit preview
+          <button
+            onClick={onExit}
+            className={`text-xs text-stone-300 flex items-center gap-1.5 hover:text-white hover:bg-white/[0.06]
+              border border-white/10 rounded-full px-3.5 py-2
+              transition-[transform,background-color,color] duration-150 ${EASE} active:scale-[0.96]`}
+          >
+            <LogOut size={13} /> {exitLabel}
           </button>
         )}
       </div>
@@ -476,9 +486,60 @@ export default function ClientPortal({
                   <div className="mt-1"><Badge tone="emerald" dot>{client.contract.status}</Badge></div>
                 </div>
               </div>
-              <div className="pt-4 font-serif text-[15px] text-stone-600 whitespace-pre-wrap leading-relaxed max-h-[420px] overflow-y-auto">
-                {client.contract.bodyText}
-              </div>
+              {/* The uploaded, signed document wins over the generated text —
+                  matching the owner-side rule that an upload REPLACES the
+                  template. Until now the client only ever saw the template
+                  even when a real contract had been uploaded, and had no way
+                  to get a copy of their own agreement. */}
+              {client.contract.fileUrl ? (
+                <div className="pt-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <FileText size={15} className="text-stone-400 shrink-0" />
+                      <span className="text-sm text-stone-700 truncate">
+                        {client.contract.fileName || "Signed contract"}
+                      </span>
+                    </span>
+                    <a
+                      href={client.contract.fileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`text-[13px] font-medium text-stone-700 bg-white border border-stone-300 rounded-lg
+                        px-3 py-1.5 flex items-center gap-1.5 hover:bg-stone-50 hover:border-stone-400
+                        transition-[transform,background-color,border-color] duration-150 ${EASE} active:scale-[0.97]`}
+                    >
+                      <Download size={13} /> Open a copy
+                    </a>
+                  </div>
+                  {client.contract.fileType === "application/pdf" ? (
+                    <iframe
+                      src={client.contract.fileUrl}
+                      title="Contract"
+                      className="w-full h-[420px] rounded-lg border border-stone-200 bg-stone-50"
+                    />
+                  ) : (
+                    <img
+                      src={client.contract.fileUrl}
+                      alt="Contract"
+                      className="w-full rounded-lg border border-stone-200"
+                    />
+                  )}
+                </div>
+              ) : client.contract.bodyText ? (
+                <div className="pt-4 font-serif text-[15px] text-stone-600 whitespace-pre-wrap leading-relaxed max-h-[420px] overflow-y-auto">
+                  {client.contract.bodyText}
+                </div>
+              ) : (
+                <div className="pt-6 pb-2 text-center">
+                  <span className="w-10 h-10 rounded-full bg-stone-100 flex items-center justify-center mx-auto mb-2.5">
+                    <FileText size={17} className="text-stone-400" />
+                  </span>
+                  <div className="text-[14px] font-semibold text-stone-800">No contract on file yet</div>
+                  <p className="text-[13px] text-stone-500 mt-1">
+                    Your agreement will appear here once it's been added.
+                  </p>
+                </div>
+              )}
             </Card>
             <CommentThread comments={data.comments} clientId={clientId} tabKey="contract" author="Client" onAdd={onAddComment} />
           </div>

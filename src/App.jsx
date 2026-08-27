@@ -16,6 +16,8 @@ import ClientPortalLogin from "./components/portal/ClientPortalLogin";
 import ClientPortal from "./components/portal/ClientPortal";
 import QuickAddTask from "./components/ui/QuickAddTask";
 import CommandPalette from "./components/ui/CommandPalette";
+
+const PORTAL_SESSION_KEY = "eden-labs-portal-session";
 // Chart-heavy pages — lazy-load so recharts isn't in the initial bundle.
 // Each loads in under 1s on a fast connection; the spinner shows on slow ones.
 const GrowthDetail   = lazy(() => import("./components/pages/GrowthDetail"));
@@ -87,7 +89,28 @@ export default function App() {
   // before an effect gets a chance to run.
   const [arrivedViaLink] = useState(() => /^\/portal\//.test(window.location.pathname));
   const [portalMode, setPortalMode] = useState(arrivedViaLink);
-  const [portalSession, setPortalSession] = useState(null); // { token, clientId }
+  // Persisted, same as the owner's token. /api/auth-client mints a 30-DAY
+  // token, but this was held in memory only — so every refresh, every
+  // restored tab, every follow-a-link-and-come-back made the client type
+  // their PIN again, and the 30-day TTL was dead code. The token is the
+  // credential (the PIN itself is never stored), exactly as useOwnerAuth
+  // has always done it.
+  const [portalSession, setPortalSession] = useState(() => {
+    try {
+      const raw = localStorage.getItem(PORTAL_SESSION_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }); // { token, clientId }
+
+  useEffect(() => {
+    try {
+      if (portalSession?.token) {
+        localStorage.setItem(PORTAL_SESSION_KEY, JSON.stringify(portalSession));
+      } else {
+        localStorage.removeItem(PORTAL_SESSION_KEY);
+      }
+    } catch { /* private mode / storage disabled — session just won't persist */ }
+  }, [portalSession]);
 
   // ⌘K / Ctrl-K anywhere. Registered at the root rather than inside the
   // palette so the shortcut works when the palette is closed — which is the
@@ -107,16 +130,20 @@ export default function App() {
   const portal = usePortalData(portalSession?.token, handlePortalUnauthorized);
 
   const exitPortal = () => { setPortalMode(false); setPortalSession(null); };
-  // A real client has no "ops dashboard" to go back to and isn't "previewing"
-  // anything — only show the exit/back button when the owner opened this via
-  // the "Preview client portal" button on their own session.
-  const onExitPortal = arrivedViaLink ? undefined : exitPortal;
+  // A real client has no "ops dashboard" to go back to, so their button ends
+  // the SESSION rather than leaving the portal. They still need one: now that
+  // the token is persisted (above), "close the tab" no longer signs anyone
+  // out, and a client on a shared or borrowed machine had no way to end their
+  // session at all.
+  const signOutPortal = () => setPortalSession(null);
+  const onExitPortal = arrivedViaLink ? signOutPortal : exitPortal;
+  const portalExitLabel = arrivedViaLink ? "Sign out" : "Exit preview";
 
   // ---- Client portal (its own full-screen shell, its own auth entirely
   // separate from the owner's session below) ----
   if (portalMode) {
     if (!portalSession) {
-      return <ClientPortalLogin onLogin={setPortalSession} onExit={onExitPortal} />;
+      return <ClientPortalLogin onLogin={setPortalSession} onExit={arrivedViaLink ? undefined : exitPortal} />;
     }
     if (!portal.data) {
       return (
@@ -133,6 +160,7 @@ export default function App() {
           data={portal.data}
           clientId={portalSession.clientId}
           onExit={onExitPortal}
+          exitLabel={portalExitLabel}
           onAddPost={portal.actions.addPost}
           onUpdatePost={portal.actions.updatePost}
           onAddContact={portal.actions.addContact}

@@ -1,4 +1,4 @@
-import { toDateKey } from "./utils.js";
+import { toDateKey, today } from "./utils.js";
 // Personal finance vocabulary: the account types the balance bar shows, the
 // two kinds of recurring money-out, and the budget periods.
 //
@@ -149,4 +149,26 @@ export function categoryOptions(saved, current) {
     list.push(current);
   }
   return list;
+}
+
+/**
+ * The status an invoice ACTUALLY has right now.
+ *
+ * `invoice.status` is only ever "pending" or "paid" in practice — nothing in
+ * the app has ever written "overdue" (only seed.js does). But FinanceDetail
+ * computed its overdue money total, its overdue count and its Overdue filter
+ * tab from `status === "overdue"`, so all three read ~0 forever no matter how
+ * late an invoice actually was. Meanwhile lib/today.js derived overdue-ness
+ * correctly from the date, so the dashboard and the finance page disagreed.
+ *
+ * One definition, derived: unpaid and past its due date is overdue. Falls
+ * back to `date` because `dueDate` was only added later and older invoices
+ * don't carry it.
+ */
+export function effectiveInvoiceStatus(invoice, todayKey) {
+  if (!invoice) return "pending";
+  if (invoice.status === "paid") return "paid";
+  const due = invoice.dueDate || invoice.date || "";
+  if (due && due < (todayKey || today())) return "overdue";
+  return invoice.status || "pending";
 }

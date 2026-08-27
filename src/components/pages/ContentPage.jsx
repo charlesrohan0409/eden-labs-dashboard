@@ -17,7 +17,7 @@ import ContentCalendar from "../ui/ContentCalendar";
 import { useBufferPerformance } from "../../hooks/useBufferPerformance";
 import { useBufferQueue } from "../../hooks/useBufferQueue";
 import { unscheduleBufferPost, rescheduleBufferPost } from "../../lib/buffer";
-import { formatDateTime } from "../../lib/utils";
+import { formatDateTime, today} from "../../lib/utils";
 import { normalizeStatus } from "../../lib/content";
 
 // Our own records store `scheduledAt` the way a datetime-local input writes
@@ -137,7 +137,7 @@ export default function ContentPage({
               onAddPost({
                 clientId: null, content, status: "idea", type: "text",
                 media: null, poll: null, scheduledAt: null,
-                date: new Date().toISOString().slice(0, 10),
+                date: today(),
               })
             }
           />

@@ -21,8 +21,7 @@ import Modal from "../ui/Modal";
 import ImagePicker from "../ui/ImagePicker";
 import {
   MONTHS, computeHealthScore, healthTone, relativeDays, formatDateTime, escapeHtml, isMetricOnTrack, metricProgressPct, portalLinkFor,
-  contractValueLabel, billingTypeLabel, computeCommissionTotal, commissionInstallment,
-} from "../../lib/utils";
+  contractValueLabel, billingTypeLabel, computeCommissionTotal, commissionInstallment, today } from "../../lib/utils";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { CLIENT_TYPES, DEFAULT_CLIENT_TYPE, INDUSTRIES } from "../../data/seed";
 import { useCurrency } from "../../hooks/useCurrency";
@@ -742,7 +741,7 @@ export default function ClientDetail({
                 onAddPost({
                   clientId: client.id, content, status: "idea", type: "text",
                   media: null, poll: null, scheduledAt: null,
-                  date: new Date().toISOString().slice(0, 10),
+                  date: today(),
                 })
               }
             />
@@ -847,7 +846,7 @@ export default function ClientDetail({
               variant="dark"
               onClick={() => {
                 if (!dmForm.content.trim()) return;
-                onAddDM({ clientId: client.id, direction: dmForm.direction, content: dmForm.content, date: new Date().toISOString().slice(0, 10) });
+                onAddDM({ clientId: client.id, direction: dmForm.direction, content: dmForm.content, date: today() });
                 setDmForm({ direction: "sent", content: "" });
               }}
             >

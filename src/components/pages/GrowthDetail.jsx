@@ -11,7 +11,7 @@ import IconStat from "../ui/IconStat";
 import Avatar from "../ui/Avatar";
 import PrimaryButton from "../ui/PrimaryButton";
 import Badge from "../ui/Badge";
-import { MONTHS, computeHealthScore, healthTone, today } from "../../lib/utils";
+import { MONTHS, computeHealthScore, healthTone, today, toDateKey} from "../../lib/utils";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { useBufferPerformance } from "../../hooks/useBufferPerformance";
 import { useCurrency } from "../../hooks/useCurrency";
@@ -74,7 +74,7 @@ export default function GrowthDetail({ data, setView, onLogOutreachDay, onDelete
   const sinceDate = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() - funnelDays + 1);
-    return d.toISOString().slice(0, 10);
+    return toDateKey(d);
   }, [funnelDays]);
   const totals = useMemo(() => sumEntries(outreachLog, sinceDate), [outreachLog, sinceDate]);
 

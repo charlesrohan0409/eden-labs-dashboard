@@ -31,7 +31,7 @@ import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 // hand back a fresh copy, not a reference every reset then mutates in common.
 const BLANK_EXPENSE = () => ({
   category: "Software", vendor: "", amount: "", currency: "INR",
-  date: new Date().toISOString().slice(0, 10), accountId: "",
+  date: today(), accountId: "",
 });
 
 const STATUS_TONE = { paid: "emerald", pending: "amber", overdue: "rose", draft: "stone" };

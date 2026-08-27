@@ -1,3 +1,4 @@
+import { toDateKey } from "./utils.js";
 // Personal finance vocabulary: the account types the balance bar shows, the
 // two kinds of recurring money-out, and the budget periods.
 //
@@ -57,7 +58,7 @@ export function advanceDate(dateStr, cadence) {
   d.setMonth(d.getMonth() + months);
   const daysInTarget = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
   d.setDate(Math.min(targetDay, daysInTarget));
-  return d.toISOString().slice(0, 10);
+  return toDateKey(d);
 }
 
 // Days until the next renewal. Negative = overdue, which is a normal state

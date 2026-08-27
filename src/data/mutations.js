@@ -59,15 +59,22 @@ export function deleteTask(d, id) {
 // halving between the same pair would still be real. Gaps of 10 leave room to
 // read the raw JSON and see what's going on.
 export function reorderTasks(d, orderedIds) {
-  const inOrder = new Set(orderedIds);
-  const rest = d.tasks
-    .filter((t) => !inOrder.has(t.id))
-    .sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0));
-  orderedIds.forEach((id, i) => {
+  // `orderedIds` is only ever the FILTERED list the user can see. The old
+  // version reindexed those to 0..n and shoved every unseen task after them,
+  // so reordering inside one category silently dragged every other category's
+  // task to the bottom of the global order.
+  //
+  // Instead: lay every task out by current sortIndex, then drop the new order
+  // into the slots the moving tasks already collectively occupied. Tasks that
+  // weren't on screen keep their exact position relative to everything else.
+  const moving = new Set(orderedIds);
+  const all = [...d.tasks].sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0));
+  const queue = [...orderedIds];
+  const settled = all.map((t) => (moving.has(t.id) ? queue.shift() : t.id));
+  settled.forEach((id, i) => {
     const t = d.tasks.find((x) => x.id === id);
     if (t) t.sortIndex = i * 10;
   });
-  rest.forEach((t, i) => { t.sortIndex = (orderedIds.length + i) * 10; });
   return d;
 }
 
@@ -149,6 +156,11 @@ export function deleteClient(d, id) {
   if (Array.isArray(d.outreachLog)) d.outreachLog = d.outreachLog.filter((e) => e.clientId !== id);
   if (Array.isArray(d.outreachByChannel)) d.outreachByChannel = d.outreachByChannel.filter((o) => o.clientId !== id);
   if (Array.isArray(d.activityLog)) d.activityLog = d.activityLog.filter((a) => a.clientId !== id);
+  // Inbound enquiries carry a clientId too (an enquiry captured from that
+  // client's own LinkedIn inbox). Left behind, they keep showing on the
+  // inbound board and keep counting toward the dashboard's "needs a reply"
+  // total for a client that no longer exists.
+  if (Array.isArray(d.inbound)) d.inbound = d.inbound.filter((e) => e.clientId !== id);
   return d;
 }
 export function endContract(d, id, reason) {

@@ -13,7 +13,7 @@ import Avatar from "../ui/Avatar";
 import TaskList from "../ui/TaskList";
 import MeetingRow from "../ui/MeetingRow";
 import TodayPanel from "../ui/TodayPanel";
-import { MONTHS, computeHealthScore, healthTone, STAGE_WEIGHTS, relativeDays, isMetricOnTrack, metricProgressPct, computeMRR } from "../../lib/utils";
+import { MONTHS, computeHealthScore, healthTone, STAGE_WEIGHTS, relativeDays, isMetricOnTrack, metricProgressPct, computeMRR, toDateKey} from "../../lib/utils";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { useBufferPerformance } from "../../hooks/useBufferPerformance";
 import { useCurrency } from "../../hooks/useCurrency";
@@ -89,7 +89,7 @@ export default function HomeDashboard({ data, setView, setSelectedClient, onAddT
   const since7 = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() - 6);
-    return d.toISOString().slice(0, 10);
+    return toDateKey(d);
   }, []);
   const last7 = useMemo(() => sumEntries(outreachLog, since7), [outreachLog, since7]);
   const contentPublishedThisMonth = useMemo(() => {

@@ -39,11 +39,105 @@ const BLANK_FORM = { title: "", clientId: "", dueDate: "", priority: "medium", r
  * client detail page. Pass `clientId` to lock every new task to that client
  * and hide the client picker.
  *
- * Ordering is manual (drag, or the arrow buttons on touch) and persisted via
- * onReorder. Overdue tasks always pin to the top regardless of manual order —
- * an overdue list is a triage list, and manual ordering shouldn't be able to
- * bury something that's already late.
+ * Ordering has two modes, and the distinction matters:
+ *
+ *  - MANUAL (default): your `sortIndex` order, full stop. Drag handles are
+ *    live and dragging a task to the top puts it at the top.
+ *  - SMART: overdue pinned above everything, oldest-overdue first, as a
+ *    triage view. Drag handles are HIDDEN here, because manual order can't
+ *    win against the pinning — showing a handle that silently does nothing
+ *    is worse than showing no handle.
+ *
+ * This used to be one comparator that always pinned overdue, while still
+ * rendering drag handles. The result was that dragging appeared to do
+ * nothing whenever anything was overdue, which is most of the time.
  */
+const inputCls = "border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
+
+/**
+ * Shared field block for the add and edit forms.
+ *
+ * MUST stay at module scope. Defined inside TaskList (as it was), every
+ * render created a new function identity, so React saw a different component
+ * type at that position, threw away the whole subtree and mounted a fresh
+ * one — which blew away the DOM nodes and therefore the focus and caret on
+ * every single keystroke. `autoFocus` on the title field then yanked focus
+ * back there, so typing in Notes jumped the cursor to the title.
+ */
+function FormFields({
+  f, setF, onSubmit, submitLabel, onCancel, clientId, clients,
+}) {
+  return (
+  <div className="space-y-2">
+    <input
+      autoFocus
+      placeholder="What needs doing?"
+      value={f.title}
+      onChange={(e) => setF({ ...f, title: e.target.value })}
+      onKeyDown={(e) => e.key === "Enter" && onSubmit()}
+      className={`${inputCls} w-full`}
+    />
+    <textarea
+      placeholder="Notes (optional) — anything you'd forget by tomorrow"
+      value={f.description}
+      onChange={(e) => setF({ ...f, description: e.target.value })}
+      rows={2}
+      className={`${inputCls} w-full resize-none leading-relaxed`}
+    />
+    <div className="flex gap-2 flex-wrap">
+      {clientId === undefined && (
+        <select
+          value={f.clientId}
+          onChange={(e) => setF({ ...f, clientId: e.target.value })}
+          className={`${inputCls} flex-1 min-w-[9rem]`}
+        >
+          <option value="">Eden Labs (internal)</option>
+          {clients.filter((x) => !x.hidden).map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+      )}
+      <select
+        value={f.category}
+        onChange={(e) => setF({ ...f, category: e.target.value })}
+        className={`${inputCls} w-36`}
+      >
+        <option value="">No category</option>
+        {TASK_CATEGORY_LIST.map((c) => (
+          <option key={c.id} value={c.id}>{c.label}</option>
+        ))}
+      </select>
+      <input
+        type="date"
+        value={f.dueDate}
+        onChange={(e) => setF({ ...f, dueDate: e.target.value })}
+        className={`${inputCls} flex-1 min-w-[9rem]`}
+      />
+      <select
+        value={f.priority}
+        onChange={(e) => setF({ ...f, priority: e.target.value })}
+        className={`${inputCls} w-28`}
+      >
+        <option value="high">High</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+      </select>
+      <select
+        value={f.recurrence}
+        onChange={(e) => setF({ ...f, recurrence: e.target.value })}
+        className={`${inputCls} w-36`}
+      >
+        <option value="none">Doesn't repeat</option>
+        <option value="daily">Repeats daily</option>
+        <option value="weekly">Repeats weekly</option>
+      </select>
+      <PrimaryButton onClick={onSubmit}>{submitLabel}</PrimaryButton>
+        {onCancel && <PrimaryButton variant="ghost" onClick={onCancel}>Cancel</PrimaryButton>}
+      </div>
+    </div>
+  );
+}
+
 export default function TaskList({
   tasks, clients, onAdd, onToggle, onDelete, onUpdate, onReorder,
   clientId = undefined, title = "Tasks",
@@ -58,6 +152,7 @@ export default function TaskList({
   const [expandedId, setExpandedId] = useState(null);
   const [draggingId, setDraggingId] = useState(null);
   const [dropTarget, setDropTarget] = useState(null); // { id, pos: "before" | "after" }
+  const [sortMode, setSortMode] = useState("manual");
   const dragCleanup = useRef(null);
 
   const client = (id) => clients.find((c) => c.id === id);
@@ -95,26 +190,31 @@ export default function TaskList({
       });
     }
 
-    // Overdue first (oldest-overdue first within that group), then manual
-    // order, then date/priority as a tiebreak for equal sortIndex.
-    return list.sort((a, b) => {
-      const ao = relativeDays(a.dueDate)?.overdue ? 0 : 1;
-      const bo = relativeDays(b.dueDate)?.overdue ? 0 : 1;
-      if (ao !== bo) return ao - bo;
-      if (ao === 0) {
-        const ad = a.dueDate || "9999-12-31";
-        const bd = b.dueDate || "9999-12-31";
-        if (ad !== bd) return ad < bd ? -1 : 1;
-      }
-      const ai = a.sortIndex ?? 0;
-      const bi = b.sortIndex ?? 0;
-      if (ai !== bi) return ai - bi;
+    const byDateThenPriority = (a, b) => {
       const ad = a.dueDate || "9999-12-31";
       const bd = b.dueDate || "9999-12-31";
       if (ad !== bd) return ad < bd ? -1 : 1;
       return (PRIORITY_RANK[a.priority] ?? 1) - (PRIORITY_RANK[b.priority] ?? 1);
+    };
+
+    // Manual: your order wins. `?? 0` not `|| 0` — index 0 is a real slot.
+    if (sortMode === "manual") {
+      return list.sort((a, b) => {
+        const ai = a.sortIndex ?? 0;
+        const bi = b.sortIndex ?? 0;
+        if (ai !== bi) return ai - bi;
+        return byDateThenPriority(a, b);
+      });
+    }
+
+    // Smart: overdue pinned on top, oldest first, then date/priority.
+    return list.sort((a, b) => {
+      const ao = relativeDays(a.dueDate)?.overdue ? 0 : 1;
+      const bo = relativeDays(b.dueDate)?.overdue ? 0 : 1;
+      if (ao !== bo) return ao - bo;
+      return byDateThenPriority(a, b);
     });
-  }, [scoped, filter, categoryFilter]);
+  }, [scoped, filter, categoryFilter, sortMode]);
 
   const openCount = scoped.filter((t) => !t.done).length;
   const dueTodayCount = scoped.filter((t) => {
@@ -125,8 +225,11 @@ export default function TaskList({
   const repeatCount = scoped.filter((t) => t.recurrence && t.recurrence !== "none").length;
 
   // Reordering only makes sense in a manually-ordered view — Upcoming is
-  // sorted by date and Done is history.
-  const canReorder = !!onReorder && filter !== "upcoming" && filter !== "done";
+  // sorted by date, Done is history, and Smart mode overrides manual order
+  // by design, so no handle is offered in any of them.
+  const canReorder =
+    !!onReorder && sortMode === "manual" && filter !== "upcoming" && filter !== "done";
+  const canToggleSort = !!onReorder && filter !== "upcoming" && filter !== "done";
 
   const payloadFrom = (f) => ({
     title: f.title.trim(),
@@ -194,79 +297,6 @@ export default function TaskList({
     applyOrder(without);
   };
 
-  const inputCls = "border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
-
-  // Shared field block for the add and edit forms.
-  const FormFields = ({ f, setF, onSubmit, submitLabel, onCancel }) => (
-    <div className="space-y-2">
-      <input
-        autoFocus
-        placeholder="What needs doing?"
-        value={f.title}
-        onChange={(e) => setF({ ...f, title: e.target.value })}
-        onKeyDown={(e) => e.key === "Enter" && onSubmit()}
-        className={`${inputCls} w-full`}
-      />
-      <textarea
-        placeholder="Notes (optional) — anything you'd forget by tomorrow"
-        value={f.description}
-        onChange={(e) => setF({ ...f, description: e.target.value })}
-        rows={2}
-        className={`${inputCls} w-full resize-none leading-relaxed`}
-      />
-      <div className="flex gap-2 flex-wrap">
-        {clientId === undefined && (
-          <select
-            value={f.clientId}
-            onChange={(e) => setF({ ...f, clientId: e.target.value })}
-            className={`${inputCls} flex-1 min-w-[9rem]`}
-          >
-            <option value="">Eden Labs (internal)</option>
-            {clients.filter((x) => !x.hidden).map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        )}
-        <select
-          value={f.category}
-          onChange={(e) => setF({ ...f, category: e.target.value })}
-          className={`${inputCls} w-36`}
-        >
-          <option value="">No category</option>
-          {TASK_CATEGORY_LIST.map((c) => (
-            <option key={c.id} value={c.id}>{c.label}</option>
-          ))}
-        </select>
-        <input
-          type="date"
-          value={f.dueDate}
-          onChange={(e) => setF({ ...f, dueDate: e.target.value })}
-          className={`${inputCls} flex-1 min-w-[9rem]`}
-        />
-        <select
-          value={f.priority}
-          onChange={(e) => setF({ ...f, priority: e.target.value })}
-          className={`${inputCls} w-28`}
-        >
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-        </select>
-        <select
-          value={f.recurrence}
-          onChange={(e) => setF({ ...f, recurrence: e.target.value })}
-          className={`${inputCls} w-36`}
-        >
-          <option value="none">Doesn't repeat</option>
-          <option value="daily">Repeats daily</option>
-          <option value="weekly">Repeats weekly</option>
-        </select>
-        <PrimaryButton onClick={onSubmit}>{submitLabel}</PrimaryButton>
-        {onCancel && <PrimaryButton variant="ghost" onClick={onCancel}>Cancel</PrimaryButton>}
-      </div>
-    </div>
-  );
-
   return (
     <Card className="p-5">
       <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
@@ -285,6 +315,22 @@ export default function TaskList({
               { value: "done", label: "Done" },
             ]}
           />
+          {canToggleSort && (
+            <button
+              onClick={() => setSortMode((m) => (m === "manual" ? "smart" : "manual"))}
+              title={sortMode === "manual"
+                ? "Your own order. Switch to Smart to pin overdue tasks on top."
+                : "Overdue pinned on top. Switch to Manual to drag tasks yourself."}
+              className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border
+                transition-[transform,background-color,border-color,color] duration-150 ${EASE} active:scale-[0.96]
+                ${sortMode === "manual"
+                  ? "border-line text-stone-600 bg-white hover:bg-stone-50"
+                  : "border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100"}`}
+            >
+              <ArrowDownUp size={13} />
+              {sortMode === "manual" ? "Manual" : "Smart"}
+            </button>
+          )}
           <PrimaryButton
             size="sm"
             variant={adding ? "ghost" : "primary"}
@@ -342,7 +388,10 @@ export default function TaskList({
 
       {adding && (
         <div className="rounded-xl bg-stone-50 border border-line p-3 mb-4">
-          <FormFields f={form} setF={setForm} onSubmit={submit} submitLabel="Add task" />
+          <FormFields
+            f={form} setF={setForm} onSubmit={submit} submitLabel="Add task"
+            clientId={clientId} clients={clients}
+          />
         </div>
       )}
 
@@ -363,6 +412,7 @@ export default function TaskList({
                 <FormFields
                   f={editForm} setF={setEditForm} onSubmit={submitEdit}
                   submitLabel="Save" onCancel={() => setEditingId(null)}
+                  clientId={clientId} clients={clients}
                 />
               </div>
             );

@@ -144,7 +144,27 @@ export function colorForName(name = "") {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
-export const today = () => new Date().toISOString().slice(0, 10);
+/**
+ * YYYY-MM-DD in the USER'S OWN timezone.
+ *
+ * Everything date-shaped in this app used `new Date().toISOString().slice(0,10)`,
+ * which is the UTC date. For anyone east of UTC that is yesterday's date for
+ * the first hours of every day — in IST (UTC+5:30), anything recorded between
+ * midnight and 05:29 was filed under the previous day. Tasks logged late at
+ * night landed on the wrong day, "due today" quietly meant "due yesterday",
+ * and expenses entered after midnight hit the wrong date.
+ *
+ * Anchor conversions from a date STRING at local noon (see weekStart below) —
+ * noon is far enough from both midnights that no offset can push it across a
+ * day boundary.
+ */
+export function toDateKey(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+export const today = () => toDateKey();
 
 // Monday-start week key (YYYY-MM-DD of that week's Monday) — used to bucket
 // daily rows into weeks without pulling in a date library. Originally lived
@@ -155,7 +175,7 @@ export function weekStart(date) {
   const d = new Date(date + "T12:00:00");
   const dow = (d.getDay() + 6) % 7; // 0 = Monday
   d.setDate(d.getDate() - dow);
-  return d.toISOString().slice(0, 10);
+  return toDateKey(d);
 }
 
 // Shared id generator so every part of the app (the data hook, modals that
@@ -175,9 +195,11 @@ export const escapeHtml = (s = "") =>
 export const portalLinkFor = (client) => `${window.location.origin}/portal/${client.id}`;
 
 export function addDays(dateStr, n) {
-  const d = new Date(dateStr);
+  // Noon-anchored so a DST shift or a UTC offset can't slide the result onto
+  // an adjacent day.
+  const d = new Date(`${dateStr}T12:00:00`);
   d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
+  return toDateKey(d);
 }
 
 // Local "YYYY-MM-DDTHH:mm" for datetime-local inputs, offset-corrected so the

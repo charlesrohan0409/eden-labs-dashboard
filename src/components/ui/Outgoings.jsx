@@ -12,6 +12,7 @@ import {
   advanceDate, renewalLabel,
 } from "../../lib/finance";
 import { CURRENCIES } from "../../lib/currency";
+import { today } from "../../lib/utils";
 
 const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
 
@@ -146,7 +147,7 @@ export default function Outgoings({ outgoings = [], accounts = [], categories = 
                 {!cancelled && (
                   <button
                     onClick={() => onPay?.(o.id, {
-                      date: new Date().toISOString().slice(0, 10),
+                      date: today(),
                       nextRenewal: o.nextRenewal ? advanceDate(o.nextRenewal, o.cadence) : "",
                     })}
                     aria-label="Mark paid"

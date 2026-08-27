@@ -8,6 +8,7 @@ import {
   INBOUND_STAGES, INBOUND_STAGE_META, normalizeInboundStage,
   INBOUND_CHANNEL_LIST, channelMeta, waitLabel,
 } from "../../lib/inbound";
+import { today } from "../../lib/utils";
 
 const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
 
@@ -250,7 +251,7 @@ function EnquiryCard({ entry, client, index, dragging, onDragStart, onDragEnd, o
 function InboundForm({ clients, onSave, onCancel }) {
   const [form, setForm] = useState({
     name: "", headline: "", profileUrl: "", message: "",
-    channel: "linkedin", clientId: "", receivedAt: new Date().toISOString().slice(0, 10),
+    channel: "linkedin", clientId: "", receivedAt: today(),
   });
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const input = "border border-line rounded-lg px-2.5 py-1.5 text-sm bg-white w-full focus:outline-none focus:ring-2 focus:ring-emerald-700/20";

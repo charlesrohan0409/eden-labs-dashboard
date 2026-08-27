@@ -3,7 +3,7 @@
 // page component so the field list, funnel order, and date-bucketing math
 // aren't duplicated between the log form, the funnel view, and the chart.
 
-import { weekStart } from "./utils.js";
+import { weekStart, toDateKey } from "./utils.js";
 
 // Each stage in the order it happens — the funnel view walks this list and
 // shows the conversion % from one stage to the next.
@@ -70,7 +70,7 @@ export function buildDailySeries(outreachLog, days = 30) {
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
-    const date = d.toISOString().slice(0, 10);
+    const date = toDateKey(d);
     const label = d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
     out.push({ date, label, ...EMPTY_ENTRY, ...(byDate.get(date) || {}) });
   }
@@ -92,7 +92,7 @@ export function buildWeeklySeries(outreachLog, weeks = 12) {
   for (let i = weeks - 1; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i * 7);
-    const key = weekStart(d.toISOString().slice(0, 10));
+    const key = weekStart(toDateKey(d));
     buckets.set(key, { date: key, label: "", ...EMPTY_ENTRY });
   }
   (outreachLog || []).forEach((e) => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo} from "react";
 import * as M from "../data/mutations";
 
 // Dashboard data now lives in Supabase (one JSON document, read/written
@@ -57,6 +57,8 @@ export function useAppData(token, onUnauthorized) {
   // rather than state: it changes on every save and nothing renders from it,
   // so putting it in state would just add a render per write.
   const versionRef = useRef(null);
+  // Tail of the in-flight write queue — see update().
+  const writeChain = useRef(Promise.resolve());
   // The current data, mirrored outside React state so `update` can read it
   // WITHOUT going through a setState updater — see the comment there.
   const dataRef = useRef(null);
@@ -135,13 +137,24 @@ export function useAppData(token, onUnauthorized) {
       await save(replayed, attempt + 1);
     };
 
-    save(next).catch((e) => {
-      if (e.unauthorized) { onUnauthorized?.(); return; }
-      setSaveError(e.message);
-    });
+    // SERIALISED. Two update() calls close together used to both read
+    // versionRef before either response landed, so both PUTs carried the same
+    // version. The second to arrive won, the first got a 409, and its replay
+    // re-applied a mutation the server had ALREADY received via the other
+    // payload — toggle two tasks quickly and the first would flip back.
+    //
+    // Chaining means each write carries the version the previous one returned,
+    // so concurrent edits queue instead of colliding. The replay path below
+    // stays for genuine cross-device conflicts, which is what it was for.
+    writeChain.current = writeChain.current
+      .then(() => save(next))
+      .catch((e) => {
+        if (e.unauthorized) { onUnauthorized?.(); return; }
+        setSaveError(e.message);
+      });
   }, [token, onUnauthorized, commit]);
 
-  const actions = {
+  const actions = useMemo(() => ({
     // ---- tasks ----
     addTask: (t) => update((d) => M.addTask(d, t)),
     toggleTask: (id) => update((d) => M.toggleTask(d, id)),
@@ -267,7 +280,11 @@ export function useAppData(token, onUnauthorized) {
     setBufferChannels: (channels) => update((d) => M.setBufferChannels(d, channels)),
     setBufferDisconnected: () => update((d) => M.setBufferDisconnected(d)),
     setAgencyBufferChannel: (channelId) => update((d) => M.setAgencyBufferChannel(d, channelId)),
-  };
+    // Memoised on `update` alone (which is itself stable). This object was
+    // rebuilt on every render, so every `actions.*` passed as a prop got a new
+    // identity each time — any effect depending on one re-ran constantly. That
+    // is the same dependency-identity trap that produced 4,415 GETs in 24h.
+  }), [update]);
 
   return { data, update, actions, saveError, dismissSaveError: () => setSaveError("") };
 }

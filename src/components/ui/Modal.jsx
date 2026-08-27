@@ -1,21 +1,36 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 
 const WIDTHS = { sm: "max-w-sm", md: "max-w-lg", lg: "max-w-2xl", xl: "max-w-3xl" };
 
+// Shared across every mounted Modal — see the effect below.
+let openModalCount = 0;
+
 export default function Modal({ open, onClose, title, subtitle, children, footer, width = "md" }) {
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+
   useEffect(() => {
     if (!open) return;
-    const onKey = (e) => e.key === "Escape" && onClose();
+    const onKey = (e) => e.key === "Escape" && onCloseRef.current?.();
     document.addEventListener("keydown", onKey);
     // Stop the page behind the overlay from scrolling on mobile.
-    const prev = document.body.style.overflow;
+    //
+    // Reference-counted: with two modals open, the inner one closing used to
+    // restore overflow to "" while the outer was still up, and the page
+    // scrolled behind it. Only the last one out unlocks.
+    openModalCount += 1;
     document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
+      openModalCount = Math.max(0, openModalCount - 1);
+      if (openModalCount === 0) document.body.style.overflow = "";
     };
-  }, [open, onClose]);
+    // onClose deliberately omitted: every call site passes an inline arrow, so
+    // including it re-ran this effect on every keystroke inside any modal form,
+    // rebinding the listener and rewriting body styles per character. The ref
+    // keeps the handler current without the churn.
+  }, [open]);
 
   if (!open) return null;
 

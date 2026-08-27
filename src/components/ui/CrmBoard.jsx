@@ -32,7 +32,6 @@ function EditLeadModal({ contact, onClose, onUpdateContact, onDeleteContact }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => setForm(contact), [contact?.id]);
 
-  if (!contact) return null;
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
   const inputCls = "w-full border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20";

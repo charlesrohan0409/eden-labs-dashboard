@@ -43,7 +43,7 @@ export default function CommentThread({ comments, clientId, tabKey, author, onAd
             <div className="text-stone-600 mt-0.5">{c.text}</div>
           </div>
         ))}
-        {filtered.length === 0 && <div className="text-xs text-stone-300">No comments yet.</div>}
+        {filtered.length === 0 && <div className="text-xs text-stone-400">No comments yet.</div>}
       </div>
       <div className="flex gap-2">
         <input

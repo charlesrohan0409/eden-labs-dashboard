@@ -94,4 +94,25 @@ function apiDevServer(mode) {
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => ({
   plugins: [react(), apiDevServer(mode)],
+  build: {
+    rollupOptions: {
+      output: {
+        // recharts is only used by chart pages, all of which are lazy-loaded —
+        // but because several of them share it, the bundler hoisted it into
+        // the entry chunk, so everyone paid for it on first paint including
+        // clients opening the portal. Splitting it out means it loads with the
+        // first chart page that actually needs it, and is then cached for the
+        // rest. React itself stays separate so an app-code change doesn't
+        // invalidate it.
+        // This Vite build uses rolldown, which requires a function here
+        // rather than the object form.
+        manualChunks(id) {
+          if (id.includes("node_modules/recharts") || id.includes("node_modules/victory-vendor")
+              || id.includes("node_modules/d3-")) return "charts";
+          if (id.includes("node_modules/react-dom") || id.includes("node_modules/react/")
+              || id.includes("node_modules/scheduler")) return "react";
+        },
+      },
+    },
+  },
 }))

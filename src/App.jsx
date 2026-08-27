@@ -13,7 +13,7 @@ import HomeDashboard from "./components/pages/HomeDashboard";
 import ClientsList from "./components/pages/ClientsList";
 import ClientDetail from "./components/pages/ClientDetail";
 import ClientPortalLogin from "./components/portal/ClientPortalLogin";
-import ClientPortal from "./components/portal/ClientPortal";
+
 import QuickAddTask from "./components/ui/QuickAddTask";
 import CommandPalette from "./components/ui/CommandPalette";
 
@@ -24,6 +24,7 @@ const GrowthDetail   = lazy(() => import("./components/pages/GrowthDetail"));
 const FinanceDetail  = lazy(() => import("./components/pages/FinanceDetail"));
 const CRM            = lazy(() => import("./components/pages/CRM"));
 const ContentPage    = lazy(() => import("./components/pages/ContentPage"));
+const ClientPortal = lazy(() => import("./components/portal/ClientPortal"));
 const PerformancePage = lazy(() => import("./components/pages/PerformancePage"));
 const CalendarPage   = lazy(() => import("./components/pages/CalendarPage"));
 const IntegrationsPage = lazy(() => import("./components/pages/IntegrationsPage"));
@@ -156,6 +157,7 @@ export default function App() {
     return (
       <CurrencyProvider currency={portal.data.settings?.currency}>
         <SaveErrorBanner message={portal.error} onDismiss={portal.dismissError} />
+        <Suspense fallback={<FullScreenLoader />}>
         <ClientPortal
           data={portal.data}
           clientId={portalSession.clientId}
@@ -167,8 +169,11 @@ export default function App() {
           onUpdateStage={portal.actions.updateStage}
           onAddComment={portal.actions.addComment}
           onUpdatePostStatus={portal.actions.updatePostStatus}
+          onRefresh={portal.refresh}
+          refreshing={portal.refreshing}
           token={portalSession.token}
         />
+        </Suspense>
       </CurrencyProvider>
     );
   }

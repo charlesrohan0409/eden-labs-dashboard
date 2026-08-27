@@ -2,7 +2,10 @@ import { useMemo, useState } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
-import { LogOut, FileText, Phone, DollarSign, CheckCircle2, Download } from "lucide-react";
+import {
+  FileText, Phone, DollarSign, CheckCircle2, Download, MessageSquare,
+  Video, Users, Send, Inbox,
+} from "lucide-react";
 import Card, { CardTitle } from "../ui/Card";
 import Badge from "../ui/Badge";
 import Avatar from "../ui/Avatar";
@@ -13,6 +16,9 @@ import PostComposer from "../ui/PostComposer";
 import PendingApproval from "../ui/PendingApproval";
 import CommentThread from "../ui/CommentThread";
 import MiniCalendar from "../ui/MiniCalendar";
+import IconStat from "../ui/IconStat";
+import PortalHero from "./PortalHero";
+import PortalEmpty from "./PortalEmpty";
 import CrmBoard from "../ui/CrmBoard";
 import { isMetricOnTrack, metricProgressPct, contractValueLabel, monthBuckets, toDateKey } from "../../lib/utils";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
@@ -30,7 +36,7 @@ const TAB_LABELS = {
 export default function ClientPortal({
   exitLabel = "Exit preview",
   data, clientId, onExit, onAddPost, onUpdatePost, onAddContact, onUpdateStage,
-  onAddComment, onUpdatePostStatus, token,
+  onAddComment, onUpdatePostStatus, onRefresh, refreshing, token,
 }) {
   const [tab, setTab] = useState("overview");
   const [approvingId, setApprovingId] = useState(null);
@@ -40,6 +46,10 @@ export default function ClientPortal({
   const [transcriptsError, setTranscriptsError] = useState("");
   const { money } = useCurrency();
 
+  // The portal shipped `profile` in its payload and then ignored it, printing
+  // a hardcoded "Eden Labs" instead — so renaming the agency would have left
+  // the client's own dashboard showing the old name.
+  const agencyName = data.profile?.company || data.profile?.name || "Eden Labs";
   const client = data.clients.find((c) => c.id === clientId);
   const clientDms = data.dms.filter((d) => d.clientId === clientId);
   const clientPosts = data.posts.filter((p) => p.clientId === clientId);
@@ -105,36 +115,31 @@ export default function ClientPortal({
 
   return (
     <div className="min-h-screen bg-canvas">
-      <div className="bg-night text-white px-4 md:px-8 py-5 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Avatar name={client.name} photoUrl={client.photoUrl} logoUrl={client.logoUrl} size={42} />
-          <div>
-            <div className="text-lg font-semibold tracking-tight">{client.company}</div>
-            <div className="text-xs text-stone-400">Eden Labs · Client Dashboard</div>
-          </div>
-        </div>
-        {/* Label differs by who's looking: the owner is leaving a PREVIEW and
-            goes back to their dashboard; a real client is ending their
-            SESSION, which matters now that the token persists across
-            refreshes and "close the tab" no longer signs anyone out. */}
-        {onExit && (
-          <button
-            onClick={onExit}
-            className={`text-xs text-stone-300 flex items-center gap-1.5 hover:text-white hover:bg-white/[0.06]
-              border border-white/10 rounded-full px-3.5 py-2
-              transition-[transform,background-color,color] duration-150 ${EASE} active:scale-[0.96]`}
-          >
-            <LogOut size={13} /> {exitLabel}
-          </button>
-        )}
+      <div className="max-w-5xl mx-auto px-4 md:px-8 pt-4 md:pt-6">
+        <PortalHero
+          client={client}
+          agencyName={agencyName}
+          onExit={onExit}
+          exitLabel={exitLabel}
+          onRefresh={onRefresh}
+          refreshing={refreshing}
+        />
       </div>
 
       {/* The CRM board needs the full width; everything else reads better
           constrained, so the container widens only on that tab. */}
-      <div className={`${activeTab === "crm" ? "max-w-[1400px]" : "max-w-5xl"} mx-auto p-4 md:p-8 space-y-5`}>
-        <div className="overflow-x-auto no-scrollbar -mx-4 px-4">
+      <div className={`${activeTab === "crm" ? "max-w-[1400px]" : "max-w-5xl"} mx-auto px-4 md:px-8 pt-4 pb-24 md:pb-10 space-y-5`}>
+        {/* Sticky so navigation doesn't scroll away on a long tab — the portal
+            has no persistent nav of its own, unlike the owner shell. PillTabs
+            already handles its own horizontal overflow; the extra wrapper that
+            used to be here nested a second scroll container inside it. */}
+        <div className="sticky top-0 z-20 -mx-4 px-4 py-2 bg-canvas/85 backdrop-blur-sm">
           <PillTabs value={activeTab} onChange={setTab} options={visibleTabs} size="md" />
         </div>
+
+        {/* Keyed on the tab so switching REMOUNTS the panel and replays the
+            entrance. Without it, tab changes were an instant hard swap. */}
+        <div key={activeTab} className="motion-safe:animate-fade-up space-y-5">
 
         {/* ══ Overview ══ */}
         {activeTab === "overview" && (
@@ -144,6 +149,12 @@ export default function ClientPortal({
                 <span className="flex items-center gap-2"><CheckCircle2 size={15} className="text-teal-700" /> Your progress</span>
               </CardTitle>
               <div className="space-y-3">
+                {client.delivery.length === 0 && (
+                  <PortalEmpty icon={CheckCircle2} title="No goals set yet" compact>
+                    The targets agreed for this cycle will show here, with live progress
+                    against each.
+                  </PortalEmpty>
+                )}
                 {client.delivery.map((d, i) => {
                   const onTrack = isMetricOnTrack(d);
                   return (
@@ -293,7 +304,12 @@ export default function ClientPortal({
                       </div>
                     </div>
                   ))}
-                  {clientPosts.length === 0 && <div className="text-xs text-stone-400 py-6 text-center">No posts yet.</div>}
+                  {clientPosts.length === 0 && (
+                    <PortalEmpty icon={FileText} title="No posts yet" compact>
+                      Drafts written for you appear here as soon as they're ready — you'll
+                      be asked to approve each one before it goes out.
+                    </PortalEmpty>
+                  )}
                 </div>
               ) : (
                 <MiniCalendar posts={data.posts} clientId={clientId} />
@@ -321,7 +337,10 @@ export default function ClientPortal({
                   </div>
                 </>
               ) : (
-                <div className="text-xs text-stone-400 py-6 text-center">No published posts with stats yet.</div>
+                <PortalEmpty icon={FileText} title="No performance data yet" compact>
+                  Likes, comments and views land here once your first post has been
+                  live long enough to gather them.
+                </PortalEmpty>
               )}
             </Card>
 
@@ -332,27 +351,16 @@ export default function ClientPortal({
         {/* ══ Outreach ══ */}
         {activeTab === "outreach" && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <Card className="p-4">
-                <div className="text-xs text-stone-400 font-medium">Inbound calls</div>
-                <div className="text-2xl font-bold tracking-tight text-stone-900 mt-1 tnum">
-                  {clientCalls.filter((c) => c.direction === "inbound").length}
-                </div>
-              </Card>
-              <Card className="p-4">
-                <div className="text-xs text-stone-400 font-medium">Outbound calls</div>
-                <div className="text-2xl font-bold tracking-tight text-stone-900 mt-1 tnum">
-                  {clientCalls.filter((c) => c.direction === "outbound").length}
-                </div>
-              </Card>
-              <Card className="p-4">
-                <div className="text-xs text-stone-400 font-medium">Deals closed</div>
-                <div className="text-2xl font-bold tracking-tight text-stone-900 mt-1 tnum">{clientDeals.length}</div>
-              </Card>
-              <Card className="p-4">
-                <div className="text-xs text-stone-400 font-medium">Closed value</div>
-                <div className="text-2xl font-bold tracking-tight text-stone-900 mt-1 tnum">{money(totalClosed)}</div>
-              </Card>
+            {/* IconStat is the shared tile the owner dashboard uses — icon
+                chip, tone, consistent type scale. The portal was hand-rolling
+                a plainer copy of it four times. */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <IconStat icon={Inbox} tone="teal" label="Inbound calls"
+                value={clientCalls.filter((c) => c.direction === "inbound").length} />
+              <IconStat icon={Send} tone="sky" label="Outbound calls"
+                value={clientCalls.filter((c) => c.direction === "outbound").length} />
+              <IconStat icon={Users} tone="violet" label="Deals closed" value={clientDeals.length} />
+              <IconStat icon={DollarSign} tone="amber" label="Closed value" value={money(totalClosed)} />
             </div>
 
             <Card className="p-5">
@@ -367,7 +375,11 @@ export default function ClientPortal({
                     <span className="text-xs text-stone-500 w-8 text-right tnum">{o.count}</span>
                   </div>
                 ))}
-                {clientOutreach.length === 0 && <div className="text-xs text-stone-400">No outreach logged yet.</div>}
+                {clientOutreach.length === 0 && (
+                  <PortalEmpty icon={Send} title="No outreach logged yet" compact>
+                    Messages sent on your behalf are counted here, split by channel.
+                  </PortalEmpty>
+                )}
               </div>
             </Card>
 
@@ -381,7 +393,11 @@ export default function ClientPortal({
                     <span className="text-xs text-stone-400 shrink-0 tnum">{c.date}</span>
                   </div>
                 ))}
-                {clientCalls.length === 0 && <div className="text-xs text-stone-400 py-6 text-center">No calls logged yet.</div>}
+                {clientCalls.length === 0 && (
+                  <PortalEmpty icon={Phone} title="No calls logged yet" compact>
+                    Every call booked or taken on your behalf is recorded here with notes.
+                  </PortalEmpty>
+                )}
               </div>
             </Card>
 
@@ -451,7 +467,10 @@ export default function ClientPortal({
                   </div>
                 ) : (
                   !transcriptsLoading && !transcriptsError && (
-                    <div className="text-xs text-stone-400 py-6 text-center">No transcripts pulled yet — hit "Load meetings".</div>
+                    <PortalEmpty icon={Video} title="No meetings loaded" compact>
+                      Your recorded calls with {agencyName}, with summaries — press
+                      "Load meetings" to pull the latest.
+                    </PortalEmpty>
                   )
                 )}
               </div>
@@ -475,7 +494,11 @@ export default function ClientPortal({
                     <span className="text-xs text-stone-400 shrink-0 tnum">{d.date}</span>
                   </div>
                 ))}
-                {clientDms.length === 0 && <div className="text-sm text-stone-400 py-6 text-center">No messages yet.</div>}
+                {clientDms.length === 0 && (
+                  <PortalEmpty icon={MessageSquare} title="No messages yet" compact>
+                    Outreach conversations handled on your behalf show up here.
+                  </PortalEmpty>
+                )}
               </div>
             </Card>
             <CommentThread comments={data.comments} clientId={clientId} tabKey="dms" author="Client" onAdd={onAddComment} />
@@ -554,6 +577,7 @@ export default function ClientPortal({
             <CommentThread comments={data.comments} clientId={clientId} tabKey="contract" author="Client" onAdd={onAddComment} />
           </div>
         )}
+        </div>
       </div>
     </div>
   );

@@ -104,6 +104,38 @@ async function loadData() {
   return (await loadWithVersion()).data;
 }
 
+/**
+ * Read-modify-write that can't clobber a concurrent writer.
+ *
+ * The owner's own PUT /api/data has been optimistically locked for a while
+ * (version token in, 409 + replay out). The portal and extension write paths
+ * were not: each did loadData() -> mutate -> upsertAppData(full), an
+ * unconditional overwrite of the ENTIRE blob. So a client approving a post,
+ * or the extension saving a lead from LinkedIn, would happily write back a
+ * snapshot taken before whatever the owner had just changed in the dashboard
+ * — silently reverting it.
+ *
+ * `mutate` receives the freshly-loaded data and either mutates it in place or
+ * returns an error object `{ status, body }` to abort without writing. It may
+ * be called more than once, so it must be a pure function of the data it is
+ * handed — the same property that makes the client-side replay safe.
+ */
+async function mutateWithRetry(mutate, attempts = 3) {
+  for (let i = 0; i < attempts; i++) {
+    const { data, version } = await loadWithVersion();
+    const abort = mutate(data);
+    if (abort) return abort;
+    const res = await updateAppDataIfUnchanged(data, version);
+    if (res.ok) return { status: 200, body: null, data };
+    // Someone else wrote in between. Reload and reapply rather than
+    // overwriting them.
+  }
+  return {
+    status: 409,
+    body: { error: "Couldn't save — the dashboard was being edited at the same time. Try again." },
+  };
+}
+
 async function loadWithVersion() {
   const row = await getAppData();
   if (!row) {
@@ -164,7 +196,7 @@ export async function handleCRMLead(headers, body) {
   if (!requireOwner(headers)) return { status: 401, body: { error: "Unauthorized" } };
   const { name } = body || {};
   if (!name?.trim()) return { status: 400, body: { error: "`name` is required." } };
-  const data = await loadData();
+  const { data, version } = await loadWithVersion();
   M.addContact(data, {
     name:       name.trim(),
     company:    body.company   || "",
@@ -181,7 +213,10 @@ export async function handleCRMLead(headers, body) {
     closedDate: null,
     addedDate:  new Date().toISOString().slice(0, 10),
   });
-  await upsertAppData(data);
+  const saved = await updateAppDataIfUnchanged(data, version);
+  if (!saved.ok) {
+    return { status: 409, body: { error: "The dashboard was being edited at the same time. Try saving that lead again." } };
+  }
   return { status: 200, body: { ok: true, count: data.contacts.length } };
 }
 
@@ -285,42 +320,48 @@ export async function handlePortalAction(headers, body) {
   if (!payload) return { status: 401, body: { error: "Unauthorized" } };
   const clientId = payload.clientId;
   const { action, payload: p } = body || {};
-  const full = await loadData();
 
-  switch (action) {
-    case "addPost":
-      M.addPost(full, { ...p, clientId });
-      break;
-    case "updatePost": {
-      const post = full.posts.find((x) => x.id === p?.id);
-      if (!post || post.clientId !== clientId) return { status: 403, body: { error: "Not your post." } };
-      M.updatePost(full, p.id, p.patch || {});
-      break;
-    }
-    case "updatePostStatus": {
-      const post = full.posts.find((x) => x.id === p?.id);
-      if (!post || post.clientId !== clientId) return { status: 403, body: { error: "Not your post." } };
-      M.updatePostStatus(full, p.id, p.status);
-      break;
-    }
-    case "addContact":
-      M.addContact(full, { ...p, clientId });
-      break;
-    case "updateStage": {
-      const contact = full.contacts.find((x) => x.id === p?.id);
-      if (!contact || contact.clientId !== clientId) return { status: 403, body: { error: "Not your contact." } };
-      M.updateStage(full, p.id, p.stage);
-      break;
-    }
-    case "addComment":
-      M.addComment(full, { ...p, clientId, author: "Client" });
-      break;
-    default:
-      return { status: 400, body: { error: `Unknown or disallowed action: ${action}` } };
-  }
+  // Version-checked, retrying — see mutateWithRetry. Previously this loaded,
+  // mutated and unconditionally overwrote the whole blob, so a client
+  // approving a post could silently revert whatever the owner had changed in
+  // the dashboard a moment earlier.
+  const result = await mutateWithRetry((full) => {
+    switch (action) {
+      case "addPost":
+        M.addPost(full, { ...p, clientId });
+        break;
+      case "updatePost": {
+        const post = full.posts.find((x) => x.id === p?.id);
+        if (!post || post.clientId !== clientId) return { status: 403, body: { error: "Not your post." } };
+        M.updatePost(full, p.id, p.patch || {});
+        break;
+      }
+      case "updatePostStatus": {
+        const post = full.posts.find((x) => x.id === p?.id);
+        if (!post || post.clientId !== clientId) return { status: 403, body: { error: "Not your post." } };
+        M.updatePostStatus(full, p.id, p.status);
+        break;
+      }
+      case "addContact":
+        M.addContact(full, { ...p, clientId });
+        break;
+      case "updateStage": {
+        const contact = full.contacts.find((x) => x.id === p?.id);
+        if (!contact || contact.clientId !== clientId) return { status: 403, body: { error: "Not your contact." } };
+        M.updateStage(full, p.id, p.stage);
+        break;
+      }
+      case "addComment":
+        M.addComment(full, { ...p, clientId, author: "Client" });
+        break;
+      default:
+        return { status: 400, body: { error: `Unknown or disallowed action: ${action}` } };
+      }
+    return null;
+  });
 
-  await upsertAppData(full);
-  return { status: 200, body: { data: buildPortalData(full, clientId) } };
+  if (result.body) return result;
+  return { status: 200, body: { data: buildPortalData(result.data, clientId) } };
 }
 
 // ------------------------------------------------------------- extension ---
@@ -375,7 +416,7 @@ export async function handleExtension(headers, body) {
   // say who a save is for.
   const clientId = isOwner ? (p.clientId || null) : payload.clientId;
 
-  const data = await loadData();
+  const { data, version } = await loadWithVersion();
 
   if (action === "listCommentTargets") {
     return { status: 200, body: { ok: true, targets: data.commentTargets || [] } };
@@ -447,7 +488,13 @@ export async function handleExtension(headers, body) {
     }
   }
 
-  await upsertAppData(data);
+  // Version-checked like every other write path. A popup that has been open
+  // on a LinkedIn tab for an hour must not be able to write back a blob it
+  // read before the dashboard changed.
+  const saved = await updateAppDataIfUnchanged(data, version);
+  if (!saved.ok) {
+    return { status: 409, body: { error: "The dashboard was being edited at the same time. Try that again." } };
+  }
   return { status: 200, body: { ok: true } };
 }
 

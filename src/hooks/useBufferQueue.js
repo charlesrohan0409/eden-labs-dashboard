@@ -10,13 +10,24 @@ import { fetchBufferQueue } from "../lib/buffer";
 let cache = null;
 let inflight = null;
 
+let generation = 0;
+
 async function loadOnce(force) {
-  if (force) { cache = null; inflight = null; }
+  if (force) { cache = null; inflight = null; generation += 1; }
   if (cache) return cache;
   if (!inflight) {
+    // `gen` pins this fetch to the refresh that started it. Without it, a
+    // refresh fired while an earlier fetch was still running would have that
+    // earlier promise resolve late, overwrite `cache` with pre-refresh data
+    // and null out the NEW request's `inflight` from its own .finally.
+    const gen = generation;
     inflight = fetchBufferQueue()
-      .then((res) => { cache = { ...res, fetchedAt: new Date().toISOString() }; return cache; })
-      .finally(() => { inflight = null; });
+      .then((res) => {
+        const next = { ...res, fetchedAt: new Date().toISOString() };
+        if (gen === generation) cache = next;
+        return next;
+      })
+      .finally(() => { if (gen === generation) inflight = null; });
   }
   return inflight;
 }

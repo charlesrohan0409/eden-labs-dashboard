@@ -27,6 +27,7 @@ import { CLIENT_TYPES, DEFAULT_CLIENT_TYPE, INDUSTRIES } from "../../data/seed";
 import { useCurrency } from "../../hooks/useCurrency";
 import { sendEmail } from "../../lib/email";
 import { fileToDocument } from "../../lib/media";
+import NumberField from "../ui/NumberField";
 
 // ---- Activity log icon / colour per event type ----
 const ACTIVITY_CONFIG = {
@@ -595,10 +596,9 @@ export default function ClientDetail({
                         <span className="block text-[11px] text-stone-400">resets {d.cadence}</span>
                       )}
                     </span>
-                    <input
-                      type="number"
+                    <NumberField
                       value={d.current}
-                      onChange={(e) => onUpdateDelivery(client.id, idx, Number(e.target.value))}
+                      onCommit={(n) => onUpdateDelivery(client.id, idx, n)}
                       className={`${inputCls} w-20`}
                     />
                     <span className="text-xs text-stone-400">/ target {d.target}</span>
@@ -932,10 +932,9 @@ export default function ClientDetail({
                 </div>
                 <div>
                   <label className="text-xs text-stone-400">Payout period (months)</label>
-                  <input
-                    type="number"
+                  <NumberField
                     value={client.contract.payoutMonths || 0}
-                    onChange={(e) => onUpdateContract(client.id, { ...client.contract, payoutMonths: Number(e.target.value) })}
+                    onCommit={(n) => onUpdateContract(client.id, { ...client.contract, payoutMonths: n })}
                     className={`${inputCls} w-full mt-1`}
                   />
                 </div>
@@ -949,10 +948,9 @@ export default function ClientDetail({
             ) : (
               <div className="mb-1">
                 <label className="text-xs text-stone-400">{contractValueLabel(client.contract)} ($)</label>
-                <input
-                  type="number"
+                <NumberField
                   value={client.contract.value}
-                  onChange={(e) => onUpdateContract(client.id, { ...client.contract, value: Number(e.target.value) })}
+                  onCommit={(n) => onUpdateContract(client.id, { ...client.contract, value: n })}
                   className={`${inputCls} w-full sm:w-56 mt-1`}
                 />
               </div>

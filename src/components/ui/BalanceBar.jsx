@@ -115,8 +115,16 @@ export default function BalanceBar({ accounts = [], onAdd, onUpdate, onDelete, t
         credit
       />
 
+      {/* key={editing} is load-bearing, not decoration. The list stays
+          clickable while this form is open, so `editing` can go straight from
+          one row's id to another's. Same component, same position, so React
+          reuses the instance and the useState initialisers below never re-run
+          — the form kept showing the FIRST row's values while saving onto the
+          SECOND row's id. Silent overwrite of the wrong record. The key forces
+          a remount whenever the target changes. */}
       {editing && (
         <AccountForm
+          key={editing}
           account={editing === "new" ? null : accounts.find((a) => a.id === editing)}
           token={token}
           onCancel={() => setEditing(null)}

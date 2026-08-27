@@ -233,7 +233,14 @@ export default function ContentPage({
         <SavedContent items={data.swipeFile} onAdd={onAddSwipe} onDelete={onDeleteSwipe} />
       )}
 
+      {/* Keyed by the post so the modal REMOUNTS per post. It renders
+          unconditionally (Modal returns null internally when closed), so its
+          own state used to initialise once and never reset: a Buffer error
+          from one post, and its chosen date, carried over to the next one you
+          scheduled — including a cleared channel, which silently downgrades a
+          real schedule to a local-only reminder. */}
       <ScheduleModal
+        key={scheduling?.id || "none"}
         open={!!scheduling}
         post={scheduling}
         channels={bufferIntegration.channels || []}

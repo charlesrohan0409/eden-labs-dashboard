@@ -1950,3 +1950,94 @@ STILL OPEN AFTER THIS SESSION:
     orphan Buffer posts into the board, correct drifted times) is the
     obvious follow-up.
   - Everything else from §17 still stands.
+
+--------------------------------------------------------------------------------
+19. BUG SWEEP + PORTAL REDESIGN (2026-08-27)
+--------------------------------------------------------------------------------
+  User reported two bugs, then asked for a full correctness pass, then a
+  portal redesign. Commits: d7cfee5, d2037cd, 5b0dcaa, 3f6cb6b, d2bf3ae,
+  35b8536, 7054177.
+
+  THE TWO REPORTED BUGS, both real:
+   - Task notes ate the caret. FormFields was defined INSIDE TaskList's
+     render body, so each keystroke produced a new component identity and
+     React remounted the subtree, taking focus and caret with it; autoFocus
+     on the title then pulled focus up there. Hoisted to module scope.
+     Verified live: 11 characters typed, focus never left, caret always at
+     end.
+   - Drag-to-reorder did nothing. The comparator pinned overdue tasks above
+     everything BEFORE consulting sortIndex, and sorted within the overdue
+     group by date — so a drag only took effect when nothing was overdue.
+     The handle rendered regardless, so it looked broken rather than
+     restricted. Now an explicit Manual/Smart toggle: Manual (default)
+     honours your order; Smart keeps the triage view and HIDES the handles.
+     reorderTasks also reindexed only the visible ids and shoved everything
+     else after them, so reordering inside one category dragged every other
+     category's tasks to the bottom.
+
+  FOUND DURING THE SWEEP (highest impact first):
+   - EVERY DATE WAS UTC. 23 sites used toISOString().slice(0,10). In IST
+     that is yesterday between 00:00 and 05:29, so anything logged late at
+     night was filed under the wrong day and "due today" meant "due
+     yesterday". Added toDateKey(); verified across IST/UTC/US-Pacific/NZ.
+   - EVERY CHART WAS ABOUT TO FREEZE ON 1 SEPTEMBER. MONTHS was hardcoded
+     Mar–Aug and charts bucketed via MONTHS[getMonth()-2], undefined outside
+     that window. Jan/Feb/Sep–Dec were already being dropped. Replaced with
+     a rolling window keyed YYYY-MM.
+   - EDIT FORMS SAVED ONTO THE WRONG RECORD. Outgoings/Budgets/BalanceBar
+     kept the first row's values while pointing at the second row's id.
+     Fixed with key={editing} to force a remount.
+   - CONCURRENT WRITES UNDID EACH OTHER. Two update() calls both read
+     versionRef before either landed, so the loser's replay re-applied a
+     mutation the server already had. Writes are now chained. Verified live.
+   - PORTAL/EXTENSION WRITES BYPASSED OPTIMISTIC LOCKING entirely — blind
+     full-blob overwrites that could revert the dashboard. All now
+     version-checked; the portal retries against fresh data.
+   - OWNER'S PRIVATE NOTES SHIPPED TO CLIENTS. stripClientForPortal was a
+     denylist ({ pin, ...rest }) so every field added later leaked. Now an
+     allowlist.
+   - Number inputs saved per keystroke, couldn't be cleared (Number("")===0)
+     and jumped backwards as conflicting saves replayed. New NumberField.
+   - Finance's Overdue total/count/filter keyed off a status nothing ever
+     writes, so all three read ~0 forever. Added effectiveInvoiceStatus().
+   - Client PIN rendered in plaintext (no type="password").
+   - Delivery KPIs were index-addressed end to end; deleting one above the
+     row being edited retargeted the edit. They carry stable ids now.
+   - Portal approve had NO feedback (approvingId was never passed) and
+     request-changes fired two read-modify-writes in parallel, so you got
+     the status revert OR the comment, not both.
+   - Smaller: deleteClient orphaned inbound; ScheduleModal never unmounted
+     so a Buffer error carried to the next post; Buffer caches raced on
+     refresh; ProfileCard never re-synced; Escape-to-discard could SAVE in
+     Firefox; Modal's scroll lock is now ref-counted; several uncleaned
+     timers.
+
+  PORTAL REDESIGN. It was last touched 15 Aug, before every hero/motion/
+  shared-tile pattern the owner side has — zero animations, one flat square
+  night strip, seven one-line grey empty states.
+   - PortalHero: rounded night card, glass tiles. Tiles lead with what the
+     client must DO (pending approvals, clickable through) rather than
+     repeating the delivery metrics shown in the card directly below.
+   - PortalEmpty everywhere, including as a fallback for empty CHARTS — a
+     bare axis grid reads as broken, and that was a new client's first view.
+   - Sticky tab bar (the portal has no persistent nav), staggered panel
+     entrance keyed on tab, IconStat instead of hand-rolled cards,
+     data.profile.company instead of a hardcoded "Eden Labs".
+   - OwnerPortalPreview: previewing a client's portal no longer needs their
+     PIN. Payload is built client-side in the same shape (and with the same
+     stripping) the server sends, so the preview stays honest.
+   - Bundle: was one 838 kB chunk containing the whole owner dashboard and
+     recharts, downloaded by portal clients too. Now 233 kB shell + 179 kB
+     react + charts on demand + a 28 kB portal chunk.
+
+STILL OPEN:
+  - Buffer unschedule/reschedule STILL not live-tested (see §18). Needs a
+    throwaway post in the real account; sandbox correctly blocks creating
+    one unattended.
+  - Portal transcripts still require a manual "Load meetings" click.
+  - Local posts remain a lossy mirror of Buffer (no back-fill for posts
+    scheduled straight in Buffer, no reconcile of drifted times).
+  - Two Vercel projects for one repo: eden-labs-dashboard (stray, nothing
+    points at it) and eden-labs-dashboard-hncj (has dashboard.theedenlabs
+    .com, which is the only host the extension talks to). Delete the stray,
+    then rename the survivor to take the clean name.

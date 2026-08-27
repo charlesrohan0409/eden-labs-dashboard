@@ -23,7 +23,7 @@ import Outgoings from "../ui/Outgoings";
 import Budgets from "../ui/Budgets";
 import { downloadCSV, today, computeMRR, billingTypeLabel , monthBuckets } from "../../lib/utils";
 import { useCurrency } from "../../hooks/useCurrency";
-import { formatAmount, CURRENCIES } from "../../lib/currency";
+import { formatAmount, CURRENCIES, convertBetween } from "../../lib/currency";
 import { invoiceNumber } from "../../lib/invoice";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { effectiveInvoiceStatus } from "../../lib/finance.js";
@@ -62,7 +62,7 @@ export default function FinanceDetail({
   const [reminderStatus, setReminderStatus] = useState({});
   const [exp, setExp] = useState(BLANK_EXPENSE);
   const [editingExpenseId, setEditingExpenseId] = useState(null);
-  const [editExpenseForm, setEditExpenseForm] = useState({ category: "Software", vendor: "", amount: "" });
+  const [editExpenseForm, setEditExpenseForm] = useState({ category: "Software", vendor: "", amount: "", currency: "USD" });
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
   const { money, moneyIn, rate } = useCurrency();
 
@@ -167,12 +167,28 @@ export default function FinanceDetail({
   };
 
   const startEditExpense = (e) => {
-    setEditExpenseForm({ category: e.category, vendor: e.vendor, amount: String(e.amount) });
+    // Seeded from nativeAmount, not amount — amount is the derived USD
+    // figure. Editing "amount" directly (the old behaviour) is what let a
+    // stale, unconverted number drift away from what was actually paid.
+    setEditExpenseForm({
+      category: e.category, vendor: e.vendor,
+      amount: String(e.nativeAmount ?? e.amount),
+      currency: e.currency || "USD",
+    });
     setEditingExpenseId(e.id);
   };
   const submitEditExpense = () => {
     if (!editExpenseForm.vendor || !editExpenseForm.amount) return;
-    onUpdateExpense(editingExpenseId, { ...editExpenseForm, amount: Number(editExpenseForm.amount) });
+    const native = Number(editExpenseForm.amount);
+    onUpdateExpense(editingExpenseId, {
+      category: editExpenseForm.category,
+      vendor: editExpenseForm.vendor,
+      nativeAmount: native,
+      currency: editExpenseForm.currency,
+      // Recomputed the same way the add form does it — see the note there.
+      amount: convertBetween(native, editExpenseForm.currency, "USD", rate),
+      fxRate: editExpenseForm.currency === "USD" ? 1 : rate,
+    }, rate);
     setEditingExpenseId(null);
   };
 
@@ -625,15 +641,30 @@ export default function FinanceDetail({
               {data.expenses.slice().reverse().map((e) => {
                 if (editingExpenseId === e.id) {
                   return (
+                    // key={e.id}: same reasoning as the Outgoings/Budgets/
+                    // BalanceBar edit forms — this list stays clickable while
+                    // one row is being edited, so without a key tied to the
+                    // row, clicking edit on a second expense before saving
+                    // the first reuses the component instance and can save
+                    // one row's edits onto another row's id.
                     <div key={e.id} className="flex items-center gap-2 flex-wrap bg-stone-50 rounded-xl p-3 my-1">
-                      <select value={editExpenseForm.category} onChange={(ev) => setEditExpenseForm({ ...editExpenseForm, category: ev.target.value })} className={`${inputCls} w-32`}>
-                        <option>Software</option>
-                        <option>Contractor</option>
-                        <option>Advertising</option>
-                        <option>Other</option>
-                      </select>
+                      {/* Was a hardcoded 4-option list missing Marketing,
+                          Utilities, Rent, Travel and anything else added
+                          since — the exact bug already fixed on the add
+                          form below, just not here too. Same shared,
+                          editable vocabulary now. */}
+                      <CategorySelect
+                        value={editExpenseForm.category}
+                        onChange={(v) => setEditExpenseForm({ ...editExpenseForm, category: v })}
+                        categories={data.expenseCategories}
+                        onAddCategory={onAddExpenseCategory}
+                        className="w-32"
+                      />
                       <input placeholder="Vendor" value={editExpenseForm.vendor} onChange={(ev) => setEditExpenseForm({ ...editExpenseForm, vendor: ev.target.value })} className={`${inputCls} flex-1 min-w-[8rem]`} />
-                      <input placeholder="Amount" type="number" value={editExpenseForm.amount} onChange={(ev) => setEditExpenseForm({ ...editExpenseForm, amount: ev.target.value })} className={`${inputCls} w-28`} />
+                      <input placeholder="Amount" type="number" value={editExpenseForm.amount} onChange={(ev) => setEditExpenseForm({ ...editExpenseForm, amount: ev.target.value })} className={`${inputCls} w-24`} />
+                      <select value={editExpenseForm.currency} onChange={(ev) => setEditExpenseForm({ ...editExpenseForm, currency: ev.target.value })} className={`${inputCls} w-20`}>
+                        {Object.values(CURRENCIES).map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}
+                      </select>
                       <PrimaryButton size="sm" onClick={submitEditExpense}>Save</PrimaryButton>
                       <button onClick={() => setEditingExpenseId(null)} className="text-stone-400 hover:text-stone-700 p-1.5">
                         <X size={15} />
@@ -704,16 +735,29 @@ export default function FinanceDetail({
                 className="w-full"
                 onClick={() => {
                   if (!exp.vendor || !exp.amount) return;
-                  const amount = Number(exp.amount);
+                  const native = Number(exp.amount);
+                  // BUG THIS FIXES: `amount` is the field every USD-denominated
+                  // aggregate on this page sums (totalCost, the cost chart,
+                  // and the same field HomeDashboard's chart sums too) — it
+                  // was being set to the raw typed number with NO conversion,
+                  // whatever currency was picked. Log ₹700 and `amount` became
+                  // 700, then every one of those totals treated ₹700 as $700 —
+                  // roughly a 95x overstatement for every INR expense, and (via
+                  // money()'s own USD->INR multiply on the way back out) the
+                  // exact reason a ₹700 dinner was rendering as ₹66,850 on this
+                  // very list. `nativeAmount`/`currency` are what was actually
+                  // paid, same split invoices already use; `amount` is now the
+                  // converted USD figure those aggregates need; `fxRate` is
+                  // frozen at entry time so a later rate move can't silently
+                  // reprice a past expense.
+                  const fxRate = exp.currency === "USD" ? 1 : rate;
                   onAddExpense({
                     category: exp.category,
                     vendor: exp.vendor,
-                    // `amount` stays the figure every existing aggregate on
-                    // this page already sums; nativeAmount/currency carry what
-                    // was actually paid, same split as invoices.
-                    amount,
-                    nativeAmount: amount,
+                    amount: convertBetween(native, exp.currency, "USD", rate),
+                    nativeAmount: native,
                     currency: exp.currency,
+                    fxRate,
                     date: exp.date || today(),
                     accountId: exp.accountId || null,
                   }, rate);

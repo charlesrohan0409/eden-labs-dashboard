@@ -457,9 +457,41 @@ function periodOf(budget) {
     ? String(now.getFullYear())
     : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
-export function updateExpense(d, id, patch) {
+// `rate` is optional so callers that only touch fields that don't affect
+// currency or settlement (nothing left today, but the shape matches
+// addExpense/deleteExpense for the same reason) don't need to supply one.
+//
+// The account is re-settled around the edit rather than left alone: the
+// previous version just did Object.assign, so editing an expense's amount
+// changed every USD-facing total but left the account balance still
+// reflecting the PRE-EDIT figure forever — a second, quieter version of the
+// currency bug this same pass fixes in addExpense.
+export function updateExpense(d, id, patch, rate) {
   const e = d.expenses.find((x) => x.id === id);
-  if (e) Object.assign(e, patch);
+  if (!e) return d;
+
+  const account = e.settledFromAccountId
+    ? (d.accounts || []).find((a) => a.id === e.settledFromAccountId)
+    : null;
+
+  // Reverse using the amount that was ACTUALLY applied at settle time, not a
+  // figure recomputed at today's rate — same principle deleteExpense already
+  // follows, so an edit and a delete-then-recreate leave the account in the
+  // same place.
+  if (account && e.settledAmount != null) {
+    const isCreditCard = account.type === "credit";
+    account.balance = (Number(account.balance) || 0) - (isCreditCard ? Number(e.settledAmount) : -Number(e.settledAmount));
+  }
+
+  Object.assign(e, patch);
+
+  if (account) {
+    const native = Number(e.nativeAmount ?? e.amount) || 0;
+    const debited = convertBetween(native, e.currency || "USD", account.currency || "INR", rate);
+    const isCreditCard = account.type === "credit";
+    account.balance = (Number(account.balance) || 0) + (isCreditCard ? debited : -debited);
+    e.settledAmount = debited;
+  }
   return d;
 }
 export function deleteExpense(d, id) {

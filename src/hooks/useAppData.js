@@ -220,7 +220,7 @@ export function useAppData(token, onUnauthorized) {
 
     // ---- finance ----
     addExpense: (e, rate) => update((d) => M.addExpense(d, e, rate)),
-    updateExpense: (id, patch) => update((d) => M.updateExpense(d, id, patch)),
+    updateExpense: (id, patch, rate) => update((d) => M.updateExpense(d, id, patch, rate)),
     deleteExpense: (id) => update((d) => M.deleteExpense(d, id)),
 
     syncPublishedFromBuffer: (sent) => update((d) => M.syncPublishedFromBuffer(d, sent).data),

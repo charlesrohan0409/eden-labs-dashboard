@@ -25,6 +25,7 @@ const FinanceDetail  = lazy(() => import("./components/pages/FinanceDetail"));
 const CRM            = lazy(() => import("./components/pages/CRM"));
 const ContentPage    = lazy(() => import("./components/pages/ContentPage"));
 const ClientPortal = lazy(() => import("./components/portal/ClientPortal"));
+const OwnerPortalPreview = lazy(() => import("./components/portal/OwnerPortalPreview"));
 const PerformancePage = lazy(() => import("./components/pages/PerformancePage"));
 const CalendarPage   = lazy(() => import("./components/pages/CalendarPage"));
 const IntegrationsPage = lazy(() => import("./components/pages/IntegrationsPage"));
@@ -143,6 +144,18 @@ export default function App() {
   // ---- Client portal (its own full-screen shell, its own auth entirely
   // separate from the owner's session below) ----
   if (portalMode) {
+    // OWNER PREVIEW. Charles is already authenticated as owner and can see
+    // every one of these records on the client detail page anyway, so making
+    // him type a client's PIN to look at their portal was pure friction with
+    // no security benefit — and it meant he could not check what a client
+    // sees without asking them for their PIN. Built from the data already in
+    // memory, in the same shape the server sends a real client, so the
+    // preview is honest about what is and isn't visible to them.
+    if (!arrivedViaLink && ownerAuth.token && data) {
+      return (
+        <OwnerPortalPreview data={data} actions={actions} onExit={exitPortal} />
+      );
+    }
     if (!portalSession) {
       return <ClientPortalLogin onLogin={setPortalSession} onExit={arrivedViaLink ? undefined : exitPortal} />;
     }
@@ -167,6 +180,8 @@ export default function App() {
           onUpdatePost={portal.actions.updatePost}
           onAddContact={portal.actions.addContact}
           onUpdateStage={portal.actions.updateStage}
+          onUpdateContact={portal.actions.updateContact}
+          onDeleteContact={portal.actions.deleteContact}
           onAddComment={portal.actions.addComment}
           onUpdatePostStatus={portal.actions.updatePostStatus}
           onRefresh={portal.refresh}

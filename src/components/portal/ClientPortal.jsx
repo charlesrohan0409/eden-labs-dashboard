@@ -36,7 +36,8 @@ const TAB_LABELS = {
 export default function ClientPortal({
   exitLabel = "Exit preview",
   data, clientId, onExit, onAddPost, onUpdatePost, onAddContact, onUpdateStage,
-  onAddComment, onUpdatePostStatus, onRefresh, refreshing, token,
+  onAddComment, onUpdatePostStatus, onUpdateContact, onDeleteContact,
+  onRefresh, refreshing, token,
 }) {
   const [tab, setTab] = useState("overview");
   const [approvingId, setApprovingId] = useState(null);
@@ -107,6 +108,13 @@ export default function ClientPortal({
   };
   const totalClosed = clientDeals.reduce((s, d) => s + (Number(d.dealValue) || 0), 0);
 
+  const heroStats = {
+    pendingApproval: clientPosts.filter((p) => p.status === "pending_review").length,
+    published: clientPosts.filter((p) => p.status === "published").length,
+    deals: clientDeals.length,
+    dealValue: totalClosed ? money(totalClosed) : "nothing closed yet",
+  };
+
   // Only the tabs this client's service line uses — a book-editing client has
   // no LinkedIn content pipeline or CRM to look at.
   const clientType = CLIENT_TYPES[client.type] || CLIENT_TYPES[DEFAULT_CLIENT_TYPE];
@@ -119,10 +127,12 @@ export default function ClientPortal({
         <PortalHero
           client={client}
           agencyName={agencyName}
+          stats={heroStats}
           onExit={onExit}
           exitLabel={exitLabel}
           onRefresh={onRefresh}
           refreshing={refreshing}
+          onGoToApprovals={() => setTab("content")}
         />
       </div>
 
@@ -185,6 +195,13 @@ export default function ClientPortal({
                 <CardTitle sub="Published vs scheduled">
                   <span className="flex items-center gap-2"><FileText size={15} className="text-emerald-700" /> Posts</span>
                 </CardTitle>
+                {/* An axis grid with no bars in it looks broken, not empty —
+                    and this is exactly what a brand-new client sees first. */}
+                {clientPosts.length === 0 ? (
+                  <PortalEmpty icon={FileText} title="Nothing published yet" compact>
+                    Once posts start going out, you'll see the monthly rhythm here.
+                  </PortalEmpty>
+                ) : (
                 <ResponsiveContainer width="100%" height={150}>
                   <BarChart data={postsSeries} barGap={3}>
                     <CartesianGrid stroke={COLORS.gridline} vertical={false} />
@@ -195,12 +212,18 @@ export default function ClientPortal({
                     <Bar dataKey="scheduled" fill={COLORS.teal} radius={[3, 3, 0, 0]} name="Scheduled" barSize={10} />
                   </BarChart>
                 </ResponsiveContainer>
+                )}
               </Card>
 
               <Card className="p-5">
                 <CardTitle sub="Inbound vs outbound">
                   <span className="flex items-center gap-2"><Phone size={15} className="text-sky-700" /> Calls</span>
                 </CardTitle>
+                {clientCalls.length === 0 ? (
+                  <PortalEmpty icon={Phone} title="No calls yet" compact>
+                    Calls taken or booked on your behalf appear here month by month.
+                  </PortalEmpty>
+                ) : (
                 <ResponsiveContainer width="100%" height={150}>
                   <BarChart data={callsSeries} barGap={3}>
                     <CartesianGrid stroke={COLORS.gridline} vertical={false} />
@@ -211,6 +234,7 @@ export default function ClientPortal({
                     <Bar dataKey="outbound" fill={COLORS.muted} radius={[3, 3, 0, 0]} name="Outbound" barSize={10} />
                   </BarChart>
                 </ResponsiveContainer>
+                )}
               </Card>
             </div>
 
@@ -218,6 +242,11 @@ export default function ClientPortal({
               <CardTitle sub={`Total closed: ${money(totalClosed)}`}>
                 <span className="flex items-center gap-2"><DollarSign size={15} className="text-amber-600" /> Deals closed</span>
               </CardTitle>
+              {clientDeals.length === 0 ? (
+                <PortalEmpty icon={DollarSign} title="No deals closed yet" compact>
+                  Won deals and their value are tracked here as they land.
+                </PortalEmpty>
+              ) : (
               <ResponsiveContainer width="100%" height={150}>
                 <BarChart data={dealsSeries}>
                   <CartesianGrid stroke={COLORS.gridline} vertical={false} />
@@ -227,6 +256,7 @@ export default function ClientPortal({
                   <Bar dataKey="value" fill={COLORS.amber} radius={[4, 4, 0, 0]} name="Deal value" barSize={16} />
                 </BarChart>
               </ResponsiveContainer>
+              )}
             </Card>
 
             <CommentThread comments={data.comments} clientId={clientId} tabKey="overview" author="Client" onAdd={onAddComment} />
@@ -412,6 +442,8 @@ export default function ClientPortal({
               contacts={clientContacts}
               onAddContact={(form) => onAddContact({ ...form, clientId })}
               onUpdateStage={onUpdateStage}
+              onUpdateContact={onUpdateContact}
+              onDeleteContact={onDeleteContact}
               showExtensionHint={false}
             />
             <CommentThread comments={data.comments} clientId={clientId} tabKey="crm" author="Client" onAdd={onAddComment} />

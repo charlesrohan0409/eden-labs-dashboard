@@ -75,6 +75,8 @@ export function usePortalData(token, onUnauthorized) {
     addContact: (c) => act("addContact", c),
     updateStage: (id, stage) => act("updateStage", { id, stage }),
     addComment: (c) => act("addComment", c),
+    updateContact: (id, patch) => act("updateContact", { id, patch }),
+    deleteContact: (id) => act("deleteContact", { id }),
   };
 
   return { data, actions, error, refreshing, refresh: load, dismissError: () => setError("") };

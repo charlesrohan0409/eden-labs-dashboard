@@ -354,6 +354,21 @@ export async function handlePortalAction(headers, body) {
       case "addComment":
         M.addComment(full, { ...p, clientId, author: "Client" });
         break;
+      // A client could add a CRM lead but never correct or remove one, so a
+      // typo was permanent and a duplicate was forever. Ownership-checked the
+      // same way as posts — a client can only touch their own contacts.
+      case "updateContact": {
+        const contact = full.contacts.find((x) => x.id === p?.id);
+        if (!contact || contact.clientId !== clientId) return { status: 403, body: { error: "Not your contact." } };
+        M.updateContact(full, p.id, p.patch || {});
+        break;
+      }
+      case "deleteContact": {
+        const contact = full.contacts.find((x) => x.id === p?.id);
+        if (!contact || contact.clientId !== clientId) return { status: 403, body: { error: "Not your contact." } };
+        M.deleteContact(full, p.id);
+        break;
+      }
       default:
         return { status: 400, body: { error: `Unknown or disallowed action: ${action}` } };
       }

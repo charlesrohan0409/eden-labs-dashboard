@@ -528,7 +528,12 @@ if (!window.__edenLabsOverlayInjected) {
       ".feed-shared-inline-show-more-text," +
       '[data-test-id="main-feed-activity-card__commentary"]'
     );
-    const raw = (body || post).innerText || "";
+    // innerText preserves the line breaks that make a post readable, but it
+    // is undefined in any non-rendering context and empty for some nodes —
+    // textContent is the floor. Caught by testing against a DOM fixture,
+    // where innerText simply does not exist.
+    const el = body || post;
+    const raw = el.innerText || el.textContent || "";
     return raw
       .replace(/\n?\s*…?\s*see more\s*$/i, "")
       .replace(/\n?\s*…more\s*$/i, "")
@@ -545,12 +550,15 @@ if (!window.__edenLabsOverlayInjected) {
       const suffix = (m[2] || "").toUpperCase();
       return Math.round(suffix === "K" ? n * 1000 : suffix === "M" ? n * 1000000 : n);
     };
+    // Matches a SPAN as readily as a button: LinkedIn renders the reaction
+    // count either way depending on whether the post has any, and keying
+    // only on button silently returned 0 for the ones that do.
     const reactionEl = post.querySelector(
       '.social-details-social-counts__reactions-count,' +
-      'button[aria-label*="reaction" i],' +
+      '[aria-label*="reaction" i],' +
       '[data-test-id="social-actions__reaction-count"]'
     );
-    const commentEl = [...post.querySelectorAll('.social-details-social-counts__comments, button, span')]
+    const commentEl = [...post.querySelectorAll('.social-details-social-counts__comments, button, span, a')]
       .find((n) => /\bcomments?\b/i.test(n.getAttribute?.("aria-label") || n.textContent || ""));
     return {
       reactions: num(reactionEl?.getAttribute("aria-label") || reactionEl?.textContent),
@@ -571,7 +579,7 @@ if (!window.__edenLabsOverlayInjected) {
       author: link ? extractNameFromLink(link) : "",
       authorUrl: link ? link.href.split("?")[0].replace(/\/$/, "") : "",
       authorPhoto: link ? findNearbyPhoto(link) : "",
-      headline: (headlineEl?.innerText || "").split("\n")[0].trim(),
+      headline: ((headlineEl?.innerText || headlineEl?.textContent || "").split("\n")[0] || "").trim(),
     };
   }
 
@@ -595,6 +603,149 @@ if (!window.__edenLabsOverlayInjected) {
       stats: postStats(post),
       ...postAuthor(post),
     };
+  }
+
+  // ---- "Save" in the post's own action bar ---------------------------------
+  //
+  // Anchored to the LIKE BUTTON, not to a container class.
+  //
+  // Class names are LinkedIn's private implementation detail and they churn;
+  // an aria-label on the Like control is a semantic contract with screen
+  // readers that they cannot casually break. Keying off function instead of
+  // styling is the difference between a button that survives their next
+  // redesign and one that silently disappears, which is exactly what the
+  // first version did.
+  //
+  // It also means no coordinate maths and no hover detection: the button is
+  // laid out by LinkedIn's own flexbox, next to Like / Comment / Repost /
+  // Send, where a post-level action obviously belongs.
+
+  const INJECTED_FLAG = "edenLabsSave";
+
+  function findLikeButton(scope) {
+    return scope.querySelector(
+      'button[aria-label*="Like" i]:not([data-eden-save]),' +
+      'button[aria-label*="React" i]:not([data-eden-save])'
+    );
+  }
+
+  /** The row holding Like/Comment/Repost — the shallowest ancestor with both. */
+  function actionBarOf(like) {
+    let row = like.parentElement;
+    for (let i = 0; row && i < 6; i++, row = row.parentElement) {
+      if (row.querySelector('button[aria-label*="comment" i]')) return row;
+    }
+    return like.parentElement;
+  }
+
+  /**
+   * The post a given action bar belongs to.
+   *
+   * Prefers a known container, but falls back to walking out to the first
+   * ancestor that has both an author link and a real amount of text — so a
+   * markup change costs us the nice selector, not the feature.
+   */
+  function postFromBar(bar) {
+    const known = closestPost(bar);
+    if (known) return known;
+    for (let n = bar.parentElement; n; n = n.parentElement) {
+      if (n.matches?.("main, body")) break;
+      // textContent, not innerText — same trap as postText. This fallback is
+      // the ONLY thing standing between a LinkedIn redesign and the feature
+      // disappearing, so it must not depend on a rendering engine.
+      const len = (n.innerText || n.textContent || "").length;
+      if (n.querySelector('a[href*="/in/"]') && len > 120) return n;
+    }
+    return null;
+  }
+
+  function makeActionButton() {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.setAttribute("data-eden-save", "1");
+    btn.setAttribute("aria-label", "Save this post to Eden Labs");
+    btn.title = "Save to Eden Labs";
+    btn.innerHTML =
+      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>' +
+      '<span>Save</span>';
+    // Matches LinkedIn's own action buttons rather than announcing itself —
+    // a foreign-looking control in that row reads as an ad.
+    Object.assign(btn.style, {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "6px",
+      padding: "8px 10px",
+      margin: "0 2px",
+      border: "none",
+      borderRadius: "4px",
+      background: "transparent",
+      color: "rgba(0,0,0,.6)",
+      font: "600 14px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      cursor: "pointer",
+      transition: "background-color .15s ease, color .15s ease",
+    });
+    btn.addEventListener("mouseenter", () => { btn.style.background = "rgba(0,0,0,.08)"; });
+    btn.addEventListener("mouseleave", () => { btn.style.background = "transparent"; });
+    return btn;
+  }
+
+  function injectSaveButton(like) {
+    const bar = actionBarOf(like);
+    if (!bar || bar.dataset[INJECTED_FLAG] === "1") return;
+    const post = postFromBar(bar);
+    if (!post) return;
+    // No author link means this isn't a person's post — promoted units and
+    // "people you may know" carousels carry Like buttons too, and offering
+    // to save one produces an empty card.
+    if (!post.querySelector('a[href*="/in/"]')) return;
+    bar.dataset[INJECTED_FLAG] = "1";
+
+    const btn = makeActionButton();
+    const label = btn.querySelector("span");
+    btn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const original = label.textContent;
+      label.textContent = "Reading…";
+      btn.disabled = true;
+      try {
+        const read = await readPost(post);
+        if (!read.text) { showToast("Couldn't read that post", true); return; }
+        showSwipeWidget({ ...read, pageUrl: read.url, fromHover: true });
+      } catch {
+        showToast("Couldn't read that post", true);
+      } finally {
+        label.textContent = original;
+        btn.disabled = false;
+      }
+    });
+    bar.appendChild(btn);
+  }
+
+  function scanForPosts() {
+    let like;
+    let guard = 0;
+    // Each pass handles the buttons LinkedIn has rendered so far; the
+    // observer below picks up the rest as the feed loads more.
+    while ((like = findLikeButton(document)) && guard++ < 60) {
+      like.setAttribute("data-eden-save", "seen");
+      injectSaveButton(like);
+    }
+  }
+
+  // The feed is infinite and virtualised, so posts arrive forever. Debounced
+  // because LinkedIn mutates the DOM constantly and re-scanning on every
+  // change would be the most expensive thing on the page.
+  let scanTimer = null;
+  const queueScan = () => {
+    clearTimeout(scanTimer);
+    scanTimer = setTimeout(scanForPosts, 400);
+  };
+  if (document.body) {
+    new MutationObserver(queueScan).observe(document.body, { childList: true, subtree: true });
+    queueScan();
   }
 
   // ---- Hover "Save post" button --------------------------------------------
@@ -700,10 +851,12 @@ if (!window.__edenLabsOverlayInjected) {
     // Hovering the button itself must not count as leaving the post.
     if (t.id === HOVER_BTN_ID || t.closest?.(`#${HOVER_BTN_ID}`)) return;
     const post = closestPost(t);
-    // Reposition even when it's the SAME post: the button may have been
-    // hidden by a save or a scroll, and requiring a different post to bring
-    // it back means it never returns until you leave and come back.
-    if (post) positionHoverButton(post);
+    // Fallback only. When the action-bar button injected successfully this
+    // post already has a Save control and a second floating one would just
+    // be clutter — the hover path exists for the case where LinkedIn's
+    // action bar couldn't be found at all.
+    const alreadyHasButton = post?.querySelector?.('[data-eden-save="1"]');
+    if (post && !alreadyHasButton) positionHoverButton(post);
     else if (hoveredPost) hideHoverButton();
   }, true);
 

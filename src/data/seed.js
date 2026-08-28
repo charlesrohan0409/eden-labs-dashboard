@@ -419,6 +419,7 @@ export const seedData = () => ({
   // are records rather than free-text fields on each log entry.
   leadLists: [],
   scripts: [],
+  commentLog: [],
   // Activity log — chronological record of key events per client.
   // Shape is Supabase-ready: each entry maps cleanly to a row.
   // clientId === null means an agency-level event (e.g. new expense).

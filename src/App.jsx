@@ -239,6 +239,8 @@ export default function App() {
             onAddLeadList={actions.addLeadList}
             onUpdateLeadList={actions.updateLeadList}
             onDeleteLeadList={actions.deleteLeadList}
+            onLogComments={actions.logComments}
+            onBumpComments={actions.bumpComments}
             onAddScript={actions.addScript}
             onUpdateScript={actions.updateScript}
             onDeleteScript={actions.deleteScript}

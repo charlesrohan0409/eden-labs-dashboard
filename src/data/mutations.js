@@ -846,6 +846,42 @@ export function setCurrency(d, currency) {
 // One row per calendar day — logging again for a day that already has an
 // entry overwrites it rather than adding a second row, since the whole
 // point is a day-to-day running log, not a pile of same-day duplicates.
+// ---- commenting log ----
+// Upserted on (clientId, date) rather than appended: unlike outreach, which
+// can legitimately span several lead lists in a day, commenting is one
+// session's tally. Logging twice for the same day should correct the number,
+// not double it.
+export function logComments(d, { clientId = null, date, count, minutes, notes } = {}) {
+  if (!Array.isArray(d.commentLog)) d.commentLog = [];
+  const day = date || today();
+  const cid = clientId || null;
+  const existing = d.commentLog.find((c) => c.date === day && (c.clientId || null) === cid);
+  const patch = {
+    ...(count != null ? { count: Number(count) || 0 } : {}),
+    ...(minutes != null ? { minutes: Number(minutes) || 0 } : {}),
+    ...(notes != null ? { notes } : {}),
+  };
+  if (existing) Object.assign(existing, patch);
+  else d.commentLog.push({ id: uid(), clientId: cid, date: day, count: 0, minutes: 0, notes: "", ...patch });
+  return d;
+}
+
+/** One tap = one more comment on today's tally. The extension's fast path. */
+export function bumpComments(d, { clientId = null, date, by = 1 } = {}) {
+  if (!Array.isArray(d.commentLog)) d.commentLog = [];
+  const day = date || today();
+  const cid = clientId || null;
+  const existing = d.commentLog.find((c) => c.date === day && (c.clientId || null) === cid);
+  if (existing) existing.count = Math.max(0, (Number(existing.count) || 0) + by);
+  else d.commentLog.push({ id: uid(), clientId: cid, date: day, count: Math.max(0, by), minutes: 0, notes: "" });
+  return d;
+}
+
+export function deleteCommentLog(d, id) {
+  d.commentLog = (d.commentLog || []).filter((c) => c.id !== id);
+  return d;
+}
+
 // ---- lead lists (outreach campaigns) ----
 export function addLeadList(d, list) {
   if (!Array.isArray(d.leadLists)) d.leadLists = [];

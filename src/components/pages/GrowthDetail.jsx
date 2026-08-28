@@ -21,6 +21,7 @@ import {
 import PillTabs from "../ui/PillTabs";
 import OutreachLogger from "../ui/OutreachLogger";
 import CampaignManager from "../ui/CampaignManager";
+import GrowthRhythm from "../ui/GrowthRhythm";
 import OutreachDiagnosis from "../ui/OutreachDiagnosis";
 import WeeklyPace from "../ui/WeeklyPace";
 
@@ -61,6 +62,7 @@ export default function GrowthDetail({
   data, setView, onAddOutreachEntry, onUpdateOutreachEntry, onDeleteOutreachEntry,
   onAddLeadList, onUpdateLeadList, onDeleteLeadList,
   onAddScript, onUpdateScript, onDeleteScript,
+  onLogComments, onBumpComments,
 }) {
   const { money } = useCurrency();
   const [funnelDays, setFunnelDays] = useState(7);
@@ -240,6 +242,17 @@ export default function GrowthDetail({
           </AreaChart>
         </ResponsiveContainer>
       </Card>
+
+      {/* The habit before the numbers: whether the three pillars actually
+          happened is upstream of how well any of them performed. */}
+      <GrowthRhythm
+        posts={data.posts}
+        outreachLog={data.outreachLog}
+        commentLog={data.commentLog}
+        clientId={null}
+        onLogComments={onLogComments}
+        onBumpComments={onBumpComments}
+      />
 
       {/* ── Log outreach + read the diagnosis ── */}
       <div className="grid lg:grid-cols-2 gap-4 items-start">

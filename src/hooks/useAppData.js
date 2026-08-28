@@ -271,6 +271,11 @@ export function useAppData(token, onUnauthorized) {
     setCurrency: (currency) => update((d) => M.setCurrency(d, currency)),
 
     // ---- misc ----
+    // ---- commenting ----
+    logComments:       (entry) => update((d) => M.logComments(d, entry)),
+    bumpComments:      (entry) => update((d) => M.bumpComments(d, entry)),
+    deleteCommentLog:  (id) => update((d) => M.deleteCommentLog(d, id)),
+
     // ---- outreach campaigns ----
     addLeadList:        (l) => update((d) => M.addLeadList(d, l)),
     updateLeadList:     (id, patch) => update((d) => M.updateLeadList(d, id, patch)),

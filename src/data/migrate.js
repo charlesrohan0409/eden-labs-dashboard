@@ -14,7 +14,7 @@ export function migrateData(loaded) {
     "outreachLog", "channelPerf", "integrations", "calls", "outreachByChannel",
     "comments", "swipeFile", "activityLog", "commentTargets",
     "accounts", "outgoings", "budgets", "expenseCategories", "financeLog", "inbound",
-    "leadLists", "scripts",
+    "leadLists", "scripts", "commentLog",
   ].forEach((key) => {
     if (!Array.isArray(merged[key])) merged[key] = defaults[key];
   });
@@ -36,6 +36,14 @@ export function migrateData(loaded) {
   merged.integrations = merged.integrations.map((i) =>
     i.id === "buffer" ? { channels: [], agencyChannelId: null, lastCheckedAt: null, ...i } : i
   );
+
+  // Commenting is the one growth pillar that leaves no trace in this app —
+  // it happens entirely on LinkedIn's feed — so it's the only one that has
+  // to be logged by hand. One row per (clientId, date).
+  merged.commentLog = merged.commentLog.map((c) => ({
+    clientId: null, date: "", count: 0, minutes: 0, notes: "",
+    ...c,
+  }));
 
   // ---- outreach campaigns ----
   // A lead list is a named batch of people being targeted. It exists as a

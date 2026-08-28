@@ -62,7 +62,7 @@ export default function GrowthDetail({
   data, setView, onAddOutreachEntry, onUpdateOutreachEntry, onDeleteOutreachEntry,
   onAddLeadList, onUpdateLeadList, onDeleteLeadList,
   onAddScript, onUpdateScript, onDeleteScript,
-  onLogComments, onBumpComments,
+  onLogComments, onBumpComments, onToggleRestDate,
 }) {
   const { money } = useCurrency();
   const [funnelDays, setFunnelDays] = useState(7);
@@ -250,6 +250,8 @@ export default function GrowthDetail({
         outreachLog={data.outreachLog}
         commentLog={data.commentLog}
         clientId={null}
+        rest={data.settings?.rest}
+        onToggleRestDate={onToggleRestDate}
         onLogComments={onLogComments}
         onBumpComments={onBumpComments}
       />

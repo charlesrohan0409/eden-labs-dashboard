@@ -42,6 +42,16 @@ export const PILLARS = [
 
 export const WEEKLY_TARGET_DAYS = 4;
 
+export const DEFAULT_REST = { weekly: [0], dates: [] };
+
+/** Is nothing expected on this day? */
+export function isRestDay(dateStr, rest = DEFAULT_REST) {
+  if (!dateStr) return false;
+  if ((rest.dates || []).includes(dateStr)) return true;
+  const dow = new Date(`${dateStr}T12:00:00`).getDay();
+  return (rest.weekly || []).includes(dow);
+}
+
 /** The last `days` dates, oldest first, as YYYY-MM-DD. */
 export function recentDays(days = 28, from = new Date()) {
   const out = [];
@@ -60,7 +70,7 @@ export function recentDays(days = 28, from = new Date()) {
  * comes from `commentLog` — one row per day, written by the dashboard or the
  * extension.
  */
-export function buildRhythm({ posts, outreachLog, commentLog, clientId = null, days = 28 } = {}) {
+export function buildRhythm({ posts, outreachLog, commentLog, clientId = null, days = 28, rest = DEFAULT_REST } = {}) {
   const dates = recentDays(days);
   const inScope = (x) => (x.clientId || null) === (clientId || null);
 
@@ -86,6 +96,7 @@ export function buildRhythm({ posts, outreachLog, commentLog, clientId = null, d
 
   return dates.map((date) => ({
     date,
+    rest: isRestDay(date, rest),
     content: contentDays.has(date),
     outreach: outreachDays.has(date),
     commenting: (commentByDay[date] || 0) > 0,
@@ -111,35 +122,65 @@ export function weekScore(rhythm, from = new Date()) {
   const key = weekKeyOf(toDateKey(from));
   const thisWeek = rhythm.filter((d) => weekKeyOf(d.date) === key);
   const todayKey = toDateKey(from);
-  // Monday = 0 … Sunday = 6, so a Monday has all 7 days still ahead.
-  const dayIdx = (from.getDay() + 6) % 7;
-  const daysLeft = 7 - dayIdx;
+  const dayIdx = (from.getDay() + 6) % 7;   // Monday = 0 … Sunday = 6
+
+  // Only days something is actually expected on count toward the goal or the
+  // catch-up maths. Rest days aren't shortfall.
+  const working = thisWeek.filter((d) => !d.rest);
+  const daysLeft = thisWeek.filter((d, i) => i >= dayIdx && !d.rest).length;
+  // A week with fewer working days than the target can't demand the target.
+  const target = Math.min(WEEKLY_TARGET_DAYS, Math.max(1, working.length || WEEKLY_TARGET_DAYS));
+  const restToday = thisWeek.some((d) => d.date === todayKey && d.rest);
 
   return PILLARS.map((p) => {
-    const done = thisWeek.filter((d) => d[p.id]).length;
-    const remaining = Math.max(0, WEEKLY_TARGET_DAYS - done);
+    const done = working.filter((d) => d[p.id]).length;
+    const remaining = Math.max(0, target - done);
     return {
       ...p,
       done,
-      target: WEEKLY_TARGET_DAYS,
+      target,
       remaining,
       daysLeft,
-      hit: done >= WEEKLY_TARGET_DAYS,
-      // Still reachable? Missing more days than remain is the only state
-      // worth flagging as actually failed rather than merely behind.
-      atRisk: remaining > 0 && remaining >= daysLeft,
-      doneToday: thisWeek.some((d) => d.date === todayKey && d[p.id]),
+      restToday,
+      hit: done >= target,
+      // Behind and unable-to-catch-up are different states; only the second
+      // deserves a red flag.
+      atRisk: remaining > 0 && remaining > daysLeft,
+      doneToday: restToday || thisWeek.some((d) => d.date === todayKey && d[p.id]),
     };
   });
 }
 
-/** Consecutive days back from today where ALL THREE happened. */
-export function currentStreak(rhythm) {
+/**
+ * Consecutive WORKING days back from today where all three happened.
+ *
+ * Rest days are skipped rather than counted or breaking the run — the whole
+ * point of blocking a day is that nothing was expected, so a deliberate
+ * Sunday off must not read the same as a Tuesday you forgot.
+ *
+ * Today only breaks a streak once it's over: an incomplete today leaves
+ * yesterday's run standing rather than showing zero every morning.
+ */
+export function currentStreak(rhythm, todayKey) {
   let n = 0;
   for (let i = rhythm.length - 1; i >= 0; i--) {
     const d = rhythm[i];
-    if (d.content && d.outreach && d.commenting) n++;
-    else break;
+    if (d.rest) continue;
+    const all = d.content && d.outreach && d.commenting;
+    if (all) { n++; continue; }
+    if (d.date === todayKey) continue;   // still in progress
+    break;
   }
   return n;
+}
+
+/** Longest run of complete working days anywhere in the window. */
+export function bestStreak(rhythm) {
+  let best = 0, run = 0;
+  rhythm.forEach((d) => {
+    if (d.rest) return;
+    if (d.content && d.outreach && d.commenting) { run++; best = Math.max(best, run); }
+    else run = 0;
+  });
+  return best;
 }

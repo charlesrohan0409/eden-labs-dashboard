@@ -271,6 +271,10 @@ export function useAppData(token, onUnauthorized) {
     setCurrency: (currency) => update((d) => M.setCurrency(d, currency)),
 
     // ---- misc ----
+    // ---- rest days ----
+    toggleRestDate:    (date) => update((d) => M.toggleRestDate(d, date)),
+    setRestWeekdays:   (weekly) => update((d) => M.setRestWeekdays(d, weekly)),
+
     // ---- commenting ----
     logComments:       (entry) => update((d) => M.logComments(d, entry)),
     bumpComments:      (entry) => update((d) => M.bumpComments(d, entry)),

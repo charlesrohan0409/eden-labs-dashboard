@@ -846,6 +846,29 @@ export function setCurrency(d, currency) {
 // One row per calendar day — logging again for a day that already has an
 // entry overwrites it rather than adding a second row, since the whole
 // point is a day-to-day running log, not a pile of same-day duplicates.
+// ---- rest days ----
+// A blocked day isn't a missed day. Without this, taking a deliberate Sunday
+// off looks identical to forgetting, which makes the whole record something
+// to avoid rather than something to read.
+export function toggleRestDate(d, date) {
+  const rest = d.settings?.rest || { weekly: [0], dates: [] };
+  const dates = Array.isArray(rest.dates) ? rest.dates : [];
+  d.settings = {
+    ...d.settings,
+    rest: {
+      ...rest,
+      dates: dates.includes(date) ? dates.filter((x) => x !== date) : [...dates, date],
+    },
+  };
+  return d;
+}
+
+export function setRestWeekdays(d, weekly) {
+  const rest = d.settings?.rest || { weekly: [0], dates: [] };
+  d.settings = { ...d.settings, rest: { ...rest, weekly: Array.isArray(weekly) ? weekly : [] } };
+  return d;
+}
+
 // ---- commenting log ----
 // Upserted on (clientId, date) rather than appended: unlike outreach, which
 // can legitimately span several lead lists in a day, commenting is one

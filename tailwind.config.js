@@ -36,6 +36,19 @@ export default {
         },
         // Mobile bottom-sheet variant of the same entrance. Percentage
         // translate so it works at any sheet height.
+        // Streak flame: a slow, small breathing motion. A fast or large
+        // pulse on something permanently on screen becomes an irritant
+        // within a day — this has to survive being looked at every morning.
+        "ember": {
+          "0%, 100%": { transform: "scale(1)", opacity: "1" },
+          "50%": { transform: "scale(1.12)", opacity: "0.85" },
+        },
+        // Fires once when the streak actually increases.
+        "streak-pop": {
+          "0%": { transform: "scale(0.9)", opacity: "0" },
+          "60%": { transform: "scale(1.06)", opacity: "1" },
+          "100%": { transform: "scale(1)", opacity: "1" },
+        },
         "sheet-up": {
           "0%": { opacity: "0", transform: "translateY(100%)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
@@ -46,6 +59,8 @@ export default {
         "fade-in": "fade-in 0.2s cubic-bezier(0.23,1,0.32,1) both",
         "pop-in": "pop-in 0.2s cubic-bezier(0.23,1,0.32,1) both",
         "sheet-up": "sheet-up 0.28s cubic-bezier(0.32,0.72,0,1) both",
+        "ember": "ember 2.4s cubic-bezier(0.4,0,0.6,1) infinite",
+        "streak-pop": "streak-pop 0.42s cubic-bezier(0.23,1,0.32,1) both",
       },
     },
   },

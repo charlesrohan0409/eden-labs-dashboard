@@ -37,6 +37,17 @@ export function migrateData(loaded) {
     i.id === "buffer" ? { channels: [], agencyChannelId: null, lastCheckedAt: null, ...i } : i
   );
 
+  // Days the rhythm shouldn't expect anything on. Two kinds, deliberately
+  // kept apart: `weekly` is a standing rule (Sunday is off, always), while
+  // `dates` are one-off days blocked ahead of time — a holiday, a flight.
+  // Merging them would mean un-blocking one Saturday silently cancelled
+  // every Saturday.
+  merged.settings.rest = {
+    weekly: [0],            // 0 = Sunday
+    dates: [],
+    ...(loaded?.settings?.rest || {}),
+  };
+
   // Commenting is the one growth pillar that leaves no trace in this app —
   // it happens entirely on LinkedIn's feed — so it's the only one that has
   // to be logged by hand. One row per (clientId, date).

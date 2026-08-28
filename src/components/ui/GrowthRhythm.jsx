@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import {
-  PenLine, Send, MessageCircle, Check, Plus, Minus, Flame, AlertTriangle,
+  PenLine, Send, MessageCircle, Check, Plus, Minus, Flame, AlertTriangle, Moon,
 } from "lucide-react";
 import Card, { CardTitle } from "./Card";
-import { buildRhythm, weekScore, currentStreak, PILLARS, WEEKLY_TARGET_DAYS } from "../../lib/rhythm";
+import { buildRhythm, weekScore, currentStreak, bestStreak, PILLARS, DEFAULT_REST } from "../../lib/rhythm";
 import { today } from "../../lib/utils";
+import { useEffect, useRef } from "react";
 
 const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
 const ICON = { content: PenLine, outreach: Send, commenting: MessageCircle };
@@ -31,17 +32,35 @@ const DOW = ["M", "T", "W", "T", "F", "S", "S"];
  * looking at every morning rather than avoiding.
  */
 export default function GrowthRhythm({
-  posts, outreachLog, commentLog, clientId = null, onLogComments, onBumpComments, days = 28,
+  posts, outreachLog, commentLog, clientId = null,
+  rest = DEFAULT_REST, onToggleRestDate,
+  onLogComments, onBumpComments, days = 28,
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const todayKey = today();
 
   const rhythm = useMemo(
-    () => buildRhythm({ posts, outreachLog, commentLog, clientId, days }),
-    [posts, outreachLog, commentLog, clientId, days]
+    () => buildRhythm({ posts, outreachLog, commentLog, clientId, days, rest }),
+    [posts, outreachLog, commentLog, clientId, days, rest]
   );
   const scores = useMemo(() => weekScore(rhythm), [rhythm]);
-  const streak = useMemo(() => currentStreak(rhythm), [rhythm]);
+  const streak = useMemo(() => currentStreak(rhythm, todayKey), [rhythm, todayKey]);
+  const best = useMemo(() => bestStreak(rhythm), [rhythm]);
+
+  // Fires the pop only when the streak actually GROWS. Re-animating on every
+  // render would make a permanent fixture twitch constantly.
+  const prevStreak = useRef(streak);
+  const [justGrew, setJustGrew] = useState(false);
+  useEffect(() => {
+    if (streak > prevStreak.current) {
+      setJustGrew(true);
+      const t = setTimeout(() => setJustGrew(false), 700);
+      prevStreak.current = streak;
+      return () => clearTimeout(t);
+    }
+    prevStreak.current = streak;
+  }, [streak]);
   const todayRow = rhythm[rhythm.length - 1];
   const todayComments = todayRow?.commentCount || 0;
 
@@ -61,12 +80,20 @@ export default function GrowthRhythm({
 
   return (
     <Card className="p-5">
-      <CardTitle sub={`At least ${WEEKLY_TARGET_DAYS} days a week on each — ideally every day`}>
-        <span className="flex items-center gap-2">
+      <CardTitle sub={`At least ${scores[0]?.target ?? 4} days a week on each — ideally every day. Sundays are off.`}>
+        <span className="flex items-center gap-2 flex-wrap">
           Your rhythm
-          {streak > 1 && (
-            <span className="flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200/70 rounded-full px-2 py-0.5">
-              <Flame size={10} /> {streak} day{streak === 1 ? "" : "s"} all three
+          {streak > 0 && (
+            <span
+              className={`flex items-center gap-1.5 text-[11px] font-semibold rounded-full px-2.5 py-1
+                bg-gradient-to-r from-amber-100 to-orange-100 text-amber-800 border border-amber-300/60
+                ${justGrew ? "motion-safe:animate-streak-pop" : ""}`}
+            >
+              <Flame size={11} className="text-orange-500 motion-safe:animate-ember" />
+              {streak} day{streak === 1 ? "" : "s"}
+              {best > streak && (
+                <span className="text-amber-600/60 font-normal">best {best}</span>
+              )}
             </span>
           )}
         </span>
@@ -85,7 +112,11 @@ export default function GrowthRhythm({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-[13px] font-medium text-stone-700">{p.label}</span>
-                  {p.doneToday && (
+                  {p.restToday ? (
+                    <span className="flex items-center gap-0.5 text-[10px] font-medium text-stone-400">
+                      <Moon size={10} /> rest day
+                    </span>
+                  ) : p.doneToday && (
                     <span className="flex items-center gap-0.5 text-[10px] font-medium text-emerald-700">
                       <Check size={10} /> today
                     </span>
@@ -118,6 +149,7 @@ export default function GrowthRhythm({
       </div>
 
       {/* ── log today's commenting ── */}
+      {!scores[0]?.restToday && (
       <div className="rounded-xl border border-line bg-stone-50/70 p-3 mb-4">
         <div className="flex items-center gap-2 flex-wrap">
           <MessageCircle size={13} className="text-amber-700 shrink-0" />
@@ -172,6 +204,7 @@ export default function GrowthRhythm({
           on their own from what you've logged.
         </p>
       </div>
+      )}
 
       {/* ── the last four weeks ── */}
       <div>
@@ -183,26 +216,43 @@ export default function GrowthRhythm({
         <div className="grid grid-cols-7 gap-1">
           {cells.map((d, i) => {
             if (!d) return <div key={`pad-${i}`} />;
-            const isToday = d.date === today();
+            const isToday = d.date === todayKey;
+            const future = d.date > todayKey;
             const hits = PILLARS.filter((p) => d[p.id]).length;
+            const label = d.rest
+              ? "Rest day — nothing expected"
+              : hits === 0
+                ? "Nothing logged"
+                : PILLARS.filter((p) => d[p.id]).map((p) => p.label).join(", ");
+
             return (
-              <div
+              <button
                 key={d.date}
-                title={`${d.date} — ${hits === 0 ? "nothing logged" : PILLARS.filter((p) => d[p.id]).map((p) => p.label).join(", ")}${d.commentCount ? ` (${d.commentCount} comments)` : ""}`}
-                className={`aspect-square rounded-md flex flex-col justify-end gap-[2px] p-[3px]
+                onClick={() => onToggleRestDate?.(d.date)}
+                title={`${d.date} — ${label}${d.commentCount ? ` (${d.commentCount} comments)` : ""}\nClick to ${d.rest ? "un-block" : "block"} this day`}
+                className={`aspect-square rounded-md flex flex-col justify-end gap-[2px] p-[3px] relative
+                  transition-[transform,background-color] duration-150 ${EASE} active:scale-[0.9]
                   ${isToday ? "ring-1 ring-stone-900 ring-offset-1" : ""}
-                  ${hits === 0 ? "bg-stone-100" : "bg-stone-50"}`}
+                  ${d.rest
+                    ? "bg-stone-100/70 border border-dashed border-stone-300"
+                    : hits === 0 && !future ? "bg-rose-50" : "bg-stone-50"}`}
               >
-                {/* Three stacked bars, one per pillar — a single heat shade
-                    would say "a bit was done" without saying WHICH, and the
-                    whole point is spotting the one that keeps slipping. */}
-                {PILLARS.map((p) => (
-                  <span
-                    key={p.id}
-                    className={`h-[3px] rounded-full ${d[p.id] ? ACCENT[p.id].on : "bg-stone-200/70"}`}
-                  />
-                ))}
-              </div>
+                {d.rest ? (
+                  // A blocked day shows a moon, not empty bars — "nothing was
+                  // expected" and "nothing happened" have to look different or
+                  // the record punishes you for resting.
+                  <Moon size={11} className="text-stone-400 mx-auto my-auto" />
+                ) : (
+                  PILLARS.map((p) => (
+                    <span
+                      key={p.id}
+                      className={`h-[3px] rounded-full transition-colors duration-300 ${EASE} ${
+                        d[p.id] ? ACCENT[p.id].on : future ? "bg-stone-200/50" : "bg-stone-200"
+                      }`}
+                    />
+                  ))
+                )}
+              </button>
             );
           })}
         </div>
@@ -212,7 +262,12 @@ export default function GrowthRhythm({
               <span className={`w-2 h-[3px] rounded-full ${ACCENT[p.id].on}`} /> {p.label}
             </span>
           ))}
-          <span className="text-[10.5px] text-stone-300 ml-auto">last 4 weeks</span>
+          <span className="flex items-center gap-1 text-[10.5px] text-stone-400">
+            <Moon size={9} /> rest
+          </span>
+          <span className="text-[10.5px] text-stone-300 ml-auto">
+            last 4 weeks · click a day to block it
+          </span>
         </div>
       </div>
     </Card>

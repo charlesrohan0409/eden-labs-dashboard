@@ -61,10 +61,14 @@ function RhythmStrip({ data, onGo }) {
   const rhythm = buildRhythm({
     posts: data.posts, outreachLog: data.outreachLog,
     commentLog: data.commentLog, clientId: null, days: 14,
+    rest: data.settings?.rest,
   });
   const scores = weekScore(rhythm);
+  // Silent on a rest day, and silent once all three are done. A tracker that
+  // nags on a day you deliberately blocked is one you learn to ignore.
+  if (scores[0]?.restToday) return null;
   const anyMissing = scores.some((p) => !p.doneToday);
-  if (!anyMissing) return null;   // nothing to nag about — stay out of the way
+  if (!anyMissing) return null;
 
   return (
     <button

@@ -47,31 +47,43 @@ if (!window.__edenLabsOverlayInjected) {
     return el.closest?.('a[href*="/in/"]') || null;
   }
 
+  // LinkedIn's aria-labels vary more than a single two-rule strip once
+  // assumed: "View Tom Dillon, CFA's profile", "View Tom Dillon, CFA’s
+  // graphic link", "Tom Dillon, CFA • 2nd". This same cleaning has to run
+  // on every RAW candidate string a name can come from — aria-label,
+  // visible text, or an <img alt> — not just the first one tried, which is
+  // exactly the bug an avatar-only link exposed live: its alt text comes
+  // through as the literal "View Chris S. Alman's profile", and when only
+  // the aria-label path was cleaned, the saved author kept the "View "
+  // prefix stuck to the front.
+  function cleanRawName(raw) {
+    return (raw || "")
+      .replace(/^View\s+/i, "")
+      // "'s" is optional after the apostrophe — a name already ending in
+      // "s" ("Ilyas Anis") gets the bare possessive "Anis' profile", not
+      // "Anis's profile", and requiring the "s" left that raw form (and
+      // the trailing "profile") stuck to a real, live post's author.
+      .replace(/[’'`]s?\s+(profile|graphic link|photo|image).*$/i, "")
+      .replace(/[’'`]s$/i, "")
+      .replace(/\s*[•·]\s*(1st|2nd|3rd|3rd\+).*$/i, "")
+      .replace(/\s*[-–—]\s*$/, "")
+      .trim();
+  }
+
   function extractNameFromLink(link) {
     // aria-labels are often "View <Name>'s profile" or just "<Name>" — more
     // reliable than textContent, which on a card-style link picks up the
     // headline, "• 2nd", "Follow", etc. all mashed together.
-    const aria = link.getAttribute("aria-label") || "";
-    // LinkedIn's aria-labels vary more than the old two-rule strip assumed:
-    // "View Tom Dillon, CFA's profile", "View Tom Dillon, CFA’s graphic link",
-    // "Tom Dillon, CFA • 2nd". When only the "View " prefix matched, the
-    // saved author came out as "View Tom Dillon, CFA's" — visible in the
-    // saved-content library and impossible to fix without re-saving.
-    const stripped = aria
-      .replace(/^View\s+/i, "")
-      .replace(/[’'`]s\s+(profile|graphic link|photo|image).*$/i, "")
-      .replace(/[’'`]s$/i, "")
-      .replace(/\s*[•·]\s*(1st|2nd|3rd|3rd\+).*$/i, "")
-      .replace(/\s*[-–—]\s*$/,"")
-      .trim();
-    if (stripped) return stripped;
+    const aria = cleanRawName(link.getAttribute("aria-label") || "");
+    if (aria) return aria;
     const text = (link.textContent || "").replace(/\s+/g, " ").trim();
-    const beforeBullet = text.split("•")[0].trim();
+    const beforeBullet = cleanRawName(text.split("•")[0].trim());
     if (beforeBullet) return beforeBullet;
     // A link that's just an avatar photo (no visible text) still usually
     // carries the person's name in the image's alt text — common in feed
     // post headers, where the avatar and the name are two separate <a>s.
-    return link.querySelector?.("img[alt]")?.alt?.trim() || "";
+    const alt = link.querySelector?.("img[alt]")?.alt || "";
+    return cleanRawName(alt);
   }
 
   function findNearbyPhoto(link) {
@@ -457,6 +469,41 @@ if (!window.__edenLabsOverlayInjected) {
     return outer;
   }
 
+  /**
+   * Collapses a chain of single-child wrapper elements down to the first
+   * level that actually branches — an atomic-CSS build nests real content
+   * inside many layers of single-child <div>s purely for styling, and
+   * skipping past those layers is what makes it possible to anchor to a
+   * post's actual TAG structure instead of a class name that account's
+   * rollout no longer has.
+   */
+  function firstBranchingLevel(el, depth = 0) {
+    if (!el || depth > 20) return el;
+    const kids = el.children ? [...el.children] : [];
+    if (kids.length !== 1) return el;
+    return firstBranchingLevel(kids[0], depth + 1);
+  }
+
+  /**
+   * Finds the post card an action bar sits in by TAG structure, not class
+   * names — the fallback of last resort for an account where LinkedIn has
+   * hashed away every class (confirmed live: strings like
+   * "da6065ea d9a4036f _09122f3b..." throughout the feed, nothing stable
+   * to select on). Every post card, once its single-child wrapper chains
+   * are collapsed, has the same shape: an <h2> "Feed post" accessibility
+   * heading first, then the actor block, then the body. Walking up from
+   * the action bar and stopping at the first ancestor whose collapsed
+   * structure starts with that <h2> lands on exactly the post.
+   */
+  function findPostCard(bar) {
+    for (let n = bar.parentElement; n; n = n.parentElement) {
+      if (n.matches?.("main, body")) break;
+      const branch = firstBranchingLevel(n);
+      if (branch.firstElementChild?.tagName === "H2") return n;
+    }
+    return null;
+  }
+
   // Diagnostic, for when LinkedIn changes its markup again. Run
   // `__edenLabsDebugPosts()` in the console on a feed page: it reports how
   // many posts each selector currently finds.
@@ -508,12 +555,23 @@ if (!window.__edenLabsOverlayInjected) {
    * expanding silently saves a partial post that LOOKS complete.
    */
   function expandPost(post) {
-    const more = post.querySelector(
+    let more = post.querySelector(
       'button.feed-shared-inline-show-more-text__see-more-less-toggle,' +
       'button[aria-label*="see more" i],' +
       'button[aria-label*="…more" i],' +
       '.feed-shared-inline-show-more-text button'
     );
+    // Verified live: on an account with hashed classes, this toggle has NO
+    // aria-label and a hashed class — the only thing left to match on is
+    // its own trimmed text, "…more"/"see more". Not blocking today, since
+    // the full text is already present in the DOM either way (LinkedIn
+    // truncates visually, not by omitting it) — this is for correctness on
+    // the rarer layout where it isn't.
+    if (!more) {
+      more = [...post.querySelectorAll("button")].find((b) =>
+        /^(\.\.\.|…)?\s*(see\s+)?more$/i.test((b.textContent || "").trim())
+      );
+    }
     if (more && /more/i.test(more.textContent || more.getAttribute("aria-label") || "")) {
       try { more.click(); } catch { /* layout changed — read what's there */ }
       return true;
@@ -591,54 +649,117 @@ if (!window.__edenLabsOverlayInjected) {
    * all. Filtering by content rather than trusting whichever element
    * matched is what makes the fallback safe to use at all.
    */
-  function postText(post, author) {
-    const candidates = [
-      post.querySelector(
-        ".feed-shared-update-v2__description," +
-        ".update-components-text," +
-        ".update-components-update-v2__commentary," +
-        ".feed-shared-inline-show-more-text," +
-        ".feed-shared-text," +
-        '[data-test-id="main-feed-activity-card__commentary"]'
-      ),
-      post,
-    ].filter(Boolean);
+  /** Cleans one candidate element's text down to just post body content. */
+  /**
+   * `el`'s text as one "line" per LEAF element, instead of trusting
+   * innerText's automatic line-break insertion.
+   *
+   * innerText assumes ordinary block layout to decide where a line ends —
+   * and verified live, an atomic-CSS actor block (flex/inline rows with
+   * no block-level boundaries between them) doesn't give it one: the
+   * name, headline, CTA, and timestamp all came through fused into a
+   * single string with no \n anywhere, which broke junk-line filtering
+   * (nothing for "feed post" to match on its own) at the same time it
+   * broke headline extraction. Every leaf element (no element children)
+   * is one visually distinct chunk of text regardless of how it's laid
+   * out, which is what this needs to hold true even when innerText's own
+   * heuristic doesn't.
+   */
+  function linesOf(el) {
+    const out = [];
+    const walk = (node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const t = node.textContent.trim();
+        if (t) out.push(t);
+        return;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      if (!node.children.length) {
+        const t = (node.textContent || "").trim();
+        if (t) out.push(t);
+        return;
+      }
+      for (const child of node.childNodes) walk(child);
+    };
+    walk(el);
+    return out;
+  }
 
+  function textFromElement(raw, authorLow, headlineLow) {
+    const el = stripChrome(raw);
+    // innerText preserves the line breaks that make a post readable, but
+    // it's undefined outside a rendering engine and empty for some nodes —
+    // textContent is the floor.
+    const text = el.innerText || el.textContent || "";
+    return text
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => {
+        if (!l) return false;
+        const low = l.toLowerCase();
+        if (isJunkLine(l)) return false;
+        if (authorLow && low === authorLow) return false;
+        if (headlineLow && low === headlineLow) return false;
+        return true;
+      })
+      .join("\n")
+      // Not anchored to the end: LinkedIn sometimes renders the truncation
+      // marker inline with the paragraph rather than as a separate button,
+      // so it can land mid-string once trailing chrome is gone. Requires
+      // the ellipsis rather than matching bare "more" anywhere, so it
+      // doesn't eat an unrelated sentence that happens to contain the
+      // word — but "see" is optional, since the marker also renders as a
+      // bare "… more" with no "see" on some posts.
+      .replace(/(\.\.\.|…)\s*(see\s+)?more/gi, "")
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  function postText(post, author) {
     const authorLow = (author?.author || "").trim().toLowerCase();
     const headlineLow = (author?.headline || "").trim().toLowerCase();
 
-    for (const raw of candidates) {
-      const el = stripChrome(raw);
-      // innerText preserves the line breaks that make a post readable, but
-      // it's undefined outside a rendering engine and empty for some nodes —
-      // textContent is the floor.
-      const text = el.innerText || el.textContent || "";
-      const cleaned = text
-        .split("\n")
-        .map((l) => l.trim())
-        .filter((l) => {
-          if (!l) return false;
-          const low = l.toLowerCase();
-          if (isJunkLine(l)) return false;
-          if (authorLow && low === authorLow) return false;
-          if (headlineLow && low === headlineLow) return false;
-          return true;
-        })
-        .join("\n")
-        // Not anchored to the end: LinkedIn sometimes renders the truncation
-        // marker inline with the paragraph rather than as a separate
-        // button, so it can land mid-string once trailing chrome is gone.
-        .replace(/…?\s*see more/gi, "")
-        .replace(/[ \t]+\n/g, "\n")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim();
-      // A real post is more than a stray word — the specific selector is
-      // tried first and accepted if it clears this bar; only the raw
-      // whole-post text needs it, since that's the one that can contain
-      // nothing but chrome.
+    const specific = post.querySelector(
+      ".feed-shared-update-v2__description," +
+      ".update-components-text," +
+      ".update-components-update-v2__commentary," +
+      ".feed-shared-inline-show-more-text," +
+      ".feed-shared-text," +
+      '[data-test-id="main-feed-activity-card__commentary"]'
+    );
+    if (specific) {
+      const cleaned = textFromElement(specific, authorLow, headlineLow);
       if (cleaned.length >= 20) return cleaned;
     }
-    return "";
+
+    // Tried before the raw whole-post fallback below, not after: a post's
+    // own body is the only place LinkedIn renders <p> tags inside a post
+    // card — the actor block and action bar use spans/divs/buttons, never
+    // <p> — so reading paragraphs directly survives a rollout that breaks
+    // every class-based selector above it. Verified live against two real,
+    // distinct posts (different lengths, one with emoji/CTA content) —
+    // both came back perfectly clean this way. Tried first because the
+    // raw whole-post text below clears the 20-char bar on its own even
+    // when it's still full of chrome (the "Feed post" heading and action
+    // labels can end up fused onto the same line as real content — see
+    // linesOf), so once THAT candidate came before this one it always won
+    // and this cleaner extraction was never reached.
+    const ps = [...post.querySelectorAll("p")];
+    if (ps.length) {
+      const joined = ps
+        .map((p) => textFromElement(p, authorLow, headlineLow))
+        .filter(Boolean)
+        .join("\n\n")
+        .trim();
+      if (joined.length >= 20) return joined;
+    }
+
+    // Last resort — whatever the post element's own text amounts to once
+    // chrome is stripped, for the rare shape with no <p> tags at all (a
+    // poll, or a caption-only media post) and no matching specific
+    // selector either.
+    return textFromElement(post, authorLow, headlineLow);
   }
 
   /** Engagement counts, best-effort — absent on a post with none. */
@@ -666,20 +787,74 @@ if (!window.__edenLabsOverlayInjected) {
     };
   }
 
+  /**
+   * The headline text sitting in a post's actor block, for when no
+   * class-based selector matches it — the first line left once the name
+   * itself and chrome (badges, timestamps) are filtered out.
+   *
+   * Scoped via the same <h2> "Feed post" anchor `findPostCard` uses,
+   * rather than a fixed number of parent hops: a hop count is a guess
+   * about nesting DEPTH, and verified live it guessed wrong — 4 hops
+   * overshot past the actor block into the whole card, so this came back
+   * with the entire post's BODY glued onto the front of the headline. The
+   * actor block is exactly the element right after the heading, whatever
+   * its own internal depth.
+   */
+  function headlineNear(post, link) {
+    // The actor block is whichever top-level sibling actually CONTAINS
+    // the author link, not "the sibling right after the heading" — a
+    // position that isn't fixed. Verified live: an ordinary post's
+    // structure is <h2> then straight into the actor block, but a
+    // "Suggested" post (the exact wrapped-post case the original bug
+    // report was about) inserts an extra badge <div> and an <hr> in
+    // between, which pushed the actor block to the FOURTH sibling, not
+    // the second — assuming a fixed offset came back empty every time.
+    // The link is already known, so there's no need to guess a position
+    // at all.
+    const branch = firstBranchingLevel(post);
+    const actorBlock = [...branch.children].find((c) => c.contains(link));
+    if (!actorBlock) return "";
+    const name = extractNameFromLink(link).toLowerCase();
+    // linesOf, not innerText — verified live this block's rows (name,
+    // headline, CTA link, timestamp) aren't separated by ordinary block
+    // layout, so innerText fused all of them into one string with no \n
+    // to split on, and "the first line" was the entire post. The actor
+    // block's rows are still, each, a single leaf element in DOM order,
+    // so that's what's used to tell them apart instead.
+    const lines = linesOf(stripChrome(actorBlock))
+      .map((l) => l.trim())
+      .filter((l) => l && l.toLowerCase() !== name && !isJunkLine(l));
+    return lines[0] || "";
+  }
+
   function postAuthor(post) {
-    const link =
+    const scoped =
       post.querySelector('.update-components-actor__meta a[href*="/in/"]') ||
-      post.querySelector('.update-components-actor a[href*="/in/"]') ||
-      post.querySelector('a[href*="/in/"]');
+      post.querySelector('.update-components-actor a[href*="/in/"]');
+    // On an account with hashed classes, `scoped` never matches, so this
+    // used to fall back to the FIRST /in/ link anywhere in the post — but
+    // the avatar and the name are usually two separate <a>s, and the
+    // avatar one (first in DOM order) carries no aria-label and no visible
+    // text. Verified live: that returned an empty author on a real post
+    // while a name-bearing link sat right after it. Prefer whichever
+    // candidate actually resolves to a name over blindly taking the first.
+    const link = scoped || (() => {
+      const links = [...post.querySelectorAll('a[href*="/in/"]')];
+      return links.find((l) => extractNameFromLink(l)) || links[0] || null;
+    })();
     const headlineEl = post.querySelector(
       ".update-components-actor__description," +
       ".feed-shared-actor__description"
     );
+    let headline = ((headlineEl?.innerText || headlineEl?.textContent || "").split("\n")[0] || "").trim();
+    // Same hashed-class problem: no selector match, but the headline is
+    // still sitting right there in the actor block as plain text.
+    if (!headline && link) headline = headlineNear(post, link);
     return {
       author: link ? extractNameFromLink(link) : "",
       authorUrl: link ? link.href.split("?")[0].replace(/\/$/, "") : "",
       authorPhoto: link ? findNearbyPhoto(link) : "",
-      headline: ((headlineEl?.innerText || headlineEl?.textContent || "").split("\n")[0] || "").trim(),
+      headline,
     };
   }
 
@@ -752,10 +927,19 @@ if (!window.__edenLabsOverlayInjected) {
   function postFromBar(bar) {
     const known = closestPost(bar);
     if (known) return known;
+    // Tried before the length-based guess below: verified live that once
+    // classes go fully hashed, that guess's guard (any ancestor with a
+    // person link and >120 chars of text) is far too permissive near the
+    // top of the feed — it resolved an oversized ancestor that swallowed
+    // the "Start a post" composer widget AND a neighbouring post's full
+    // content. Anchoring to the <h2> "Feed post" heading first avoids ever
+    // reaching that guess on an account where it would misfire.
+    const byHeading = findPostCard(bar);
+    if (byHeading) return byHeading;
     for (let n = bar.parentElement; n; n = n.parentElement) {
       if (n.matches?.("main, body")) break;
       // textContent, not innerText — same trap as postText. This fallback is
-      // the ONLY thing standing between a LinkedIn redesign and the feature
+      // the last resort standing between a LinkedIn redesign and the feature
       // disappearing, so it must not depend on a rendering engine.
       const len = (n.innerText || n.textContent || "").length;
       if (n.querySelector('a[href*="/in/"]') && len > 120) return n;
@@ -801,14 +985,24 @@ if (!window.__edenLabsOverlayInjected) {
 
   function injectSaveButton(like) {
     const bar = actionBarOf(like);
-    if (!bar || bar.dataset[INJECTED_FLAG] === "1") return;
+    if (!bar) return;
     const post = postFromBar(bar);
     if (!post) return;
+    // Flagged on the POST, not the bar. Confirmed live: LinkedIn renders more
+    // than one action-bar variant for the same post (a "quick reactions" row
+    // and the main social action bar both carry their own Like button), and
+    // actionBarOf resolves them to two DISTINCT bar elements — so a flag on
+    // the bar let each variant get its own button, and two identical "Eden
+    // Labs" controls appeared side by side on one post.
+    if (post.dataset[INJECTED_FLAG] === "1") return;
+    // Skip a hidden duplicate — LinkedIn keeps more than one layout variant
+    // in the DOM at once for some breakpoints, and only one is ever visible.
+    if (bar.offsetParent === null) return;
     // No author link means this isn't a person's post — promoted units and
     // "people you may know" carousels carry Like buttons too, and offering
     // to save one produces an empty card.
     if (!post.querySelector('a[href*="/in/"]')) return;
-    bar.dataset[INJECTED_FLAG] = "1";
+    post.dataset[INJECTED_FLAG] = "1";
 
     const btn = makeActionButton();
     const label = btn.querySelector("[data-eden-save-label]");

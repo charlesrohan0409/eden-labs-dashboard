@@ -233,8 +233,10 @@ export default function App() {
           <GrowthDetail
             data={data}
             setView={setView}
-            onLogOutreachDay={actions.logOutreachDay}
-            onDeleteOutreachDay={actions.deleteOutreachDay}
+            onAddOutreachEntry={actions.addOutreachEntry}
+            onDeleteOutreachEntry={actions.deleteOutreachEntry}
+            onAddLeadList={actions.addLeadList}
+            onAddScript={actions.addScript}
           />
         )}
 

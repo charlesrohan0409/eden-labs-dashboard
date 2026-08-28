@@ -124,3 +124,212 @@ export function buildMonthlySeries(outreachLog, months = 6) {
   });
   return Array.from(buckets.values());
 }
+
+// ---------------------------------------------------------------------------
+// Campaigns, scripts, and the diagnosis
+// ---------------------------------------------------------------------------
+//
+// The whole reason lead lists and scripts exist as records: a rate on its own
+// only says "something is wrong". A rate attached to a named list says WHICH
+// list is wrong, which is the difference between a report and a decision.
+//
+// Each ratio in the funnel blames exactly one thing:
+//   accepted / sent      -> the LIST     (wrong people)
+//   replies  / dms sent  -> the SCRIPT   (right people, wrong message)
+//   signed   / calls     -> the PITCH    (right message, wrong offer)
+//
+// Rates are computed per LIST over its whole run, never per day. Connections
+// go out on Monday and get accepted over the following week, so dividing this
+// week's accepts by this week's sends produces a number that is wrong every
+// week — and badly wrong in any week the send volume changes.
+
+export const DEFAULT_OUTREACH_TARGETS = {
+  // The owner's own numbers, given directly: 30% is the goal, 25% is the
+  // floor, below that the list itself is the problem.
+  acceptRate: { good: 30, ok: 25 },
+  // Placeholders until there's enough real data to set them honestly — the
+  // Growth page exposes these as editable rather than pretending they're
+  // derived from anything.
+  replyRate: { good: 25, ok: 15 },
+  closeRate: { good: 25, ok: 15 },
+  weeklyConnections: 200,
+};
+
+export const DIAGNOSTICS = [
+  {
+    id: "acceptRate",
+    label: "Acceptance rate",
+    from: "linkedinConnectionsSent",
+    to: "linkedinConnectionsAccepted",
+    blames: "the lead list",
+    lowMessage: "The list is the problem — these are the wrong people, not the wrong message.",
+    okMessage: "Working, but the list could be tighter.",
+    goodMessage: "Strong list. Keep mining this niche.",
+  },
+  {
+    id: "replyRate",
+    label: "Reply rate",
+    from: "linkedinConversationsStarted",
+    to: "linkedinReplied",
+    blames: "the script",
+    lowMessage: "Right people, wrong message — rewrite the script before blaming the list.",
+    okMessage: "The script works. Worth testing a variant against it.",
+    goodMessage: "Script is landing. Reuse it on the next list.",
+  },
+  {
+    id: "closeRate",
+    label: "Call → signed",
+    from: "linkedinCallsBooked",
+    to: "linkedinDealsClosed",
+    blames: "the pitch",
+    lowMessage: "You're getting the calls — it's the offer or the pitch losing them.",
+    okMessage: "Converting, but there's room in the pitch.",
+    goodMessage: "Pitch is converting well.",
+  },
+];
+
+/** Sums a set of entries into one funnel. */
+export function funnelOf(entries) {
+  const totals = { ...EMPTY_ENTRY };
+  (entries || []).forEach((e) => ALL_FIELDS.forEach((k) => { totals[k] += Number(e[k]) || 0; }));
+  return totals;
+}
+
+/**
+ * Turns a funnel into verdicts. Returns one entry per diagnostic with the
+ * rate, a verdict, and plain-English wording.
+ *
+ * `verdict: "unknown"` when the denominator is zero — a rate of 0% and "no
+ * data yet" mean completely different things, and calling an untested list
+ * bad is how you throw away a good one.
+ */
+export function diagnose(totals, targets = DEFAULT_OUTREACH_TARGETS) {
+  return DIAGNOSTICS.map((d) => {
+    const from = Number(totals?.[d.from]) || 0;
+    const to = Number(totals?.[d.to]) || 0;
+    const t = targets[d.id] || DEFAULT_OUTREACH_TARGETS[d.id];
+    if (!from) {
+      return { ...d, from, to, rate: null, verdict: "unknown", message: "Not enough data yet." };
+    }
+    const rate = (to / from) * 100;
+    const verdict = rate >= t.good ? "good" : rate >= t.ok ? "ok" : "bad";
+    return {
+      ...d, from, to,
+      rate: Math.round(rate * 10) / 10,
+      verdict,
+      target: t,
+      message: verdict === "good" ? d.goodMessage : verdict === "ok" ? d.okMessage : d.lowMessage,
+    };
+  });
+}
+
+/** Per-list funnels and verdicts, busiest first. Entries with no list are
+ *  grouped under a synthetic "unassigned" row rather than dropped — they
+ *  predate lists existing and still count toward totals. */
+export function byList(entries, lists, targets) {
+  const groups = new Map();
+  (entries || []).forEach((e) => {
+    const key = e.listId || "__unassigned__";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(e);
+  });
+  return [...groups.entries()]
+    .map(([listId, rows]) => {
+      const list = (lists || []).find((l) => l.id === listId);
+      const totals = funnelOf(rows);
+      return {
+        listId,
+        list: list || null,
+        name: list?.name || "Unassigned",
+        unassigned: !list,
+        entries: rows.length,
+        totals,
+        diagnostics: diagnose(totals, targets),
+      };
+    })
+    .sort((a, b) => b.totals.linkedinConnectionsSent - a.totals.linkedinConnectionsSent);
+}
+
+/** Per-script reply rates. Only the reply diagnostic applies — a script has
+ *  no bearing on whether a connection request gets accepted, since that
+ *  happens before the script is ever sent. */
+export function byScript(entries, scripts, targets) {
+  const groups = new Map();
+  (entries || []).forEach((e) => {
+    if (!e.scriptId) return;
+    if (!groups.has(e.scriptId)) groups.set(e.scriptId, []);
+    groups.get(e.scriptId).push(e);
+  });
+  return [...groups.entries()]
+    .map(([scriptId, rows]) => {
+      const script = (scripts || []).find((s) => s.id === scriptId);
+      const totals = funnelOf(rows);
+      const sent = totals.linkedinConversationsStarted;
+      const replied = totals.linkedinReplied;
+      const t = (targets || DEFAULT_OUTREACH_TARGETS).replyRate;
+      const rate = sent ? (replied / sent) * 100 : null;
+      return {
+        scriptId,
+        script: script || null,
+        name: script?.name || "Unknown script",
+        sent,
+        replied,
+        rate: rate == null ? null : Math.round(rate * 10) / 10,
+        verdict: rate == null ? "unknown" : rate >= t.good ? "good" : rate >= t.ok ? "ok" : "bad",
+      };
+    })
+    .sort((a, b) => (b.rate ?? -1) - (a.rate ?? -1));
+}
+
+// ---------------------------------------------------------------------------
+// The weekly connection quota
+// ---------------------------------------------------------------------------
+//
+// LinkedIn caps invites at 200 a week and the week rolls over at midnight on
+// Saturday — so the working deadline is Saturday evening, not Sunday. This
+// week therefore runs Sunday 00:00 through Saturday 23:59, which is NOT the
+// Monday-start week the rest of the app uses for content and tasks. Kept as
+// its own helper rather than bending weekStart(), because changing that would
+// silently re-bucket every content chart.
+
+export function outreachWeekStart(date = new Date()) {
+  const d = date instanceof Date ? new Date(date) : new Date(`${date}T12:00:00`);
+  d.setDate(d.getDate() - d.getDay()); // getDay(): 0 = Sunday
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/**
+ * Where you are against the weekly send quota.
+ *
+ * `daysLeft` counts today as a day you can still send on, which is what makes
+ * `perDay` actionable — "26 a day" has to include today or it's telling you
+ * to do the impossible.
+ */
+export function weeklyPace(entries, target = DEFAULT_OUTREACH_TARGETS.weeklyConnections, now = new Date()) {
+  const start = outreachWeekStart(now);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+
+  const startKey = toDateKey(start);
+  const endKey = toDateKey(end);
+  const sent = (entries || [])
+    .filter((e) => e.date >= startKey && e.date <= endKey)
+    .reduce((s, e) => s + (Number(e.linkedinConnectionsSent) || 0), 0);
+
+  const remaining = Math.max(0, target - sent);
+  // Saturday is the last day, so on Saturday itself daysLeft is 1.
+  const daysLeft = Math.max(0, 6 - now.getDay() + 1);
+  return {
+    sent,
+    target,
+    remaining,
+    daysLeft,
+    perDay: daysLeft > 0 ? Math.ceil(remaining / daysLeft) : remaining,
+    pct: target > 0 ? Math.min(100, Math.round((sent / target) * 100)) : 0,
+    done: sent >= target,
+    weekStartKey: startKey,
+    weekEndKey: endKey,
+  };
+}

@@ -272,6 +272,32 @@ export function useAppData(token, onUnauthorized) {
 
     // ---- misc ----
     logGrowth: (entry) => update((d) => M.logGrowth(d, entry)),
+    // ---- outreach campaigns ----
+    addLeadList:        (l) => update((d) => M.addLeadList(d, l)),
+    updateLeadList:     (id, patch) => update((d) => M.updateLeadList(d, id, patch)),
+    deleteLeadList:     (id) => update((d) => M.deleteLeadList(d, id)),
+    addScript:          (sc) => update((d) => M.addScript(d, sc)),
+    updateScript:       (id, patch) => update((d) => M.updateScript(d, id, patch)),
+    deleteScript:       (id) => update((d) => M.deleteScript(d, id)),
+    // One call so the numbers and the people who replied land in the same
+    // write — logging them separately would leave a window where the funnel
+    // says 5 replied and the CRM has nobody.
+    addOutreachEntry:   (entry, repliedNames) => update((d) => {
+      M.addOutreachEntry(d, entry);
+      if (repliedNames?.length) {
+        M.addRepliedLeads(d, {
+          names: repliedNames, clientId: entry.clientId,
+          listId: entry.listId, scriptId: entry.scriptId, date: entry.date,
+        });
+      }
+      return d;
+    }),
+    updateOutreachEntry: (id, patch) => update((d) => M.updateOutreachEntry(d, id, patch)),
+    deleteOutreachEntry: (id) => update((d) => M.deleteOutreachEntry(d, id)),
+    setOutreachTargets:  (targets) => update((d) => {
+      d.settings = { ...d.settings, outreachTargets: { ...d.settings?.outreachTargets, ...targets } };
+      return d;
+    }),
     logOutreachDay: (entry) => update((d) => M.logOutreachDay(d, entry)),
     deleteOutreachDay: (id) => update((d) => M.deleteOutreachDay(d, id)),
     toggleIntegration: (id) => update((d) => M.toggleIntegration(d, id)),

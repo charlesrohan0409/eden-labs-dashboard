@@ -836,6 +836,124 @@ export function logGrowth(d, entry) {
 // One row per calendar day — logging again for a day that already has an
 // entry overwrites it rather than adding a second row, since the whole
 // point is a day-to-day running log, not a pile of same-day duplicates.
+// ---- lead lists (outreach campaigns) ----
+export function addLeadList(d, list) {
+  if (!Array.isArray(d.leadLists)) d.leadLists = [];
+  d.leadLists.push({
+    id: uid(), clientId: null, channel: "linkedin", niche: "",
+    status: "active", startedAt: today(), endedAt: "", notes: "",
+    ...list,
+  });
+  return d;
+}
+export function updateLeadList(d, id, patch) {
+  const l = (d.leadLists || []).find((x) => x.id === id);
+  if (l) {
+    Object.assign(l, patch);
+    // Stamp the end date the moment it stops running, so "how long did this
+    // list take to burn through" is answerable later without guessing.
+    if (patch.status && patch.status !== "active" && !l.endedAt) l.endedAt = today();
+    if (patch.status === "active") l.endedAt = "";
+  }
+  return d;
+}
+export function deleteLeadList(d, id) {
+  d.leadLists = (d.leadLists || []).filter((x) => x.id !== id);
+  // The entries themselves are NOT deleted — they're real activity that
+  // happened. They fall back to "Unassigned", the same place pre-list history
+  // sits, rather than silently vanishing from the totals.
+  (d.outreachLog || []).forEach((e) => { if (e.listId === id) e.listId = null; });
+  (d.contacts || []).forEach((c) => { if (c.listId === id) c.listId = null; });
+  return d;
+}
+
+// ---- scripts (DM templates) ----
+export function addScript(d, script) {
+  if (!Array.isArray(d.scripts)) d.scripts = [];
+  d.scripts.push({
+    id: uid(), clientId: null, channel: "linkedin", body: "",
+    status: "active", createdAt: today(), notes: "",
+    ...script,
+  });
+  return d;
+}
+export function updateScript(d, id, patch) {
+  const sc = (d.scripts || []).find((x) => x.id === id);
+  if (sc) Object.assign(sc, patch);
+  return d;
+}
+export function deleteScript(d, id) {
+  d.scripts = (d.scripts || []).filter((x) => x.id !== id);
+  (d.outreachLog || []).forEach((e) => { if (e.scriptId === id) e.scriptId = null; });
+  return d;
+}
+
+// ---- outreach entries ----
+//
+// Entries are now append-and-edit records rather than one upserted row per
+// day. The old shape keyed on (clientId, date), which cannot hold two lead
+// lists worked on the same day — and working more than one list in a day is
+// normal. Each entry carries its own id so it can be edited or removed
+// individually.
+export function addOutreachEntry(d, entry) {
+  if (!Array.isArray(d.outreachLog)) d.outreachLog = [];
+  d.outreachLog.push({
+    id: uid(),
+    clientId: entry.clientId || null,
+    date: entry.date || today(),
+    listId: entry.listId || null,
+    scriptId: entry.scriptId || null,
+    notes: "",
+    ...entry,
+  });
+  return d;
+}
+export function updateOutreachEntry(d, id, patch) {
+  const e = (d.outreachLog || []).find((x) => x.id === id);
+  if (e) Object.assign(e, patch);
+  return d;
+}
+export function deleteOutreachEntry(d, id) {
+  d.outreachLog = (d.outreachLog || []).filter((x) => x.id !== id);
+  return d;
+}
+
+/**
+ * Records the people who replied, as CRM contacts, at the moment their number
+ * is logged.
+ *
+ * Names are only worth storing from the reply stage down. Capturing all 200
+ * people a week costs ~5.5MB a year in a blob that is rewritten on every
+ * save, and nobody reads a list of 200 cold names anyway. The ones who
+ * replied are a different thing entirely — those are real conversations, and
+ * they carry the list and script that produced them so a won deal can be
+ * traced back to what actually worked.
+ */
+export function addRepliedLeads(d, { names, clientId, listId, scriptId, date }) {
+  (names || []).filter((n) => n && n.trim()).forEach((raw) => {
+    const [name, ...rest] = raw.split("|").map((x) => x.trim());
+    addContact(d, {
+      name,
+      company: rest[0] || "",
+      url: rest.find((x) => x.startsWith("http")) || "",
+      // "lead" and NOT "replied": LEGACY_STAGE_MAP rewrites `replied` to
+      // `lead` on every migrate, so a contact saved that way would silently
+      // change stage on the next load. The board's real first column is
+      // "lead" — that's where someone who has just written back belongs, and
+      // `repliedAt` below records that they actually responded rather than
+      // being a cold name.
+      stage: "lead",
+      repliedAt: date || today(),
+      source: "LinkedIn outreach",
+      clientId: clientId || null,
+      listId: listId || null,
+      scriptId: scriptId || null,
+      addedDate: date || today(),
+    });
+  });
+  return d;
+}
+
 export function logOutreachDay(d, entry) {
   if (!Array.isArray(d.outreachLog)) d.outreachLog = [];
   // Keyed on (clientId, date), not date alone — the owner's own agency

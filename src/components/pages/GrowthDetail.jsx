@@ -20,6 +20,9 @@ import {
   buildMonthlySeries, conversionPct, forClient,
 } from "../../lib/outreach";
 import PillTabs from "../ui/PillTabs";
+import OutreachLogger from "../ui/OutreachLogger";
+import OutreachDiagnosis from "../ui/OutreachDiagnosis";
+import WeeklyPace from "../ui/WeeklyPace";
 
 const compact = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n ?? 0));
 
@@ -54,13 +57,13 @@ function FunnelCard({ title, icon: Icon, tone, stages, totals, windowLabel }) {
   );
 }
 
-export default function GrowthDetail({ data, setView, onLogOutreachDay, onDeleteOutreachDay }) {
+export default function GrowthDetail({
+  data, setView, onAddOutreachEntry, onDeleteOutreachEntry, onAddLeadList, onAddScript,
+}) {
   const { money } = useCurrency();
   const [funnelDays, setFunnelDays] = useState(7);
   const [chartMetric, setChartMetric] = useState("linkedinConnectionsSent");
   const [granularity, setGranularity] = useState("daily"); // daily | weekly | monthly
-  const [logDate, setLogDate] = useState(today());
-  const [logForm, setLogForm] = useState(EMPTY_ENTRY);
 
   // Content reach is growth too — pull the real numbers rather than only the
   // hand-logged post counts.
@@ -86,18 +89,11 @@ export default function GrowthDetail({ data, setView, onLogOutreachDay, onDelete
     return buildDailySeries(outreachLog, 30);
   }, [outreachLog, granularity]);
 
-  // Re-syncs the form to whatever's already logged for the picked date, so
-  // fixing one number on a past day doesn't wipe out the rest of that day's
-  // entry when saved.
-  useEffect(() => {
-    const existing = outreachLog.find((e) => e.date === logDate);
-    setLogForm(existing ? { ...EMPTY_ENTRY, ...existing } : EMPTY_ENTRY);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [logDate]);
-
-  const submitLog = () => {
-    onLogOutreachDay({ date: logDate, ...logForm });
-  };
+  // The diagnosis reads EVERY entry, not the last-N-days window the charts
+  // use: acceptance lands days after the send, so a rolling window would
+  // divide this week's accepts by this week's sends and be wrong every week.
+  const ownEntries = outreachLog;
+  const targets = data.settings?.outreachTargets;
 
   const recentEntries = [...outreachLog].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 10);
 
@@ -149,11 +145,13 @@ export default function GrowthDetail({ data, setView, onLogOutreachDay, onDelete
         <p className="text-sm text-stone-500 mt-1">Outreach, content, and pipeline momentum across every client.</p>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* The weekly quota leads, because it's the only number here with a
+          deadline attached — miss the week and that capacity is gone. */}
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <WeeklyPace entries={ownEntries} target={targets?.weeklyConnections} />
         <IconStat icon={Users} tone="sky" label="LI connections sent" value={totals.linkedinConnectionsSent} trendLabel={`last ${funnelDays}d`} />
         <IconStat icon={Phone} tone="amber" label="Calls booked" value={totals.linkedinCallsBooked + totals.emailCallsBooked} trendLabel={`last ${funnelDays}d · LI + email`} />
         <IconStat icon={DollarSign} tone="emerald" label="Deals closed" value={dealsByMonth.at(-1)?.deals ?? 0} trend={trend(dealsByMonth, "deals")} trendLabel="vs last month" />
-        <IconStat icon={FileText} tone="violet" label="Content published" value={contentPublishedThisMonth} trendLabel="this month" />
       </div>
 
       {/* ── Funnels — the actual conversion story, not just raw counts ── */}
@@ -240,92 +238,72 @@ export default function GrowthDetail({ data, setView, onLogOutreachDay, onDelete
         </ResponsiveContainer>
       </Card>
 
-      {/* ── Log a day's numbers ── */}
-      <Card className="p-5">
-        <CardTitle sub="One entry per day — logging again for the same date updates it instead of adding a duplicate">
-          Log outreach
-        </CardTitle>
-        <div className="mb-4">
-          <label className="text-xs text-stone-500 font-medium">Date</label>
-          <input
-            type="date"
-            value={logDate}
-            max={today()}
-            onChange={(e) => setLogDate(e.target.value)}
-            className={`${inputCls} w-44 mt-1`}
-          />
-        </div>
-        <div className="grid md:grid-cols-2 gap-6">
-          <div>
-            <div className="text-xs font-semibold text-stone-600 mb-2.5 flex items-center gap-1.5">
-              <Users size={13} className="text-sky-700" /> LinkedIn
-            </div>
-            <div className="grid grid-cols-2 gap-2.5">
-              {LINKEDIN_STAGES.map((s) => (
-                <div key={s.key}>
-                  <label className="text-[11px] text-stone-400">{s.label}</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={logForm[s.key] || ""}
-                    onChange={(e) => setLogForm({ ...logForm, [s.key]: Number(e.target.value) || 0 })}
-                    className={`${inputCls} w-full mt-0.5`}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="text-xs font-semibold text-stone-600 mb-2.5 flex items-center gap-1.5">
-              <Mail size={13} className="text-violet-700" /> Email
-            </div>
-            <div className="grid grid-cols-2 gap-2.5">
-              {EMAIL_STAGES.map((s) => (
-                <div key={s.key}>
-                  <label className="text-[11px] text-stone-400">{s.label}</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={logForm[s.key] || ""}
-                    onChange={(e) => setLogForm({ ...logForm, [s.key]: Number(e.target.value) || 0 })}
-                    className={`${inputCls} w-full mt-0.5`}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-        <PrimaryButton className="mt-5" icon={Plus} onClick={submitLog}>
-          Save {logDate === today() ? "today's" : "this"} entry
-        </PrimaryButton>
-      </Card>
+      {/* ── Log outreach + read the diagnosis ── */}
+      <div className="grid lg:grid-cols-2 gap-4 items-start">
+        <OutreachLogger
+          clientId={null}
+          lists={data.leadLists}
+          scripts={data.scripts}
+          onAdd={onAddOutreachEntry}
+          onAddList={onAddLeadList}
+          onAddScript={onAddScript}
+        />
+        <OutreachDiagnosis
+          entries={ownEntries}
+          lists={data.leadLists}
+          scripts={data.scripts}
+          targets={targets}
+        />
+      </div>
 
-      {/* ── Recent entries — click a day to load it back into the form above ── */}
+      {/* ── Recent entries ── */}
       <Card className="p-5">
-        <CardTitle sub="Click a day to edit it">Recent entries</CardTitle>
+        <CardTitle sub="Every entry, newest first">Recent entries</CardTitle>
         <div className="space-y-1">
-          {recentEntries.map((e) => (
-            <div key={e.id} className="group flex items-center justify-between gap-3 py-2.5 border-b border-stone-100 last:border-0">
-              <button onClick={() => setLogDate(e.date)} className="text-sm text-stone-700 hover:text-emerald-700 text-left shrink-0 w-28">
-                {new Date(e.date + "T12:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
-              </button>
-              <div className="flex items-center gap-3 text-[11px] text-stone-400 flex-1 justify-end flex-wrap">
-                <span>{e.linkedinConnectionsSent || 0} sent</span>
-                <span>{e.linkedinCallsBooked || 0} LI calls</span>
-                <span>{e.emailSent || 0} emails</span>
-                <span>{e.emailCallsBooked || 0} email calls</span>
+          {recentEntries.map((e) => {
+            const list = (data.leadLists || []).find((l) => l.id === e.listId);
+            const script = (data.scripts || []).find((x) => x.id === e.scriptId);
+            return (
+              <div key={e.id} className="group flex items-start justify-between gap-3 py-2.5 border-b border-stone-100 last:border-0">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm text-stone-700 tabular-nums">
+                      {new Date(e.date + "T12:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" })}
+                    </span>
+                    <span className={`text-[10.5px] px-1.5 py-0.5 rounded-full ${
+                      list ? "bg-sky-50 text-sky-700" : "bg-stone-100 text-stone-400 italic"
+                    }`}>
+                      {list?.name || "Unassigned"}
+                    </span>
+                    {script && (
+                      <span className="text-[10.5px] px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-700">
+                        {script.name}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2.5 text-[11px] text-stone-400 mt-1 flex-wrap tabular-nums">
+                    <span>{e.linkedinConnectionsSent || 0} sent</span>
+                    <span>{e.linkedinConnectionsAccepted || 0} accepted</span>
+                    <span>{e.linkedinConversationsStarted || 0} DMs</span>
+                    <span>{e.linkedinReplied || 0} replies</span>
+                    {(e.linkedinCallsBooked || 0) > 0 && <span>{e.linkedinCallsBooked} calls</span>}
+                  </div>
+                  {e.notes && <div className="text-[11.5px] text-stone-500 mt-1 leading-relaxed">{e.notes}</div>}
+                </div>
+                <button
+                  onClick={() => onDeleteOutreachEntry(e.id)}
+                  aria-label="Delete entry"
+                  className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-stone-300 hover:text-rose-500 transition p-1 shrink-0"
+                >
+                  <Trash2 size={13} />
+                </button>
               </div>
-              <button
-                onClick={() => onDeleteOutreachDay(e.id)}
-                aria-label="Delete entry"
-                className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-stone-300 hover:text-rose-500 transition p-1 shrink-0"
-              >
-                <Trash2 size={13} />
-              </button>
-            </div>
-          ))}
+            );
+          })}
           {recentEntries.length === 0 && (
-            <div className="text-xs text-stone-400 py-6 text-center">No entries logged yet — add today's numbers above.</div>
+            <div className="text-xs text-stone-400 py-6 text-center">
+              Nothing logged yet — add this week's numbers on the left.
+            </div>
           )}
         </div>
       </Card>

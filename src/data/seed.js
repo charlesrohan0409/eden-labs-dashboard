@@ -416,6 +416,10 @@ export const seedData = () => ({
   // Inbound enquiries: people who messaged first. Separate from `contacts`
   // on purpose — see lib/inbound.js.
   inbound: [],
+  // Outreach campaigns and DM templates — see lib/outreach.js for why these
+  // are records rather than free-text fields on each log entry.
+  leadLists: [],
+  scripts: [],
   // Activity log — chronological record of key events per client.
   // Shape is Supabase-ready: each entry maps cleanly to a row.
   // clientId === null means an agency-level event (e.g. new expense).

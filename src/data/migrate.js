@@ -1,5 +1,6 @@
 import { seedData, DEFAULT_CLIENT_TYPE } from "./seed.js";
 import { LEGACY_STAGE_MAP } from "../lib/utils.js";
+import { DEFAULT_OUTREACH_TARGETS } from "../lib/outreach.js";
 
 // Saved data can predate any field added later, so every read is normalised
 // against a fresh seed before the app touches it.
@@ -13,6 +14,7 @@ export function migrateData(loaded) {
     "growthLog", "outreachLog", "channelPerf", "integrations", "calls", "outreachByChannel",
     "comments", "swipeFile", "activityLog", "commentTargets",
     "accounts", "outgoings", "budgets", "expenseCategories", "financeLog", "inbound",
+    "leadLists", "scripts",
   ].forEach((key) => {
     if (!Array.isArray(merged[key])) merged[key] = defaults[key];
   });
@@ -35,10 +37,47 @@ export function migrateData(loaded) {
     i.id === "buffer" ? { channels: [], agencyChannelId: null, lastCheckedAt: null, ...i } : i
   );
 
+  // ---- outreach campaigns ----
+  // A lead list is a named batch of people being targeted. It exists as a
+  // record because a rate on its own only says "something is wrong" — the
+  // same rate attached to a list says WHICH list is wrong, which is the
+  // difference between a report and a decision.
+  merged.leadLists = merged.leadLists.map((l) => ({
+    clientId: null, channel: "linkedin", niche: "", status: "active",
+    startedAt: "", endedAt: "", notes: "",
+    ...l,
+  }));
+
+  // DM templates, stored with their actual text so a script that worked can
+  // be reused rather than half-remembered.
+  merged.scripts = merged.scripts.map((s2) => ({
+    clientId: null, channel: "linkedin", body: "", status: "active",
+    createdAt: "", notes: "",
+    ...s2,
+  }));
+
+  // Outreach entries predate lists and scripts. Backfilled to null rather
+  // than guessed at — an entry with no list still counts toward totals, it
+  // just can't be diagnosed, and the Growth page shows those honestly as
+  // "Unassigned" instead of silently attributing them somewhere.
+  merged.outreachLog = merged.outreachLog.map((e) => ({
+    listId: null, scriptId: null, notes: "",
+    ...e,
+  }));
+
   // The owner's own profile and display settings are newer than the first
   // saved shape — merge rather than replace so a saved photo isn't lost.
   merged.profile = { ...defaults.profile, ...(loaded?.profile || {}) };
   merged.settings = { ...defaults.settings, ...(loaded?.settings || {}) };
+
+  // Targets are settings, not constants: the acceptance numbers came straight
+  // from how the owner already works (30% good, 25% floor), but the reply and
+  // close thresholds are placeholders until there's real data behind them —
+  // so they're editable rather than pretending to be derived.
+  merged.settings.outreachTargets = {
+    ...DEFAULT_OUTREACH_TARGETS,
+    ...(loaded?.settings?.outreachTargets || {}),
+  };
 
   // Ensure each client has the newer contract/email fields so nothing downstream reads undefined.
   // Clients saved before service lines existed are all LinkedIn work.
@@ -58,6 +97,16 @@ export function migrateData(loaded) {
       billingType: "retainer", payoutMonths: null, commissionPct: null, commissionBasis: null,
       ...(c.contract || {}),
     },
+    // Which parts of the LinkedIn service this client actually buys. Two
+    // combinations exist in practice: content only (we run their inbound
+    // system), or content plus outreach (we do for them what Eden Labs does
+    // for itself). Modelled as a list on the client rather than as more
+    // client TYPES, because the type is the service line and this is the
+    // scope within it — and the portal builds its nav from this, so a
+    // content-only client never sees an empty Outreach tab.
+    services: Array.isArray(c.services)
+      ? c.services
+      : (c.type === "linkedin" ? ["content", "outreach"] : []),
     delivery: (Array.isArray(c.delivery) ? c.delivery : []).map((m, i) => ({
       // Delivery entries never got per-field backfilling before — a metric
       // saved before recurring cadence existed just accumulates forever,

@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Globe, MoreHorizontal, ThumbsUp, MessageSquare, Repeat2, Send,
-  ChevronLeft, ChevronRight, FileText, Smartphone, Monitor,
+  ChevronLeft, ChevronRight, FileText, Smartphone, Monitor, Loader2,
 } from "lucide-react";
 import Avatar from "./Avatar";
 import PillTabs from "./PillTabs";
+import { renderPdfSlides } from "../../lib/pdfSlides";
 
 // LinkedIn truncates the post body and shows "…see more" past roughly this
 // many characters on desktop, fewer on mobile.
@@ -32,55 +33,93 @@ function ReactionIcons() {
 const isPdf = (item) =>
   item?.mime === "application/pdf" || /\.pdf($|\?)/i.test(item?.url || "");
 
-function Carousel({ items }) {
+function Carousel({ items, compact }) {
   const [idx, setIdx] = useState(0);
-  const safe = Math.min(idx, items.length - 1);
+  const [slides, setSlides] = useState(null);   // null = not a PDF / not loaded
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const pdfItem = items.length === 1 && isPdf(items[0]) ? items[0] : null;
+
+  // Render the PDF to page images once, on the client, when one is attached.
+  useEffect(() => {
+    if (!pdfItem?.url) { setSlides(null); setFailed(false); return; }
+    let cancelled = false;
+    setLoading(true);
+    setFailed(false);
+    renderPdfSlides(pdfItem.url)
+      .then((res) => { if (!cancelled) setSlides(res.pages); })
+      .catch(() => { if (!cancelled) setFailed(true); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [pdfItem?.url]);
+
+  // A rendered PDF becomes the slide list; images are already one per slide.
+  const frames = slides
+    ? slides.map((p) => ({ src: p.src }))
+    : items.map((i) => ({ src: i.url }));
+  const safe = Math.min(idx, Math.max(0, frames.length - 1));
+  const docName = pdfItem?.name || "";
 
   return (
-    <div className="relative bg-[#F4F2EE] border-y border-black/[0.08]">
-      <div className="aspect-[4/3] flex items-center justify-center overflow-hidden">
-        {!items[safe]?.url ? (
+    <div className="border-y border-black/[0.08] bg-[#F4F2EE]">
+      {/* LinkedIn shows documents nearly square rather than the 4:3 a PDF
+          page naturally is — a landscape frame letter-boxes a portrait deck
+          and makes the preview lie about how much of the slide is visible. */}
+      <div className="relative aspect-square flex items-center justify-center overflow-hidden">
+        {loading ? (
+          <div className="flex flex-col items-center gap-2 text-stone-400">
+            <Loader2 size={20} className="animate-spin" />
+            <span className="text-[11px]">Rendering slides…</span>
+          </div>
+        ) : failed ? (
+          // Honest fallback rather than a broken frame: the file is fine, we
+          // just couldn't draw it here.
+          <div className="flex flex-col items-center gap-2 text-stone-400 px-6 text-center">
+            <FileText size={24} />
+            <span className="text-[11px] leading-relaxed">
+              Couldn't render this PDF for preview. It will still post normally.
+            </span>
+          </div>
+        ) : !frames[safe]?.src ? (
           <FileText size={28} className="text-stone-300" />
-        ) : isPdf(items[safe]) ? (
-          // A PDF carousel renders in the browser's own viewer — the same
-          // approach the uploaded-contract preview uses. An <img> here would
-          // just be a broken icon. #toolbar=0 keeps it looking like a slide
-          // rather than a document window.
-          <iframe
-            title={items[safe].name || "Carousel PDF"}
-            src={`${items[safe].url}#toolbar=0&navpanes=0&view=FitH`}
-            className="w-full h-full bg-white"
-          />
         ) : (
-          <img src={items[safe].url} alt="" className="w-full h-full object-contain" />
+          <img src={frames[safe].src} alt="" className="w-full h-full object-contain bg-white" />
+        )}
+
+        {frames.length > 1 && !loading && (
+          <>
+            <button
+              onClick={(e) => { e.stopPropagation(); setIdx(Math.max(0, safe - 1)); }}
+              disabled={safe === 0}
+              className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/95 shadow-md flex items-center justify-center disabled:opacity-0 transition-opacity"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); setIdx(Math.min(frames.length - 1, safe + 1)); }}
+              disabled={safe === frames.length - 1}
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/95 shadow-md flex items-center justify-center disabled:opacity-0 transition-opacity"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </>
         )}
       </div>
 
-      {items.length > 1 && (
-        <>
-          <button
-            onClick={(e) => { e.stopPropagation(); setIdx(Math.max(0, safe - 1)); }}
-            disabled={safe === 0}
-            className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/90 shadow flex items-center justify-center disabled:opacity-0"
-          >
-            <ChevronLeft size={15} />
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); setIdx(Math.min(items.length - 1, safe + 1)); }}
-            disabled={safe === items.length - 1}
-            className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/90 shadow flex items-center justify-center disabled:opacity-0"
-          >
-            <ChevronRight size={15} />
-          </button>
-        </>
-      )}
-
-      {/* LinkedIn shows documents as a page counter pill, bottom-left. A
-          single PDF has its own page count inside the viewer, so showing
-          "1 / 1" over it would just be wrong-looking. */}
-      {!(items.length === 1 && isPdf(items[0])) && (
-        <div className="absolute bottom-2 left-2 bg-black/70 text-white text-[11px] px-2 py-0.5 rounded">
-          {safe + 1} / {items.length}
+      {/* The title bar LinkedIn puts under a document post. Its absence was
+          most of why the old preview read as "a PDF embedded in a page"
+          rather than "a carousel in the feed". */}
+      {(docName || frames.length > 1) && (
+        <div className="flex items-center gap-3 bg-white px-3 py-2.5 border-t border-black/[0.08]">
+          <span className={`font-semibold text-[#000000E6] truncate flex-1 min-w-0 ${compact ? "text-[13px]" : "text-sm"}`}>
+            {docName || "Carousel"}
+          </span>
+          {frames.length > 1 && (
+            <span className="text-[11px] text-[#00000099] tabular-nums shrink-0">
+              {safe + 1} / {frames.length}
+            </span>
+          )}
         </div>
       )}
     </div>
@@ -135,7 +174,7 @@ function Media({ media, compact }) {
   }
 
   if (media.type === "carousel" || media.type === "document") {
-    return <Carousel items={media.items} />;
+    return <Carousel items={media.items} compact={compact} />;
   }
 
   // Single or multi image — LinkedIn tiles 2+ images.
@@ -249,7 +288,9 @@ export function LinkedInPost({ author, headline, avatarUrl, content, media, poll
  * at a real handset width so line breaks land where they actually will.
  */
 export default function PostPreview({ author, headline, avatarUrl, content, media, poll, stats, timeLabel }) {
-  const [device, setDevice] = useState("desktop");
+  // Mobile first: the overwhelming majority of LinkedIn reading happens on a
+  // phone, so that's the layout worth checking a hook against before posting.
+  const [device, setDevice] = useState("mobile");
 
   return (
     <div>

@@ -420,7 +420,10 @@ export default function PostComposer({
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="What do you want to talk about?"
-          className="w-full min-h-[260px] border border-line rounded-xl p-4 text-[15px] leading-relaxed text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-700/20 resize-none"
+          // Taller, and resizable downward. Long-form posts run well past 260px and
+          // writing into a small box means constant scrolling to reread what you
+          // just wrote — the one thing you do most while drafting.
+          className="w-full min-h-[420px] lg:min-h-[520px] border border-line rounded-xl p-4 text-[15px] leading-relaxed text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-700/20 resize-y"
         />
         <div className="flex justify-between text-[11px] text-stone-400 mt-1">
           <span className="tnum">{text.length} characters</span>

@@ -473,9 +473,15 @@ export async function handleExtension(headers, body) {
       });
       break;
     }
+    // Kept for extension versions that haven't been reloaded yet — 1.5.0 and
+    // earlier still send this. Deliberately routed to the APPEND path rather
+    // than the old upsert-by-day: with several entries per day now normal,
+    // the old behaviour would find the day's first entry and overwrite it,
+    // silently destroying one of that day's lead lists. An un-reloaded
+    // extension is now merely unattributed, not destructive.
     case "logOutreach": {
       if (!p.date) return { status: 400, body: { error: "`date` is required." } };
-      M.logOutreachDay(data, { ...p, clientId });
+      M.addOutreachEntry(data, { ...p, clientId, listId: null, scriptId: null });
       break;
     }
     case "saveInbound": {

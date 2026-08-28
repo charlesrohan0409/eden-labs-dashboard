@@ -11,7 +11,7 @@ export function migrateData(loaded) {
   // Ensure every top-level collection exists and is the right type.
   [
     "clients", "contacts", "tasks", "posts", "dms", "expenses", "invoices",
-    "growthLog", "outreachLog", "channelPerf", "integrations", "calls", "outreachByChannel",
+    "outreachLog", "channelPerf", "integrations", "calls", "outreachByChannel",
     "comments", "swipeFile", "activityLog", "commentTargets",
     "accounts", "outgoings", "budgets", "expenseCategories", "financeLog", "inbound",
     "leadLists", "scripts",

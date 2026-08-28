@@ -18,6 +18,7 @@ import InvoiceModal from "../ui/InvoiceModal";
 import PrivacyToggle from "../ui/PrivacyToggle";
 import BalanceBar from "../ui/BalanceBar";
 import CategorySelect from "../ui/CategorySelect";
+import CategoryManager from "../ui/CategoryManager";
 import FinanceActivity from "../ui/FinanceActivity";
 import Outgoings from "../ui/Outgoings";
 import Budgets from "../ui/Budgets";
@@ -49,6 +50,7 @@ const TILE_TONE = {
 
 export default function FinanceDetail({
   data, setView, onAddExpense, onUpdateExpense, onDeleteExpense,
+  onRenameExpenseCategory, onDeleteExpenseCategory,
   onAddInvoice, onGenerateInvoices, onUpdateInvoiceStatus, onDeleteInvoice,
   onAddAccount, onUpdateAccount, onDeleteAccount,
   onAddOutgoing, onUpdateOutgoing, onDeleteOutgoing, onCancelOutgoing, onPayOutgoing,
@@ -768,6 +770,15 @@ export default function FinanceDetail({
               </PrimaryButton>
             </div>
           </Card>
+
+          <CategoryManager
+            categories={data.expenseCategories}
+            expenses={data.expenses}
+            outgoings={data.outgoings}
+            budgets={data.budgets}
+            onRename={onRenameExpenseCategory}
+            onDelete={onDeleteExpenseCategory}
+          />
         </div>
       )}
 

@@ -271,7 +271,6 @@ export function useAppData(token, onUnauthorized) {
     setCurrency: (currency) => update((d) => M.setCurrency(d, currency)),
 
     // ---- misc ----
-    logGrowth: (entry) => update((d) => M.logGrowth(d, entry)),
     // ---- outreach campaigns ----
     addLeadList:        (l) => update((d) => M.addLeadList(d, l)),
     updateLeadList:     (id, patch) => update((d) => M.updateLeadList(d, id, patch)),
@@ -298,8 +297,6 @@ export function useAppData(token, onUnauthorized) {
       d.settings = { ...d.settings, outreachTargets: { ...d.settings?.outreachTargets, ...targets } };
       return d;
     }),
-    logOutreachDay: (entry) => update((d) => M.logOutreachDay(d, entry)),
-    deleteOutreachDay: (id) => update((d) => M.deleteOutreachDay(d, id)),
     toggleIntegration: (id) => update((d) => M.toggleIntegration(d, id)),
     setFathomConnected: () => update((d) => M.setFathomConnected(d)),
     setFathomDisconnected: () => update((d) => M.setFathomDisconnected(d)),

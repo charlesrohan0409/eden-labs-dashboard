@@ -3,8 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 import {
-  FileText, Phone, DollarSign, CheckCircle2, Download, MessageSquare,
-  Video, Users, Send, Inbox,
+  FileText, Phone, DollarSign, CheckCircle2, Download, MessageSquare, Video,
 } from "lucide-react";
 import Card, { CardTitle } from "../ui/Card";
 import Badge from "../ui/Badge";
@@ -16,7 +15,6 @@ import PostComposer from "../ui/PostComposer";
 import PendingApproval from "../ui/PendingApproval";
 import CommentThread from "../ui/CommentThread";
 import MiniCalendar from "../ui/MiniCalendar";
-import IconStat from "../ui/IconStat";
 import PortalHero from "./PortalHero";
 import PortalShell from "./PortalShell";
 import PortalOutreach from "./PortalOutreach";
@@ -26,15 +24,10 @@ import CrmBoard from "../ui/CrmBoard";
 import { isMetricOnTrack, metricProgressPct, contractValueLabel, monthBuckets, toDateKey } from "../../lib/utils";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { listFathomMeetings, matchMeetingsToClient } from "../../lib/fathom";
-import { CLIENT_TYPES, DEFAULT_CLIENT_TYPE } from "../../data/seed";
 import { useCurrency } from "../../hooks/useCurrency";
 
 const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
 
-const TAB_LABELS = {
-  overview: "Overview", content: "Content", outreach: "Outreach", crm: "CRM",
-  transcripts: "Transcripts", dms: "Messages", contract: "Contract",
-};
 
 export default function ClientPortal({
   exitLabel = "Exit preview",

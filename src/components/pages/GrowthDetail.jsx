@@ -4,8 +4,7 @@ import {
 } from "recharts";
 import {
   ArrowLeft, Plus, Phone, DollarSign, FileText, Eye, ExternalLink, Loader2, ChevronRight,
-  Users, Mail, Trash2, ArrowRight,
-} from "lucide-react";
+  Users, Mail, Trash2, ArrowRight, Pencil} from "lucide-react";
 import Card, { CardTitle } from "../ui/Card";
 import IconStat from "../ui/IconStat";
 import Avatar from "../ui/Avatar";
@@ -58,12 +57,14 @@ function FunnelCard({ title, icon: Icon, tone, stages, totals, windowLabel }) {
 }
 
 export default function GrowthDetail({
-  data, setView, onAddOutreachEntry, onDeleteOutreachEntry, onAddLeadList, onAddScript,
+  data, setView, onAddOutreachEntry, onUpdateOutreachEntry, onDeleteOutreachEntry,
+  onAddLeadList, onAddScript,
 }) {
   const { money } = useCurrency();
   const [funnelDays, setFunnelDays] = useState(7);
   const [chartMetric, setChartMetric] = useState("linkedinConnectionsSent");
   const [granularity, setGranularity] = useState("daily"); // daily | weekly | monthly
+  const [editingEntry, setEditingEntry] = useState(null);
 
   // Content reach is growth too — pull the real numbers rather than only the
   // hand-logged post counts.
@@ -289,14 +290,46 @@ export default function GrowthDetail({
                     {(e.linkedinCallsBooked || 0) > 0 && <span>{e.linkedinCallsBooked} calls</span>}
                   </div>
                   {e.notes && <div className="text-[11.5px] text-stone-500 mt-1 leading-relaxed">{e.notes}</div>}
+
+                  {/* Correcting a number was possible on the old date-keyed
+                      form and got lost when entries became append-only —
+                      restoring it here rather than making a mistyped entry
+                      permanent or forcing a delete-and-retype. */}
+                  {editingEntry === e.id && (
+                    <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-3 gap-2 rounded-xl bg-stone-50 p-3 motion-safe:animate-fade-up">
+                      {LINKEDIN_STAGES.map((st) => (
+                        <label key={st.key} className="block">
+                          <span className="block text-[10px] font-medium text-stone-400 mb-0.5 truncate">{st.label}</span>
+                          <input
+                            type="number" min="0"
+                            defaultValue={e[st.key] || 0}
+                            onBlur={(ev) => {
+                              const v = Number(ev.target.value) || 0;
+                              if (v !== (e[st.key] || 0)) onUpdateOutreachEntry(e.id, { [st.key]: v });
+                            }}
+                            className="border border-line rounded-lg px-2 py-1.5 text-sm bg-white w-full text-right tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-700/20"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <button
-                  onClick={() => onDeleteOutreachEntry(e.id)}
-                  aria-label="Delete entry"
-                  className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-stone-300 hover:text-rose-500 transition p-1 shrink-0"
-                >
-                  <Trash2 size={13} />
-                </button>
+                <div className="flex items-center gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition">
+                  <button
+                    onClick={() => setEditingEntry(editingEntry === e.id ? null : e.id)}
+                    aria-label="Edit entry"
+                    className="text-stone-300 hover:text-stone-600 p-1"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    onClick={() => onDeleteOutreachEntry(e.id)}
+                    aria-label="Delete entry"
+                    className="text-stone-300 hover:text-rose-500 p-1"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </div>
             );
           })}

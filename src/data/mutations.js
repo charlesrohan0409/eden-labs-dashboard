@@ -834,11 +834,6 @@ export function setCurrency(d, currency) {
   return d;
 }
 
-// ---- misc ----
-export function logGrowth(d, entry) {
-  d.growthLog.push(entry);
-  return d;
-}
 // ---- daily outreach tracking (LinkedIn + email funnels) ----
 // One row per calendar day — logging again for a day that already has an
 // entry overwrites it rather than adding a second row, since the whole
@@ -961,23 +956,6 @@ export function addRepliedLeads(d, { names, clientId, listId, scriptId, date }) 
   return d;
 }
 
-export function logOutreachDay(d, entry) {
-  if (!Array.isArray(d.outreachLog)) d.outreachLog = [];
-  // Keyed on (clientId, date), not date alone — the owner's own agency
-  // outreach (clientId null) and each client's outreach are separate funnels,
-  // and keying on date alone meant logging for one client silently
-  // overwrote another's numbers for the same day.
-  // `|| null` not `?? null`: the client <select>'s "agency" option is "".
-  const clientId = entry.clientId || null;
-  const idx = d.outreachLog.findIndex((x) => x.date === entry.date && (x.clientId || null) === clientId);
-  if (idx >= 0) d.outreachLog[idx] = { ...d.outreachLog[idx], ...entry, clientId };
-  else d.outreachLog.push({ id: uid(), ...entry, clientId });
-  return d;
-}
-export function deleteOutreachDay(d, id) {
-  d.outreachLog = (d.outreachLog || []).filter((x) => x.id !== id);
-  return d;
-}
 export function toggleIntegration(d, id) {
   const i = d.integrations.find((x) => x.id === id);
   if (i) i.connected = !i.connected;

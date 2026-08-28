@@ -234,6 +234,7 @@ export default function App() {
             data={data}
             setView={setView}
             onAddOutreachEntry={actions.addOutreachEntry}
+            onUpdateOutreachEntry={actions.updateOutreachEntry}
             onDeleteOutreachEntry={actions.deleteOutreachEntry}
             onAddLeadList={actions.addLeadList}
             onAddScript={actions.addScript}
@@ -263,6 +264,8 @@ export default function App() {
             onUpdateBudget={actions.updateBudget}
             onDeleteBudget={actions.deleteBudget}
             onAddExpenseCategory={actions.addExpenseCategory}
+            onRenameExpenseCategory={actions.renameExpenseCategory}
+            onDeleteExpenseCategory={actions.deleteExpenseCategory}
             token={ownerAuth.token}
           />
         )}

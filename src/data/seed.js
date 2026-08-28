@@ -1,4 +1,4 @@
-import { recentMonths, computeCommissionTotal, commissionInstallment } from "../lib/utils.js";
+import { computeCommissionTotal, commissionInstallment } from "../lib/utils.js";
 import { periodStartFor } from "../lib/recurrence.js";
 import { DEFAULT_EXPENSE_CATEGORIES } from "../lib/finance.js";
 
@@ -359,7 +359,6 @@ export const seedData = () => ({
   // no pipeline that rolls posts/DMs/calls up into a monthly log), so every
   // month starts at zero rather than shipping with a fake demo trend. Log
   // actual months via the Growth page as they happen.
-  growthLog: recentMonths().map(({ label }) => ({ month: label, contentPosts: 0, outreachSent: 0, callsBooked: 0 })),
   // Day-by-day LinkedIn + email outreach funnel — see lib/outreach.js for the
   // stage definitions and the chart/aggregation helpers built on top of this.
   outreachLog: [],

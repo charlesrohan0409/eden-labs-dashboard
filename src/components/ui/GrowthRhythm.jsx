@@ -35,6 +35,9 @@ export default function GrowthRhythm({
   posts, outreachLog, commentLog, clientId = null,
   rest = DEFAULT_REST, onToggleRestDate,
   onLogComments, onBumpComments, days = 28,
+  // The client sees the same record, but it's a report to them rather than
+  // a control panel — logging and blocking days are the owner's decisions.
+  readOnly = false, title = "Your rhythm", subtitle,
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -80,9 +83,9 @@ export default function GrowthRhythm({
 
   return (
     <Card className="p-5">
-      <CardTitle sub={`At least ${scores[0]?.target ?? 4} days a week on each — ideally every day. Sundays are off.`}>
+      <CardTitle sub={subtitle ?? `At least ${scores[0]?.target ?? 4} days a week on each — ideally every day. Sundays are off.`}>
         <span className="flex items-center gap-2 flex-wrap">
-          Your rhythm
+          {title}
           {streak > 0 && (
             <span
               className={`flex items-center gap-1.5 text-[11px] font-semibold rounded-full px-2.5 py-1
@@ -149,7 +152,7 @@ export default function GrowthRhythm({
       </div>
 
       {/* ── log today's commenting ── */}
-      {!scores[0]?.restToday && (
+      {!readOnly && !scores[0]?.restToday && (
       <div className="rounded-xl border border-line bg-stone-50/70 p-3 mb-4">
         <div className="flex items-center gap-2 flex-wrap">
           <MessageCircle size={13} className="text-amber-700 shrink-0" />
@@ -228,8 +231,9 @@ export default function GrowthRhythm({
             return (
               <button
                 key={d.date}
-                onClick={() => onToggleRestDate?.(d.date)}
-                title={`${d.date} — ${label}${d.commentCount ? ` (${d.commentCount} comments)` : ""}\nClick to ${d.rest ? "un-block" : "block"} this day`}
+                onClick={() => { if (!readOnly) onToggleRestDate?.(d.date); }}
+                disabled={readOnly}
+                title={`${d.date} — ${label}${d.commentCount ? ` (${d.commentCount} comments)` : ""}${readOnly ? "" : `\nClick to ${d.rest ? "un-block" : "block"} this day`}`}
                 className={`aspect-square rounded-md flex flex-col justify-end gap-[2px] p-[3px] relative
                   transition-[transform,background-color] duration-150 ${EASE} active:scale-[0.9]
                   ${isToday ? "ring-1 ring-stone-900 ring-offset-1" : ""}
@@ -266,7 +270,7 @@ export default function GrowthRhythm({
             <Moon size={9} /> rest
           </span>
           <span className="text-[10.5px] text-stone-300 ml-auto">
-            last 4 weeks · click a day to block it
+            last 4 weeks{readOnly ? "" : " · click a day to block it"}
           </span>
         </div>
       </div>

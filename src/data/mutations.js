@@ -181,6 +181,8 @@ export function deleteClient(d, id) {
   if (Array.isArray(d.scripts)) d.scripts = d.scripts.filter((x) => x.clientId !== id);
   if (Array.isArray(d.swipeFile)) d.swipeFile = d.swipeFile.filter((x) => x.clientId !== id);
   if (Array.isArray(d.commentTargets)) d.commentTargets = d.commentTargets.filter((t) => t.clientId !== id);
+  if (Array.isArray(d.commentLog)) d.commentLog = d.commentLog.filter((c) => c.clientId !== id);
+  if (Array.isArray(d.swipeFolders)) d.swipeFolders = d.swipeFolders.filter((f) => f.clientId !== id);
   return d;
 }
 export function endContract(d, id, reason) {

@@ -5,6 +5,7 @@ import Badge from "../ui/Badge";
 import Avatar from "../ui/Avatar";
 import PortalEmpty from "./PortalEmpty";
 import WeeklyPace from "../ui/WeeklyPace";
+import GrowthRhythm from "../ui/GrowthRhythm";
 import { LINKEDIN_STAGES, funnelOf, diagnose, conversionPct, daysSince } from "../../lib/outreach";
 
 const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
@@ -62,7 +63,10 @@ const TONE = {
  * transparency, it's noise nobody scrolls — and the conversations that are
  * live are the only part a client can act on.
  */
-export default function PortalOutreach({ entries, lists, contacts, clients, targets, weeklyTarget }) {
+export default function PortalOutreach({
+  entries, lists, contacts, targets, weeklyTarget,
+  posts, commentLog, rest, clientId,
+}) {
   const totals = useMemo(() => funnelOf(entries), [entries]);
   const oldest = useMemo(() => (entries || []).map((e) => e.date).filter(Boolean).sort()[0], [entries]);
   const results = useMemo(
@@ -78,19 +82,40 @@ export default function PortalOutreach({ entries, lists, contacts, clients, targ
     [contacts]
   );
 
+  // The work record renders whether or not outreach has produced numbers
+  // yet: "are you actually working on this" is the question a client asks
+  // first, and it has an answer from day one — content counts toward it even
+  // before the first connection request goes out.
+  const rhythmPanel = (
+    <GrowthRhythm
+      posts={posts}
+      outreachLog={entries}
+      commentLog={commentLog}
+      clientId={clientId}
+      rest={rest}
+      readOnly
+      title="Work done for you"
+      subtitle="Content, outreach and engagement, week by week"
+    />
+  );
+
   if (!anything) {
     return (
-      <Card className="p-6">
-        <PortalEmpty icon={Send} title="Outreach hasn't started yet">
-          Once we begin reaching out on your behalf, you'll see exactly how many people
-          were contacted, how many replied, and every conversation that's live.
-        </PortalEmpty>
-      </Card>
+      <div className="space-y-5">
+        {rhythmPanel}
+        <Card className="p-6">
+          <PortalEmpty icon={Send} title="Outreach hasn't started yet">
+            Once we begin reaching out on your behalf, you'll see exactly how many people
+            were contacted, how many replied, and every conversation that's live.
+          </PortalEmpty>
+        </Card>
+      </div>
     );
   }
 
   return (
     <div className="space-y-5">
+      {rhythmPanel}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <WeeklyPace entries={entries} target={weeklyTarget} />
         {[

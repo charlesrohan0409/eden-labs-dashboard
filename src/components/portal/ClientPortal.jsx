@@ -381,6 +381,10 @@ export default function ClientPortal({
               entries={outreachEntries}
               lists={data.leadLists}
               contacts={clientContacts}
+              posts={clientPosts}
+              commentLog={data.commentLog}
+              rest={data.settings?.rest}
+              clientId={clientId}
               targets={data.settings?.outreachTargets}
               weeklyTarget={data.settings?.outreachTargets?.weeklyConnections}
             />

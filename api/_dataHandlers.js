@@ -348,6 +348,9 @@ function buildPortalData(full, clientId) {
     leadLists: (full.leadLists || [])
       .filter((l) => l.clientId === clientId)
       .map((l) => ({ id: l.id, name: l.name, status: l.status })),
+    // The rhythm view needs these. Same strict === clientId as everything
+    // else here, so the agency's own commenting never reaches a client.
+    commentLog: (full.commentLog || []).filter((c) => c.clientId === clientId),
   };
 }
 

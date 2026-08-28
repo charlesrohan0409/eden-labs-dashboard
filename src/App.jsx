@@ -316,6 +316,16 @@ export default function App() {
             onReorderTasks={actions.reorderTasks}
             onUpdateClientNotes={actions.updateClientNotes}
             onLogActivity={actions.logActivity}
+            onAddOutreachEntry={actions.addOutreachEntry}
+            onAddLeadList={actions.addLeadList}
+            onUpdateLeadList={actions.updateLeadList}
+            onDeleteLeadList={actions.deleteLeadList}
+            onAddScript={actions.addScript}
+            onUpdateScript={actions.updateScript}
+            onDeleteScript={actions.deleteScript}
+            onLogComments={actions.logComments}
+            onBumpComments={actions.bumpComments}
+            onToggleRestDate={actions.toggleRestDate}
           />
         )}
 

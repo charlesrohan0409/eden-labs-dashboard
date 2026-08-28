@@ -28,6 +28,10 @@ import { useCurrency } from "../../hooks/useCurrency";
 import { sendEmail } from "../../lib/email";
 import { fileToDocument } from "../../lib/media";
 import NumberField from "../ui/NumberField";
+import GrowthRhythm from "../ui/GrowthRhythm";
+import OutreachLogger from "../ui/OutreachLogger";
+import OutreachDiagnosis from "../ui/OutreachDiagnosis";
+import CampaignManager from "../ui/CampaignManager";
 
 // ---- Activity log icon / colour per event type ----
 const ACTIVITY_CONFIG = {
@@ -100,7 +104,10 @@ export default function ClientDetail({
   data, clientId, setView, onAddPost, onUpdatePost, onDeletePost, onAddDM, onDeleteDM, onUpdateClient, onUpdateContract, onUpdateDelivery,
   onAddDeliveryMetric, onUpdateDeliveryMetric, onDeleteDeliveryMetric,
   onUpdatePostStatus, onEndContract, onDeleteClient, onAddTask, onToggleTask, onDeleteTask, onUpdateTask, onReorderTasks,
-  onUpdateClientNotes, onLogActivity, token,
+  onUpdateClientNotes, onLogActivity,
+  onAddOutreachEntry, onAddLeadList, onUpdateLeadList, onDeleteLeadList,
+  onAddScript, onUpdateScript, onDeleteScript,
+  onLogComments, onBumpComments, onToggleRestDate, token,
 }) {
   const [tab, setTab] = useState("overview");
   const [boardFilters, setBoardFilters] = useState({});
@@ -189,12 +196,18 @@ export default function ClientDetail({
   };
 
   const clientType = CLIENT_TYPES[client.type] || CLIENT_TYPES[DEFAULT_CLIENT_TYPE];
-  const TAB_LABELS = { overview: "Overview", content: "Content", dms: "DMs", contract: "Contract", activity: "Activity", report: "Report" };
-  const visibleTabs = clientType.tabs.map((t) => ({ value: t, label: TAB_LABELS[t] || t }));
+  const TAB_LABELS = { overview: "Overview", content: "Content", growth: "Growth", dms: "DMs", contract: "Contract", activity: "Activity", report: "Report" };
+  // Growth only exists for clients we actually run outreach for. The comment
+  // in GrowthDetail claimed per-client outreach "lives on each client's page"
+  // and it didn't — the only way in was the Chrome extension signed in with
+  // that client's PIN, which is useless when you're sat at the dashboard.
+  const doesOutreach = (client.services || []).includes("outreach");
+  const tabIds = clientType.tabs.flatMap((t) => (t === "content" && doesOutreach ? [t, "growth"] : [t]));
+  const visibleTabs = tabIds.map((t) => ({ value: t, label: TAB_LABELS[t] || t }));
   // If the active tab isn't available for this client's type (e.g. you were on
   // Content, then opened a book client), fall back to Overview rather than
   // rendering an empty page.
-  const activeTab = clientType.tabs.includes(tab) ? tab : "overview";
+  const activeTab = tabIds.includes(tab) ? tab : "overview";
 
   // A self-uploaded contract (client.contract.fileUrl) always wins over the
   // auto-generated bodyText — download opens/saves the actual uploaded file
@@ -469,6 +482,52 @@ export default function ClientDetail({
       <PillTabs size="md" value={activeTab} onChange={setTab} options={visibleTabs} />
 
       {/* ══ Overview ══ */}
+      {/* ══ Growth — this client's own outreach + rhythm ══ */}
+      {activeTab === "growth" && (
+        <div className="space-y-5">
+          <GrowthRhythm
+            posts={data.posts}
+            outreachLog={data.outreachLog}
+            commentLog={data.commentLog}
+            clientId={client.id}
+            rest={data.settings?.rest}
+            onToggleRestDate={onToggleRestDate}
+            onLogComments={onLogComments}
+            onBumpComments={onBumpComments}
+            title={`Work done for ${client.name.split(" ")[0]}`}
+          />
+          <div className="grid lg:grid-cols-2 gap-4 items-start">
+            <OutreachLogger
+              clientId={client.id}
+              lists={data.leadLists}
+              scripts={data.scripts}
+              onAdd={onAddOutreachEntry}
+              onAddList={onAddLeadList}
+              onAddScript={onAddScript}
+            />
+            <div className="space-y-4">
+              <OutreachDiagnosis
+                entries={(data.outreachLog || []).filter((e) => e.clientId === client.id)}
+                lists={data.leadLists}
+                scripts={data.scripts}
+                targets={data.settings?.outreachTargets}
+              />
+              <CampaignManager
+                clientId={client.id}
+                lists={data.leadLists}
+                scripts={data.scripts}
+                onAddList={onAddLeadList}
+                onUpdateList={onUpdateLeadList}
+                onDeleteList={onDeleteLeadList}
+                onAddScript={onAddScript}
+                onUpdateScript={onUpdateScript}
+                onDeleteScript={onDeleteScript}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeTab === "overview" && (
         <div className="space-y-4">
           <TaskList

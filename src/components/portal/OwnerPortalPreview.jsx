@@ -48,6 +48,7 @@ function portalShapeFor(data, clientId) {
     leadLists: (data.leadLists || [])
       .filter((l) => l.clientId === clientId)
       .map((l) => ({ id: l.id, name: l.name, status: l.status })),
+    commentLog: (data.commentLog || []).filter((c) => c.clientId === clientId),
   };
 }
 

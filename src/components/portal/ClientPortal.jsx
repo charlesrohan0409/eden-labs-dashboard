@@ -18,6 +18,9 @@ import CommentThread from "../ui/CommentThread";
 import MiniCalendar from "../ui/MiniCalendar";
 import IconStat from "../ui/IconStat";
 import PortalHero from "./PortalHero";
+import PortalShell from "./PortalShell";
+import PortalOutreach from "./PortalOutreach";
+import { navForClient } from "./portalNav";
 import PortalEmpty from "./PortalEmpty";
 import CrmBoard from "../ui/CrmBoard";
 import { isMetricOnTrack, metricProgressPct, contractValueLabel, monthBuckets, toDateKey } from "../../lib/utils";
@@ -117,35 +120,34 @@ export default function ClientPortal({
 
   // Only the tabs this client's service line uses — a book-editing client has
   // no LinkedIn content pipeline or CRM to look at.
-  const clientType = CLIENT_TYPES[client.type] || CLIENT_TYPES[DEFAULT_CLIENT_TYPE];
-  const visibleTabs = clientType.portalTabs.map((t) => ({ value: t, label: TAB_LABELS[t] || t }));
-  const activeTab = clientType.portalTabs.includes(tab) ? tab : "overview";
+  // Nav comes from what the client actually BUYS (their services), not from
+  // a fixed per-type tab list — the two real LinkedIn packages are content
+  // only and content plus outreach, and a content-only client should never
+  // see an empty Outreach tab.
+  const nav = navForClient(client);
+  const activeTab = nav.some((n) => n.id === tab) ? tab : "overview";
+
+  const outreachEntries = (data.outreachLog || []).filter((e) => (e.clientId || null) === clientId);
 
   return (
-    <div className="min-h-screen bg-canvas">
-      <div className="max-w-5xl mx-auto px-4 md:px-8 pt-4 md:pt-6">
+    <PortalShell
+      client={client}
+      agencyName={agencyName}
+      nav={nav}
+      view={activeTab}
+      setView={setTab}
+      onExit={onExit}
+      exitLabel={exitLabel}
+      onRefresh={onRefresh}
+      refreshing={refreshing}
+    >
+      <div className="space-y-5">
         <PortalHero
           client={client}
           agencyName={agencyName}
           stats={heroStats}
-          onExit={onExit}
-          exitLabel={exitLabel}
-          onRefresh={onRefresh}
-          refreshing={refreshing}
           onGoToApprovals={() => setTab("content")}
         />
-      </div>
-
-      {/* The CRM board needs the full width; everything else reads better
-          constrained, so the container widens only on that tab. */}
-      <div className={`${activeTab === "crm" ? "max-w-[1400px]" : "max-w-5xl"} mx-auto px-4 md:px-8 pt-4 pb-24 md:pb-10 space-y-5`}>
-        {/* Sticky so navigation doesn't scroll away on a long tab — the portal
-            has no persistent nav of its own, unlike the owner shell. PillTabs
-            already handles its own horizontal overflow; the extra wrapper that
-            used to be here nested a second scroll container inside it. */}
-        <div className="sticky top-0 z-20 -mx-4 px-4 py-2 bg-canvas/85 backdrop-blur-sm">
-          <PillTabs value={activeTab} onChange={setTab} options={visibleTabs} size="md" />
-        </div>
 
         {/* Keyed on the tab so switching REMOUNTS the panel and replays the
             entrance. Without it, tab changes were an instant hard swap. */}
@@ -379,48 +381,24 @@ export default function ClientPortal({
         )}
 
         {/* ══ Outreach ══ */}
+        {/* ══ Outreach ══ */}
         {activeTab === "outreach" && (
-          <div className="space-y-4">
-            {/* IconStat is the shared tile the owner dashboard uses — icon
-                chip, tone, consistent type scale. The portal was hand-rolling
-                a plainer copy of it four times. */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <IconStat icon={Inbox} tone="teal" label="Inbound calls"
-                value={clientCalls.filter((c) => c.direction === "inbound").length} />
-              <IconStat icon={Send} tone="sky" label="Outbound calls"
-                value={clientCalls.filter((c) => c.direction === "outbound").length} />
-              <IconStat icon={Users} tone="violet" label="Deals closed" value={clientDeals.length} />
-              <IconStat icon={DollarSign} tone="amber" label="Closed value" value={money(totalClosed)} />
-            </div>
-
+          <div className="space-y-5">
+            <PortalOutreach
+              entries={outreachEntries}
+              lists={data.leadLists}
+              contacts={clientContacts}
+              targets={data.settings?.outreachTargets}
+              weeklyTarget={data.settings?.outreachTargets?.weeklyConnections}
+            />
             <Card className="p-5">
-              <CardTitle sub="Messages sent per channel">Outreach by channel</CardTitle>
-              <div className="space-y-3">
-                {clientOutreach.map((o) => (
-                  <div key={o.id} className="flex items-center gap-3">
-                    <span className="text-xs text-stone-500 w-32 shrink-0 truncate">{o.channel}</span>
-                    <div className="flex-1 bg-stone-100 rounded-full h-2">
-                      <div className="bg-emerald-700 h-2 rounded-full" style={{ width: `${Math.min(100, o.count)}%` }} />
-                    </div>
-                    <span className="text-xs text-stone-500 w-8 text-right tnum">{o.count}</span>
-                  </div>
-                ))}
-                {clientOutreach.length === 0 && (
-                  <PortalEmpty icon={Send} title="No outreach logged yet" compact>
-                    Messages sent on your behalf are counted here, split by channel.
-                  </PortalEmpty>
-                )}
-              </div>
-            </Card>
-
-            <Card className="p-5">
-              <CardTitle sub={`${clientCalls.length} calls logged`}>Call log</CardTitle>
+              <CardTitle sub={`${clientCalls.length} logged`}>Call log</CardTitle>
               <div className="space-y-1">
                 {clientCalls.map((c) => (
                   <div key={c.id} className="flex items-start gap-2.5 text-sm border-b border-stone-100 last:border-0 py-2.5">
                     <Badge tone={c.direction === "inbound" ? "teal" : "stone"}>{c.direction}</Badge>
                     <span className="text-stone-600 flex-1">{c.notes}</span>
-                    <span className="text-xs text-stone-400 shrink-0 tnum">{c.date}</span>
+                    <span className="text-xs text-stone-400 shrink-0 tabular-nums">{c.date}</span>
                   </div>
                 ))}
                 {clientCalls.length === 0 && (
@@ -430,7 +408,6 @@ export default function ClientPortal({
                 )}
               </div>
             </Card>
-
             <CommentThread comments={data.comments} clientId={clientId} tabKey="outreach" author="Client" onAdd={onAddComment} />
           </div>
         )}
@@ -611,6 +588,6 @@ export default function ClientPortal({
         )}
         </div>
       </div>
-    </div>
+    </PortalShell>
   );
 }

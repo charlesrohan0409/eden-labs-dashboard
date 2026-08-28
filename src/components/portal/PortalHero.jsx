@@ -1,4 +1,4 @@
-import { LogOut, RefreshCw, CheckCircle2, Send, Handshake, Clock } from "lucide-react";
+import { CheckCircle2, Send, Handshake, Clock } from "lucide-react";
 import Avatar from "../ui/Avatar";
 import { isMetricOnTrack } from "../../lib/utils";
 
@@ -19,9 +19,7 @@ const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
  * paying for. "Needs you" leads because a dashboard should open with the
  * action, not the archive.
  */
-export default function PortalHero({
-  client, agencyName, stats, onExit, exitLabel, onRefresh, refreshing, onGoToApprovals,
-}) {
+export default function PortalHero({ client, agencyName, stats, onGoToApprovals }) {
   const metrics = client.delivery || [];
   const onTrackCount = metrics.filter(isMetricOnTrack).length;
   const allOnTrack = metrics.length > 0 && onTrackCount === metrics.length;
@@ -63,31 +61,6 @@ export default function PortalHero({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          {onRefresh && (
-            <button
-              onClick={onRefresh}
-              disabled={refreshing}
-              aria-label="Check for updates"
-              title="Check for updates"
-              className={`p-2 rounded-full text-white/50 hover:text-white hover:bg-white/[0.08]
-                border border-white/10 disabled:opacity-50
-                transition-[transform,background-color,color] duration-150 ${EASE} active:scale-[0.94]`}
-            >
-              <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} />
-            </button>
-          )}
-          {onExit && (
-            <button
-              onClick={onExit}
-              className={`text-xs text-white/70 flex items-center gap-1.5 hover:text-white hover:bg-white/[0.08]
-                border border-white/10 rounded-full px-3.5 py-2
-                transition-[transform,background-color,color] duration-150 ${EASE} active:scale-[0.96]`}
-            >
-              <LogOut size={13} /> {exitLabel}
-            </button>
-          )}
-        </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 mt-5">

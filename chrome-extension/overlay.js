@@ -424,19 +424,81 @@ if (!window.__edenLabsOverlayInjected) {
   // nothing recorded afterwards can tell them apart.
 
   const POST_SELECTOR = [
-    "div.feed-shared-update-v2",
-    "div[data-urn]",
-    "div[data-id^='urn:li:activity']",
-    "article",
+    ".feed-shared-update-v2",
+    "[data-urn^='urn:li:activity']",
+    "[data-id^='urn:li:activity']",
+    ".occludable-update",
+    "[data-view-name='feed-full-update']",
+    ".fie-impression-container",
   ].join(",");
 
+  /**
+   * The post container an element sits inside.
+   *
+   * Uses native closest(), which walks the whole ancestor chain. The first
+   * version hand-rolled the walk with a 25-hop ceiling, and LinkedIn's feed
+   * nests body text far deeper than that — so hovering the actual words of a
+   * post found nothing and the button never appeared. A hop limit here is a
+   * guess about someone else's DOM, which is exactly the kind of guess that
+   * breaks silently.
+   */
   function closestPost(el) {
-    let node = el;
-    for (let hops = 0; node && hops < 25; hops++, node = node.parentElement) {
-      if (node.matches?.(POST_SELECTOR)) return node;
+    if (!el || !el.closest) return null;
+    const hit = el.closest(POST_SELECTOR);
+    if (!hit) return null;
+    // LinkedIn nests several matching containers; walk out to the outermost
+    // one so the button anchors to the whole post rather than a fragment.
+    let outer = hit;
+    for (let p = outer.parentElement; p; p = p.parentElement) {
+      if (p.matches?.(POST_SELECTOR)) outer = p;
+      // Stop at the feed itself — going further would match the whole list.
+      if (p.matches?.("main, .scaffold-finite-scroll__content")) break;
     }
-    return null;
+    return outer;
   }
+
+  // Diagnostic, for when LinkedIn changes its markup again. Run
+  // `__edenLabsDebugPosts()` in the console on a feed page: it reports how
+  // many posts each selector currently finds.
+  window.__edenLabsDebugPosts = () => {
+    const rows = POST_SELECTOR.split(",").map((sel) => ({
+      selector: sel,
+      found: document.querySelectorAll(sel).length,
+    }));
+    const anyMatch = rows.some((r) => r.found > 0);
+    /* eslint-disable no-console */
+    console.log("%cEden Labs — hover button diagnostic", "font-weight:bold");
+    console.log("overlay running :", !!window.__edenLabsOverlayInjected);
+    console.table(rows);
+    console.log("button in DOM   :", !!document.getElementById(HOVER_BTN_ID));
+    if (!anyMatch) {
+      console.warn(
+        "No post containers matched. LinkedIn has changed its markup — " +
+        "hover a post and run: __edenLabsWhatIsThis()"
+      );
+    }
+    /* eslint-enable no-console */
+    return rows;
+  };
+
+  // Reports the class/attribute shape of whatever is under the cursor, so a
+  // markup change can be fixed from real evidence rather than a guess.
+  window.__edenLabsWhatIsThis = () => {
+    const el = document.querySelector(":hover:last-of-type") || document.activeElement;
+    const chain = [];
+    for (let n = el; n && chain.length < 12; n = n.parentElement) {
+      chain.push({
+        tag: n.tagName,
+        class: (n.className || "").toString().slice(0, 70),
+        dataId: n.getAttribute?.("data-id") || "",
+        dataUrn: n.getAttribute?.("data-urn") || "",
+        view: n.getAttribute?.("data-view-name") || "",
+      });
+    }
+    // eslint-disable-next-line no-console
+    console.table(chain);
+    return chain;
+  };
 
   /**
    * Expands a collapsed post before reading it.
@@ -561,8 +623,13 @@ if (!window.__edenLabsOverlayInjected) {
       '<span style="font-size:13px;line-height:1">\u2b07</span>' +
       '<span style="font-weight:650">Save</span>';
     Object.assign(btn.style, {
-      position: "absolute",
-      zIndex: "9998",
+      // FIXED, not absolute. Absolute meant computing document coordinates
+      // from window.scrollY, which breaks the moment any ancestor has a
+      // transform — and LinkedIn's feed uses them. Fixed positions against
+      // the viewport, which is exactly what a getBoundingClientRect() gives
+      // back, so the two can't disagree.
+      position: "fixed",
+      zIndex: "2147483000",
       display: "none",
       alignItems: "center",
       gap: "6px",
@@ -611,21 +678,33 @@ if (!window.__edenLabsOverlayInjected) {
   function positionHoverButton(post) {
     const btn = ensureHoverButton();
     const r = post.getBoundingClientRect();
-    // Skip anything too small to be a real post — LinkedIn nests several
-    // matching containers and the inner ones are chrome, not content.
-    if (r.height < 120) return;
+    // Too small to be a real post, or scrolled out of view — LinkedIn keeps
+    // recycled containers in the DOM with zero height.
+    if (r.height < 120 || r.bottom < 0 || r.top > window.innerHeight) {
+      hideHoverButton();
+      return;
+    }
     btn.style.display = "inline-flex";
-    btn.style.top = `${window.scrollY + r.top + 12}px`;
-    btn.style.left = `${window.scrollX + r.right - 92}px`;
+    // Clamped into the viewport so a post whose top has scrolled past the
+    // header doesn't put the button off-screen.
+    const top = Math.min(Math.max(r.top + 12, 70), window.innerHeight - 50);
+    btn.style.top = `${top}px`;
+    btn.style.left = `${Math.max(8, r.right - 96)}px`;
     requestAnimationFrame(() => { btn.style.opacity = "1"; });
     hoveredPost = post;
   }
 
   document.addEventListener("mouseover", (e) => {
-    if (e.target.closest?.(`#${HOVER_BTN_ID}`)) return;
-    const post = closestPost(e.target);
-    if (post && post !== hoveredPost) positionHoverButton(post);
-    else if (!post && hoveredPost && !e.target.closest?.(`#${HOVER_BTN_ID}`)) hideHoverButton();
+    const t = e.target;
+    if (!t || t.nodeType !== 1) return;
+    // Hovering the button itself must not count as leaving the post.
+    if (t.id === HOVER_BTN_ID || t.closest?.(`#${HOVER_BTN_ID}`)) return;
+    const post = closestPost(t);
+    // Reposition even when it's the SAME post: the button may have been
+    // hidden by a save or a scroll, and requiring a different post to bring
+    // it back means it never returns until you leave and come back.
+    if (post) positionHoverButton(post);
+    else if (hoveredPost) hideHoverButton();
   }, true);
 
   // The button is absolutely positioned against the document, so it has to

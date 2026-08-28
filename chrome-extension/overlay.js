@@ -521,24 +521,124 @@ if (!window.__edenLabsOverlayInjected) {
     return false;
   }
 
-  function postText(post) {
-    const body = post.querySelector(
-      ".feed-shared-update-v2__description," +
-      ".update-components-text," +
-      ".feed-shared-inline-show-more-text," +
-      '[data-test-id="main-feed-activity-card__commentary"]'
-    );
-    // innerText preserves the line breaks that make a post readable, but it
-    // is undefined in any non-rendering context and empty for some nodes —
-    // textContent is the floor. Caught by testing against a DOM fixture,
-    // where innerText simply does not exist.
-    const el = body || post;
-    const raw = el.innerText || el.textContent || "";
-    return raw
-      .replace(/\n?\s*…?\s*see more\s*$/i, "")
-      .replace(/\n?\s*…more\s*$/i, "")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
+  // Lines that are LinkedIn chrome, not post content, when they appear on
+  // their own — accessibility labels, section badges, timestamps, degree
+  // markers, and the action-bar labels (which leak in if a selector match
+  // ever includes the bar itself).
+  const JUNK_LINE = new Set([
+    "feed post", "suggested", "promoted", "follow", "+ follow", "following",
+    "like", "comment", "comments", "repost", "send", "save", "share",
+    "see more", "…see more", "show more", "load more comments",
+    "1st", "2nd", "3rd", "3rd+",
+  ]);
+  const isJunkLine = (line) => {
+    const low = line.toLowerCase();
+    if (JUNK_LINE.has(low)) return true;
+    // Timestamp, optionally followed by a bullet and/or a connection-degree
+    // badge, in any combination — "3d", "3d •", "3d • 2nd", and (once a
+    // separator between them has been space'd out) "3d 2nd" all land here.
+    if (/^\d+\s*(mo|d|h|w|yr)s?\s*(•\s*)?(1st|2nd|3rd|3rd\+)?\s*$/i.test(line)) return true;
+    if (/^•?\s*(1st|2nd|3rd|3rd\+)$/i.test(line)) return true;             // "• 2nd" alone
+    if (/^[\d,.]+\s*(k|m)?\s*(reactions?|comments?|reposts?)$/i.test(line)) return true;
+    return false;
+  };
+
+  /**
+   * A copy of `el` with the chrome removed, so reading its text can't pick
+   * up button labels, engagement counts, or accessibility-only badges.
+   *
+   * This works on a CLONE, on purpose — mutating the live post to read it
+   * would risk detaching LinkedIn's own event handlers or triggering its
+   * mutation-observer-driven re-renders mid-read.
+   *
+   * Two removal strategies, deliberately not just one:
+   *  - by TAG/CLASS (`button`, `.visually-hidden`) for the chrome whose
+   *    shape is predictable;
+   *  - by ARIA-LABEL CONTENT (`/reaction|comment|repost/i`) for engagement
+   *    counts, because their visible text is often just a bare number
+   *    ("11") with the meaning carried entirely in the label — a purely
+   *    visual/class-based strip would miss them and leave a stray "11"
+   *    sitting in the middle of the saved text.
+   */
+  function stripChrome(el) {
+    const clone = el.cloneNode(true);
+    // Replaced with a SPACE, not removed outright — e.g. "3d" and "2nd"
+    // often sit either side of an aria-hidden "•" separator, and deleting
+    // that separator with nothing left in its place fuses the two into
+    // "3d2nd", which the timestamp filter below no longer recognises as
+    // chrome. A space preserves the word boundary without preserving the
+    // separator's own visual noise.
+    const spaceOut = (n) => n.replaceWith(n.ownerDocument.createTextNode(" "));
+    clone.querySelectorAll('button, [aria-hidden="true"], .visually-hidden, .sr-only')
+      .forEach(spaceOut);
+    clone.querySelectorAll("[aria-label]").forEach((n) => {
+      if (/reaction|comment|repost|profile|graphic link|photo/i.test(n.getAttribute("aria-label") || "")) {
+        spaceOut(n);
+      }
+    });
+    return clone;
+  }
+
+  /**
+   * The post body, with the author's name/headline stripped so this can be
+   * applied uniformly whichever element the text came from.
+   *
+   * A "Suggested" or "Promoted" card wraps the real post inside an extra
+   * layer carrying its own accessibility label ("Feed post") and section
+   * badge ("Suggested") — variants like this don't share the ordinary
+   * post's class names, so the specific selectors below miss them and this
+   * used to fall back to reading that OUTER wrapper's full text, badges and
+   * all. Filtering by content rather than trusting whichever element
+   * matched is what makes the fallback safe to use at all.
+   */
+  function postText(post, author) {
+    const candidates = [
+      post.querySelector(
+        ".feed-shared-update-v2__description," +
+        ".update-components-text," +
+        ".update-components-update-v2__commentary," +
+        ".feed-shared-inline-show-more-text," +
+        ".feed-shared-text," +
+        '[data-test-id="main-feed-activity-card__commentary"]'
+      ),
+      post,
+    ].filter(Boolean);
+
+    const authorLow = (author?.author || "").trim().toLowerCase();
+    const headlineLow = (author?.headline || "").trim().toLowerCase();
+
+    for (const raw of candidates) {
+      const el = stripChrome(raw);
+      // innerText preserves the line breaks that make a post readable, but
+      // it's undefined outside a rendering engine and empty for some nodes —
+      // textContent is the floor.
+      const text = el.innerText || el.textContent || "";
+      const cleaned = text
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => {
+          if (!l) return false;
+          const low = l.toLowerCase();
+          if (isJunkLine(l)) return false;
+          if (authorLow && low === authorLow) return false;
+          if (headlineLow && low === headlineLow) return false;
+          return true;
+        })
+        .join("\n")
+        // Not anchored to the end: LinkedIn sometimes renders the truncation
+        // marker inline with the paragraph rather than as a separate
+        // button, so it can land mid-string once trailing chrome is gone.
+        .replace(/…?\s*see more/gi, "")
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+      // A real post is more than a stray word — the specific selector is
+      // tried first and accepted if it clears this bar; only the raw
+      // whole-post text needs it, since that's the one that can contain
+      // nothing but chrome.
+      if (cleaned.length >= 20) return cleaned;
+    }
+    return "";
   }
 
   /** Engagement counts, best-effort — absent on a post with none. */
@@ -597,11 +697,15 @@ if (!window.__edenLabsOverlayInjected) {
       // Let LinkedIn re-render the expanded body before reading it.
       await new Promise((r) => setTimeout(r, 220));
     }
+    // Author first: postText uses the name/headline to strip them out of
+    // whichever element it ends up reading, which is what makes the
+    // whole-post fallback usable instead of just quieter about being wrong.
+    const author = postAuthor(post);
     return {
-      text: postText(post),
+      text: postText(post, author),
       url: postUrl(post),
       stats: postStats(post),
-      ...postAuthor(post),
+      ...author,
     };
   }
 
@@ -665,13 +769,17 @@ if (!window.__edenLabsOverlayInjected) {
     btn.setAttribute("data-eden-save", "1");
     btn.setAttribute("aria-label", "Save this post to Eden Labs");
     btn.title = "Save to Eden Labs";
+    // A bookmark icon labelled "Save" is what LinkedIn's OWN inline save
+    // action already looks like — sitting them side by side produced two
+    // visually identical buttons a user could not tell apart. This uses our
+    // own mark (the "EL" badge from the other widgets) and names the
+    // destination rather than the verb, so it reads as a distinct
+    // third-party control rather than a duplicate of the native one.
     btn.innerHTML =
-      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-      'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-      '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>' +
-      '<span>Save</span>';
-    // Matches LinkedIn's own action buttons rather than announcing itself —
-    // a foreign-looking control in that row reads as an ad.
+      '<span style="display:inline-flex;align-items:center;justify-content:center;' +
+      'width:16px;height:16px;border-radius:4px;background:#065f46;color:#fff;' +
+      'font:800 9px/1 -apple-system,sans-serif;letter-spacing:-.02em;flex-shrink:0;">EL</span>' +
+      '<span data-eden-save-label>Eden Labs</span>';
     Object.assign(btn.style, {
       display: "inline-flex",
       alignItems: "center",
@@ -703,7 +811,7 @@ if (!window.__edenLabsOverlayInjected) {
     bar.dataset[INJECTED_FLAG] = "1";
 
     const btn = makeActionButton();
-    const label = btn.querySelector("span");
+    const label = btn.querySelector("[data-eden-save-label]");
     btn.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();

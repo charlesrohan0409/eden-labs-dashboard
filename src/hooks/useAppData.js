@@ -271,6 +271,12 @@ export function useAppData(token, onUnauthorized) {
     setCurrency: (currency) => update((d) => M.setCurrency(d, currency)),
 
     // ---- misc ----
+    // ---- saved-content folders ----
+    addSwipeFolder:    (f) => update((d) => M.addSwipeFolder(d, f)),
+    updateSwipeFolder: (id, patch) => update((d) => M.updateSwipeFolder(d, id, patch)),
+    deleteSwipeFolder: (id) => update((d) => M.deleteSwipeFolder(d, id)),
+    moveSwipeToFolder: (swipeId, folderId) => update((d) => M.moveSwipeToFolder(d, swipeId, folderId)),
+
     // ---- rest days ----
     toggleRestDate:    (date) => update((d) => M.toggleRestDate(d, date)),
     setRestWeekdays:   (weekly) => update((d) => M.setRestWeekdays(d, weekly)),

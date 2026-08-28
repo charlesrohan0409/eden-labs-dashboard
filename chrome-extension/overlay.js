@@ -52,7 +52,18 @@ if (!window.__edenLabsOverlayInjected) {
     // reliable than textContent, which on a card-style link picks up the
     // headline, "• 2nd", "Follow", etc. all mashed together.
     const aria = link.getAttribute("aria-label") || "";
-    const stripped = aria.replace(/^View\s+/i, "").replace(/[’']s profile$/i, "").trim();
+    // LinkedIn's aria-labels vary more than the old two-rule strip assumed:
+    // "View Tom Dillon, CFA's profile", "View Tom Dillon, CFA’s graphic link",
+    // "Tom Dillon, CFA • 2nd". When only the "View " prefix matched, the
+    // saved author came out as "View Tom Dillon, CFA's" — visible in the
+    // saved-content library and impossible to fix without re-saving.
+    const stripped = aria
+      .replace(/^View\s+/i, "")
+      .replace(/[’'`]s\s+(profile|graphic link|photo|image).*$/i, "")
+      .replace(/[’'`]s$/i, "")
+      .replace(/\s*[•·]\s*(1st|2nd|3rd|3rd\+).*$/i, "")
+      .replace(/\s*[-–—]\s*$/,"")
+      .trim();
     if (stripped) return stripped;
     const text = (link.textContent || "").replace(/\s+/g, " ").trim();
     const beforeBullet = text.split("•")[0].trim();
@@ -404,6 +415,233 @@ if (!window.__edenLabsOverlayInjected) {
     });
   }
 
+  // ---- Reading a whole feed post ------------------------------------------
+  //
+  // Saving a highlighted fragment was the only way in before this, which
+  // meant the swipe file filled up with half-sentences and no context. The
+  // useful unit is the WHOLE post — and its engagement, since a hook that
+  // pulled 400 reactions is worth studying and one that pulled 4 is not, and
+  // nothing recorded afterwards can tell them apart.
+
+  const POST_SELECTOR = [
+    "div.feed-shared-update-v2",
+    "div[data-urn]",
+    "div[data-id^='urn:li:activity']",
+    "article",
+  ].join(",");
+
+  function closestPost(el) {
+    let node = el;
+    for (let hops = 0; node && hops < 25; hops++, node = node.parentElement) {
+      if (node.matches?.(POST_SELECTOR)) return node;
+    }
+    return null;
+  }
+
+  /**
+   * Expands a collapsed post before reading it.
+   *
+   * LinkedIn truncates long posts behind "…see more" and the hidden half is
+   * genuinely absent from textContent in some layouts — so reading without
+   * expanding silently saves a partial post that LOOKS complete.
+   */
+  function expandPost(post) {
+    const more = post.querySelector(
+      'button.feed-shared-inline-show-more-text__see-more-less-toggle,' +
+      'button[aria-label*="see more" i],' +
+      'button[aria-label*="…more" i],' +
+      '.feed-shared-inline-show-more-text button'
+    );
+    if (more && /more/i.test(more.textContent || more.getAttribute("aria-label") || "")) {
+      try { more.click(); } catch { /* layout changed — read what's there */ }
+      return true;
+    }
+    return false;
+  }
+
+  function postText(post) {
+    const body = post.querySelector(
+      ".feed-shared-update-v2__description," +
+      ".update-components-text," +
+      ".feed-shared-inline-show-more-text," +
+      '[data-test-id="main-feed-activity-card__commentary"]'
+    );
+    const raw = (body || post).innerText || "";
+    return raw
+      .replace(/\n?\s*…?\s*see more\s*$/i, "")
+      .replace(/\n?\s*…more\s*$/i, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  /** Engagement counts, best-effort — absent on a post with none. */
+  function postStats(post) {
+    const num = (t) => {
+      const m = String(t || "").replace(/,/g, "").match(/([\d.]+)\s*([KM])?/i);
+      if (!m) return 0;
+      const n = parseFloat(m[1]) || 0;
+      const suffix = (m[2] || "").toUpperCase();
+      return Math.round(suffix === "K" ? n * 1000 : suffix === "M" ? n * 1000000 : n);
+    };
+    const reactionEl = post.querySelector(
+      '.social-details-social-counts__reactions-count,' +
+      'button[aria-label*="reaction" i],' +
+      '[data-test-id="social-actions__reaction-count"]'
+    );
+    const commentEl = [...post.querySelectorAll('.social-details-social-counts__comments, button, span')]
+      .find((n) => /\bcomments?\b/i.test(n.getAttribute?.("aria-label") || n.textContent || ""));
+    return {
+      reactions: num(reactionEl?.getAttribute("aria-label") || reactionEl?.textContent),
+      comments: num(commentEl?.getAttribute?.("aria-label") || commentEl?.textContent),
+    };
+  }
+
+  function postAuthor(post) {
+    const link =
+      post.querySelector('.update-components-actor__meta a[href*="/in/"]') ||
+      post.querySelector('.update-components-actor a[href*="/in/"]') ||
+      post.querySelector('a[href*="/in/"]');
+    const headlineEl = post.querySelector(
+      ".update-components-actor__description," +
+      ".feed-shared-actor__description"
+    );
+    return {
+      author: link ? extractNameFromLink(link) : "",
+      authorUrl: link ? link.href.split("?")[0].replace(/\/$/, "") : "",
+      authorPhoto: link ? findNearbyPhoto(link) : "",
+      headline: (headlineEl?.innerText || "").split("\n")[0].trim(),
+    };
+  }
+
+  /** Permalink to the post itself, not the feed page it was seen on. */
+  function postUrl(post) {
+    const urn = post.getAttribute("data-urn") || post.getAttribute("data-id") || "";
+    const id = (urn.match(/urn:li:activity:(\d+)/) || [])[1];
+    if (id) return `https://www.linkedin.com/feed/update/urn:li:activity:${id}/`;
+    const link = post.querySelector('a[href*="/feed/update/"]');
+    return link ? link.href.split("?")[0] : location.href.split("?")[0];
+  }
+
+  async function readPost(post) {
+    if (expandPost(post)) {
+      // Let LinkedIn re-render the expanded body before reading it.
+      await new Promise((r) => setTimeout(r, 220));
+    }
+    return {
+      text: postText(post),
+      url: postUrl(post),
+      stats: postStats(post),
+      ...postAuthor(post),
+    };
+  }
+
+  // ---- Hover "Save post" button --------------------------------------------
+  //
+  // Appears on hover rather than always: this feed is read for an hour a day
+  // and a permanent button on every post is clutter in the one place that
+  // has to stay readable. Hover is also how LinkedIn's own post controls
+  // behave, so it doesn't read as foreign.
+  //
+  // One button per page, moved to whichever post is hovered, instead of one
+  // injected into each. The feed is virtualised and infinite — injecting per
+  // post means re-injecting forever and leaking nodes as they recycle.
+
+  const HOVER_BTN_ID = "eden-labs-save-post-btn";
+  let hoveredPost = null;
+
+  function ensureHoverButton() {
+    let btn = document.getElementById(HOVER_BTN_ID);
+    if (btn) return btn;
+
+    btn = document.createElement("button");
+    btn.id = HOVER_BTN_ID;
+    btn.type = "button";
+    btn.title = "Save this post to Eden Labs";
+    btn.innerHTML =
+      '<span style="font-size:13px;line-height:1">\u2b07</span>' +
+      '<span style="font-weight:650">Save</span>';
+    Object.assign(btn.style, {
+      position: "absolute",
+      zIndex: "9998",
+      display: "none",
+      alignItems: "center",
+      gap: "6px",
+      padding: "6px 11px",
+      borderRadius: "999px",
+      border: "1px solid rgba(255,255,255,.14)",
+      background: "rgba(20,20,19,.92)",
+      backdropFilter: "blur(8px)",
+      WebkitBackdropFilter: "blur(8px)",
+      color: "#fff",
+      font: "500 12px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+      cursor: "pointer",
+      boxShadow: "0 4px 14px rgba(0,0,0,.18)",
+      transition: "transform .15s cubic-bezier(.23,1,.32,1), opacity .15s ease",
+      opacity: "0",
+    });
+    btn.addEventListener("mouseenter", () => { btn.style.transform = "translateY(-1px)"; });
+    btn.addEventListener("mouseleave", () => { btn.style.transform = "none"; });
+    btn.addEventListener("mousedown", () => { btn.style.transform = "scale(.96)"; });
+    btn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!hoveredPost) return;
+      btn.style.pointerEvents = "none";
+      btn.querySelector("span:last-child").textContent = "Reading…";
+      try {
+        const read = await readPost(hoveredPost);
+        if (!read.text) { showToast("Couldn't read that post", true); return; }
+        showSwipeWidget({ ...read, pageUrl: read.url, fromHover: true });
+      } finally {
+        btn.querySelector("span:last-child").textContent = "Save";
+        btn.style.pointerEvents = "";
+        hideHoverButton();
+      }
+    });
+    document.body.appendChild(btn);
+    return btn;
+  }
+
+  function hideHoverButton() {
+    const btn = document.getElementById(HOVER_BTN_ID);
+    if (btn) { btn.style.opacity = "0"; btn.style.display = "none"; }
+    hoveredPost = null;
+  }
+
+  function positionHoverButton(post) {
+    const btn = ensureHoverButton();
+    const r = post.getBoundingClientRect();
+    // Skip anything too small to be a real post — LinkedIn nests several
+    // matching containers and the inner ones are chrome, not content.
+    if (r.height < 120) return;
+    btn.style.display = "inline-flex";
+    btn.style.top = `${window.scrollY + r.top + 12}px`;
+    btn.style.left = `${window.scrollX + r.right - 92}px`;
+    requestAnimationFrame(() => { btn.style.opacity = "1"; });
+    hoveredPost = post;
+  }
+
+  document.addEventListener("mouseover", (e) => {
+    if (e.target.closest?.(`#${HOVER_BTN_ID}`)) return;
+    const post = closestPost(e.target);
+    if (post && post !== hoveredPost) positionHoverButton(post);
+    else if (!post && hoveredPost && !e.target.closest?.(`#${HOVER_BTN_ID}`)) hideHoverButton();
+  }, true);
+
+  // The button is absolutely positioned against the document, so it has to
+  // follow the post it belongs to rather than staying where it was drawn.
+  let repositionRaf = null;
+  const reposition = () => {
+    if (repositionRaf) return;
+    repositionRaf = requestAnimationFrame(() => {
+      repositionRaf = null;
+      if (hoveredPost?.isConnected) positionHoverButton(hoveredPost);
+      else hideHoverButton();
+    });
+  };
+  window.addEventListener("scroll", reposition, { passive: true });
+  window.addEventListener("resize", reposition, { passive: true });
+
   // ---- Save-content widget (right-click a selection → "Save to content") --
 
   const SWIPE_HOST_ID = "eden-labs-swipe-widget-host";
@@ -412,20 +650,29 @@ if (!window.__edenLabsOverlayInjected) {
   function showSwipeWidget(swipe) {
     removeSwipeWidget();
 
-    // The selection is still live when this message arrives — right-
-    // clicking doesn't clear it — so the same profile-link heuristics used
-    // for the universal add-to-list button can find the post's AUTHOR too.
-    let author = "", authorUrl = "", authorPhoto = "";
-    const selection = window.getSelection();
-    if (selection && selection.rangeCount && !selection.isCollapsed) {
-      let el = selection.anchorNode;
-      if (el && el.nodeType === Node.TEXT_NODE) el = el.parentElement;
-      for (let hops = 0; el && hops < 12 && !author; hops++, el = el.parentElement) {
-        const link = el.querySelector?.('a[href*="/in/"]') || (el.matches?.('a[href*="/in/"]') ? el : null);
-        if (link) {
-          author = extractNameFromLink(link);
-          authorUrl = link.href.split("?")[0].replace(/\/$/, "");
-          authorPhoto = findNearbyPhoto(link);
+    // A hover save has already read the author straight off the post, which
+    // is far more reliable than walking up from wherever a text selection
+    // happened to land. The selection heuristics below are the fallback for
+    // the right-click path only.
+    let author = swipe.author || "";
+    let authorUrl = swipe.authorUrl || "";
+    let authorPhoto = swipe.authorPhoto || "";
+
+    if (!swipe.fromHover) {
+      // The selection is still live when this message arrives — right-
+      // clicking doesn't clear it — so the same profile-link heuristics used
+      // for the universal add-to-list button can find the post's AUTHOR too.
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount && !selection.isCollapsed) {
+        let el = selection.anchorNode;
+        if (el && el.nodeType === Node.TEXT_NODE) el = el.parentElement;
+        for (let hops = 0; el && hops < 12 && !author; hops++, el = el.parentElement) {
+          const link = el.querySelector?.('a[href*="/in/"]') || (el.matches?.('a[href*="/in/"]') ? el : null);
+          if (link) {
+            author = extractNameFromLink(link);
+            authorUrl = link.href.split("?")[0].replace(/\/$/, "");
+            authorPhoto = findNearbyPhoto(link);
+          }
         }
       }
     }
@@ -514,6 +761,10 @@ if (!window.__edenLabsOverlayInjected) {
             </div>
           </div>
           <div class="field">
+            <label>Folder</label>
+            <select id="folder"><option value="">Uncategorised</option></select>
+          </div>
+          <div class="field">
             <label>Note (optional)</label>
             <textarea id="note" style="min-height:44px" placeholder="Why this one's worth saving…"></textarea>
           </div>
@@ -525,6 +776,19 @@ if (!window.__edenLabsOverlayInjected) {
     const $ = (id) => shadow.getElementById(id);
     $("swipe-text").value = swipe.text || "";
     $("author").value = author;
+
+    // Folders come from whichever account is signed in, so a client profile
+    // only ever sees that client's own groupings.
+    safeSendMessage({ type: "LIST_SWIPE_FOLDERS" }, (res) => {
+      if (!res?.ok || !res.folders?.length) return;
+      const sel = $("folder");
+      if (!sel) return;
+      res.folders.forEach((f) => {
+        const o = document.createElement("option");
+        o.value = f.id; o.textContent = f.name;
+        sel.appendChild(o);
+      });
+    });
 
     $("close").addEventListener("click", removeSwipeWidget);
     const onKey = (e) => { if (e.key === "Escape") { removeSwipeWidget(); window.removeEventListener("keydown", onKey); } };
@@ -551,6 +815,12 @@ if (!window.__edenLabsOverlayInjected) {
           authorUrl, authorPhoto,
           url: swipe.pageUrl || "",
           tag: $("tag").value,
+          folderId: $("folder").value || null,
+          headline: swipe.headline || "",
+          // Engagement at save time — see the readPost() note. Only sent
+          // when it was actually read off the post, so a manual save doesn't
+          // record a fake zero that later reads as "this flopped".
+          stats: swipe.stats && (swipe.stats.reactions || swipe.stats.comments) ? swipe.stats : null,
           note: $("note").value.trim(),
         },
       }, (result) => {

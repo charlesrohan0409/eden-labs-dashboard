@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Trash2, ExternalLink, X, Bookmark, Search } from "lucide-react";
+import { Plus, Trash2, ExternalLink, X, Bookmark, Search, FolderOpen} from "lucide-react";
 import Card from "./Card";
 import Avatar from "./Avatar";
 import PrimaryButton from "./PrimaryButton";
@@ -26,12 +26,22 @@ const BLANK = { author: "", authorUrl: "", url: "", text: "", note: "", tag: "ho
  * anything found elsewhere. Older entries predate the richer shape and only
  * have an author and a one-line note; they still render, just sparsely.
  */
-export default function SavedContent({ items, onAdd, onDelete }) {
+export default function SavedContent({
+  items, folders, onAdd, onDelete,
+  onAddFolder, onRenameFolder, onDeleteFolder, onMoveToFolder,
+}) {
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(BLANK);
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState("all");
   const [expandedId, setExpandedId] = useState(null);
+  // null = every folder; "" = the uncategorised pile specifically. Two
+  // different questions, so they can't share a sentinel.
+  const [folderFilter, setFolderFilter] = useState(null);
+  const [addingFolder, setAddingFolder] = useState(false);
+  const [newFolder, setNewFolder] = useState("");
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameDraft, setRenameDraft] = useState("");
 
   const filtered = (items || []).filter((s) => {
     const q = search.trim().toLowerCase();
@@ -40,8 +50,21 @@ export default function SavedContent({ items, onAdd, onDelete }) {
       (s.text || "").toLowerCase().includes(q) ||
       (s.note || "").toLowerCase().includes(q);
     const matchesTag = tagFilter === "all" || (s.tag || "hook") === tagFilter;
-    return matchesSearch && matchesTag;
+    const matchesFolder =
+      folderFilter === null || (s.folderId || "") === folderFilter;
+    return matchesSearch && matchesTag && matchesFolder;
   });
+
+  const countIn = (fid) => (items || []).filter((s) => (s.folderId || "") === fid).length;
+  const uncategorised = countIn("");
+
+  const createFolder = () => {
+    const name = newFolder.trim();
+    if (!name) return;
+    onAddFolder?.({ name });
+    setNewFolder("");
+    setAddingFolder(false);
+  };
 
   const submit = () => {
     if (!form.author.trim() && !form.text.trim()) return;
@@ -151,6 +174,106 @@ export default function SavedContent({ items, onAdd, onDelete }) {
         })}
       </div>
 
+      {/* Folders. A swipe file with no structure becomes a pile you stop
+          opening, and grouping is what keeps it usable past a few dozen
+          saves. Rendered as a row of counted chips rather than a dropdown so
+          the shape of the library is visible without a click. */}
+      <div className="flex items-center gap-1.5 flex-wrap mb-4 pb-4 border-b border-stone-100">
+        <FolderOpen size={13} className="text-stone-300 shrink-0" />
+        <button
+          onClick={() => setFolderFilter(null)}
+          className={`text-[11px] font-medium rounded-full px-2.5 py-1 border transition-[background-color,border-color,transform] duration-150 ${EASE} active:scale-[0.96] ${
+            folderFilter === null
+              ? "bg-stone-800 border-stone-800 text-white"
+              : "bg-white border-line text-stone-500 hover:border-stone-300"
+          }`}
+        >
+          All <span className="opacity-50 tabular-nums">{(items || []).length}</span>
+        </button>
+
+        {(folders || []).map((f) => {
+          const active = folderFilter === f.id;
+          if (renamingId === f.id) {
+            return (
+              <input
+                key={f.id}
+                autoFocus
+                value={renameDraft}
+                onChange={(e) => setRenameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); onRenameFolder?.(f.id, { name: renameDraft.trim() || f.name }); setRenamingId(null); }
+                  if (e.key === "Escape") setRenamingId(null);
+                }}
+                onBlur={() => { onRenameFolder?.(f.id, { name: renameDraft.trim() || f.name }); setRenamingId(null); }}
+                className="text-[11px] border border-emerald-500 rounded-full px-2.5 py-1 w-28 focus:outline-none"
+              />
+            );
+          }
+          return (
+            <span key={f.id} className="group/f relative inline-flex">
+              <button
+                onClick={() => setFolderFilter(active ? null : f.id)}
+                onDoubleClick={() => { setRenamingId(f.id); setRenameDraft(f.name); }}
+                title="Double-click to rename"
+                className={`text-[11px] font-medium rounded-full pl-2.5 pr-6 py-1 border transition-[background-color,border-color,transform] duration-150 ${EASE} active:scale-[0.96] ${
+                  active
+                    ? "bg-stone-800 border-stone-800 text-white"
+                    : "bg-white border-line text-stone-500 hover:border-stone-300"
+                }`}
+              >
+                {f.name} <span className="opacity-50 tabular-nums">{countIn(f.id)}</span>
+              </button>
+              <button
+                onClick={() => onDeleteFolder?.(f.id)}
+                aria-label={`Delete ${f.name}`}
+                title="Delete folder — the posts inside are kept"
+                className={`absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover/f:opacity-100
+                  transition-opacity ${active ? "text-white/60 hover:text-white" : "text-stone-300 hover:text-rose-500"}`}
+              >
+                <X size={11} />
+              </button>
+            </span>
+          );
+        })}
+
+        {uncategorised > 0 && (
+          <button
+            onClick={() => setFolderFilter(folderFilter === "" ? null : "")}
+            className={`text-[11px] font-medium rounded-full px-2.5 py-1 border transition-[background-color,border-color,transform] duration-150 ${EASE} active:scale-[0.96] ${
+              folderFilter === ""
+                ? "bg-stone-800 border-stone-800 text-white"
+                : "bg-white border-dashed border-stone-300 text-stone-400 hover:border-stone-400"
+            }`}
+          >
+            Unsorted <span className="opacity-50 tabular-nums">{uncategorised}</span>
+          </button>
+        )}
+
+        {addingFolder ? (
+          <input
+            autoFocus
+            placeholder="Folder name"
+            value={newFolder}
+            onChange={(e) => setNewFolder(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); createFolder(); }
+              if (e.key === "Escape") { setAddingFolder(false); setNewFolder(""); }
+            }}
+            onBlur={createFolder}
+            className="text-[11px] border border-emerald-500 rounded-full px-2.5 py-1 w-28 focus:outline-none"
+          />
+        ) : (
+          <button
+            onClick={() => setAddingFolder(true)}
+            className={`text-[11px] font-medium rounded-full px-2 py-1 border border-dashed border-stone-300
+              text-stone-400 hover:text-stone-700 hover:border-stone-400
+              transition-[color,border-color,transform] duration-150 ${EASE} active:scale-[0.96]`}
+          >
+            <Plus size={11} />
+          </button>
+        )}
+      </div>
+
       <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
         {filtered.map((s) => {
           const tag = tagMeta(s.tag);
@@ -203,10 +326,25 @@ export default function SavedContent({ items, onAdd, onDelete }) {
                     <ExternalLink size={11} /> Open on LinkedIn
                   </a>
                 )}
+                {/* Filing happens after the fact more often than at save
+                    time — you save a post fast and sort it later — so the
+                    mover lives on the card, not just in the save form. */}
+                {(folders || []).length > 0 && (
+                  <select
+                    value={s.folderId || ""}
+                    onChange={(e) => onMoveToFolder?.(s.id, e.target.value || null)}
+                    onClick={(e) => e.stopPropagation()}
+                    title="Move to folder"
+                    className="ml-auto text-[10.5px] text-stone-400 bg-transparent border border-line rounded-full px-1.5 py-0.5 max-w-[7.5rem] focus:outline-none focus:ring-1 focus:ring-emerald-700/20 hover:border-stone-300 transition-colors"
+                  >
+                    <option value="">Unsorted</option>
+                    {(folders || []).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                  </select>
+                )}
                 <button
                   onClick={() => onDelete(s.id)}
                   aria-label="Delete saved post"
-                  className={`ml-auto text-stone-300 hover:text-rose-500 p-1 transition-colors active:scale-[0.9] ${EASE} opacity-100 sm:opacity-0 sm:group-hover:opacity-100`}
+                  className={`${(folders || []).length > 0 ? "" : "ml-auto "}text-stone-300 hover:text-rose-500 p-1 transition-colors active:scale-[0.9] ${EASE} opacity-100 sm:opacity-0 sm:group-hover:opacity-100`}
                 >
                   <Trash2 size={13} />
                 </button>

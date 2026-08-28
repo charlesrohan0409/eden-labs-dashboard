@@ -32,7 +32,8 @@ function toLocalInputValue(utcIso) {
 
 export default function ContentPage({
   data, onAddPost, onUpdatePost, onDeletePost, onUpdatePostStatus,
-  onAddSwipe, onDeleteSwipe, onSetAgencyBufferChannel, onSyncPublished, token,
+  onAddSwipe, onDeleteSwipe, onSetAgencyBufferChannel, onSyncPublished,
+  onAddSwipeFolder, onUpdateSwipeFolder, onDeleteSwipeFolder, onMoveSwipeToFolder, token,
 }) {
   const [view, setView] = useState("board");
   const [filters, setFilters] = useState({});
@@ -236,8 +237,13 @@ export default function ContentPage({
           // theirs into this page would leave the owner scrolling other
           // people's swipe files to find their own.
           items={(data.swipeFile || []).filter((s) => !s.clientId)}
+          folders={(data.swipeFolders || []).filter((f) => !f.clientId)}
           onAdd={onAddSwipe}
           onDelete={onDeleteSwipe}
+          onAddFolder={onAddSwipeFolder}
+          onRenameFolder={onUpdateSwipeFolder}
+          onDeleteFolder={onDeleteSwipeFolder}
+          onMoveToFolder={onMoveSwipeToFolder}
         />
       )}
 

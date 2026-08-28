@@ -464,6 +464,7 @@ const EXTENSION_ACTIONS = {
   // pickers need to offer.
   logOutreachEntry:    { ownerOnly: false },
   listCampaigns:       { ownerOnly: false, readOnly: true },
+  listSwipeFolders:    { ownerOnly: false, readOnly: true },
   // Read-only — the overlay's panel needs to show what's already on the
   // list, not just write to it. Owner-only like the rest of the comment-
   // target actions, and deliberately returns just this one array rather
@@ -496,6 +497,13 @@ export async function handleExtension(headers, body) {
     // list (clientId null), a client session sees only theirs.
     const targets = (data.commentTargets || []).filter((t) => (t.clientId || null) === clientId);
     return { status: 200, body: { ok: true, targets } };
+  }
+
+  if (action === "listSwipeFolders") {
+    const folders = (data.swipeFolders || [])
+      .filter((f) => (f.clientId || null) === clientId)
+      .map((f) => ({ id: f.id, name: f.name }));
+    return { status: 200, body: { ok: true, folders } };
   }
 
   if (action === "listCampaigns") {
@@ -551,10 +559,21 @@ export async function handleExtension(headers, body) {
     }
     case "saveSwipe": {
       if (!p.author?.trim() && !p.text?.trim()) return { status: 400, body: { error: "Need at least an author or some text." } };
+      // folderId is ownership-checked rather than trusted: a client session
+      // could otherwise file a post into the agency's folder, or another
+      // client's, just by sending its id.
+      const folder = p.folderId
+        ? (data.swipeFolders || []).find((f) => f.id === p.folderId && (f.clientId || null) === clientId)
+        : null;
       M.addSwipe(data, {
         clientId,
         author: p.author || "", authorPhoto: p.authorPhoto || "", authorUrl: p.authorUrl || "",
+        headline: p.headline || "",
         url: p.url || "", text: p.text || "", note: p.note || "", tag: p.tag || "hook",
+        folderId: folder ? folder.id : null,
+        stats: p.stats && typeof p.stats === "object"
+          ? { reactions: Number(p.stats.reactions) || 0, comments: Number(p.stats.comments) || 0 }
+          : null,
         savedAt: new Date().toISOString(),
       });
       break;

@@ -239,6 +239,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === "LIST_SWIPE_FOLDERS") {
+    extensionAction("listSwipeFolders", {})
+      .then((json) => sendResponse({ ok: true, folders: json.folders || [] }))
+      .catch(() => sendResponse({ ok: false, folders: [] }));
+    return true;
+  }
+
   if (msg.type === "LIST_CAMPAIGNS") {
     extensionAction("listCampaigns", {})
       .then((json) => sendResponse({ ok: true, lists: json.lists || [], scripts: json.scripts || [] }))

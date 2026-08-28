@@ -344,6 +344,10 @@ export default function App() {
             onSyncPublished={actions.syncPublishedFromBuffer}
             onAddSwipe={actions.addSwipe}
             onDeleteSwipe={actions.deleteSwipe}
+            onAddSwipeFolder={actions.addSwipeFolder}
+            onUpdateSwipeFolder={actions.updateSwipeFolder}
+            onDeleteSwipeFolder={actions.deleteSwipeFolder}
+            onMoveSwipeToFolder={actions.moveSwipeToFolder}
             onSetAgencyBufferChannel={actions.setAgencyBufferChannel}
             token={ownerAuth.token}
           />

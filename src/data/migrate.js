@@ -14,7 +14,7 @@ export function migrateData(loaded) {
     "outreachLog", "channelPerf", "integrations", "calls", "outreachByChannel",
     "comments", "swipeFile", "activityLog", "commentTargets",
     "accounts", "outgoings", "budgets", "expenseCategories", "financeLog", "inbound",
-    "leadLists", "scripts", "commentLog",
+    "leadLists", "scripts", "commentLog", "swipeFolders",
   ].forEach((key) => {
     if (!Array.isArray(merged[key])) merged[key] = defaults[key];
   });
@@ -47,6 +47,11 @@ export function migrateData(loaded) {
     dates: [],
     ...(loaded?.settings?.rest || {}),
   };
+
+  merged.swipeFolders = merged.swipeFolders.map((f) => ({
+    clientId: null, name: "", color: "stone", createdAt: "",
+    ...f,
+  }));
 
   // Commenting is the one growth pillar that leaves no trace in this app —
   // it happens entirely on LinkedIn's feed — so it's the only one that has
@@ -205,6 +210,16 @@ export function migrateData(loaded) {
   merged.swipeFile = merged.swipeFile.map((s) => ({
     author: s.source || "", authorPhoto: "", authorUrl: "", url: "", text: "",
     savedAt: "", note: "", tag: "hook",
+    // Which group it belongs to. A swipe file with no structure becomes a
+    // pile you stop opening — folders are what let it stay usable past a
+    // few dozen saves. null = uncategorised, which is a real state, not a
+    // missing one.
+    folderId: null,
+    // Engagement at the moment it was saved. A hook that pulled 400
+    // reactions is worth studying; one that pulled 4 isn't, and nothing
+    // recorded later can tell them apart.
+    stats: null,
+    headline: "",
     // Whose library this is. Both this and commentTargets were built as
     // single-tenant owner-only collections with no client field at all, which
     // is the reason a client's Chrome profile couldn't use those parts of the

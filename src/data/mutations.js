@@ -846,6 +846,31 @@ export function setCurrency(d, currency) {
 // One row per calendar day — logging again for a day that already has an
 // entry overwrites it rather than adding a second row, since the whole
 // point is a day-to-day running log, not a pile of same-day duplicates.
+// ---- saved-content folders ----
+export function addSwipeFolder(d, folder) {
+  if (!Array.isArray(d.swipeFolders)) d.swipeFolders = [];
+  d.swipeFolders.push({ id: uid(), clientId: null, name: "", color: "stone", createdAt: today(), ...folder });
+  return d;
+}
+export function updateSwipeFolder(d, id, patch) {
+  const f = (d.swipeFolders || []).find((x) => x.id === id);
+  if (f) { const { id: _i, clientId: _c, ...safe } = patch || {}; Object.assign(f, safe); }
+  return d;
+}
+export function deleteSwipeFolder(d, id) {
+  d.swipeFolders = (d.swipeFolders || []).filter((f) => f.id !== id);
+  // The saved posts themselves survive — they're the thing of value. They
+  // fall back to uncategorised rather than being deleted along with a
+  // grouping decision.
+  (d.swipeFile || []).forEach((sw) => { if (sw.folderId === id) sw.folderId = null; });
+  return d;
+}
+export function moveSwipeToFolder(d, swipeId, folderId) {
+  const sw = (d.swipeFile || []).find((x) => x.id === swipeId);
+  if (sw) sw.folderId = folderId || null;
+  return d;
+}
+
 // ---- rest days ----
 // A blocked day isn't a missed day. Without this, taking a deliberate Sunday
 // off looks identical to forgetting, which makes the whole record something

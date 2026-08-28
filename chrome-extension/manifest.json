@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Eden Labs CRM",
-  "version": "1.5.0",
-  "description": "Save LinkedIn leads, log outreach, and build a daily comment list — right from the extension, without leaving the page.",
+  "version": "1.6.0",
+  "description": "Save LinkedIn leads, log outreach against a lead list, and build a daily comment list — for Eden Labs or any client profile.",
 
   "permissions": ["contextMenus", "storage", "scripting", "activeTab"],
   "host_permissions": ["https://dashboard.theedenlabs.com/*", "https://*.linkedin.com/*"],

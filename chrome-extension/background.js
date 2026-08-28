@@ -229,9 +229,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === "LOG_OUTREACH") {
-    extensionAction("logOutreach", msg.entry)
+    // logOutreachEntry, not the old logOutreach: entries now APPEND with a
+    // lead list and script attached, rather than upserting one row per day.
+    // Two lists worked on the same day is normal and the old shape couldn't
+    // hold it.
+    extensionAction("logOutreachEntry", msg.entry)
       .then(() => sendResponse({ ok: true }))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (msg.type === "LIST_CAMPAIGNS") {
+    extensionAction("listCampaigns", {})
+      .then((json) => sendResponse({ ok: true, lists: json.lists || [], scripts: json.scripts || [] }))
+      .catch(() => sendResponse({ ok: false, lists: [], scripts: [] }));
     return true;
   }
 

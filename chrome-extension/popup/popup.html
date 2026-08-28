@@ -35,10 +35,19 @@
     .header-text { flex: 1; min-width: 0; }
     .header-title { font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
     .header-sub { font-size: 11px; opacity: .6; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* Which account you are writing to. Always visible, never generic: the
+       one mistake this extension can make that is genuinely expensive is
+       logging a client's work against Eden Labs (or the reverse), and the
+       only defence is that the answer is on screen at all times. Client
+       sessions get amber so they never read as the default. */
     .role-chip {
       font-size: 10px; font-weight: 650; padding: 3px 9px; border-radius: 99px;
       background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.14);
-      color: #fff; white-space: nowrap;
+      color: #fff; white-space: nowrap; max-width: 130px;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    .role-chip.client {
+      background: rgba(245,158,11,.22); border-color: rgba(245,158,11,.45); color: #fde68a;
     }
     .settings-btn {
       background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.12);
@@ -106,6 +115,7 @@
 
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .row-4 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
     .source-chip {
       display: inline-flex; align-items: center; gap: 5px;
@@ -252,11 +262,24 @@
   <!-- ══ Log Outreach ══ -->
   <div class="panel" id="panel-outreach">
     <div class="body">
-      <div class="field">
-        <label>Date</label>
-        <input id="outreach-date" type="date" />
+      <div class="row-2">
+        <div class="field">
+          <label>Date</label>
+          <input id="outreach-date" type="date" />
+        </div>
+        <div class="field">
+          <label>Script used</label>
+          <select id="oc-script"><option value="">No script</option></select>
+        </div>
       </div>
-      <p class="hint-sm" id="outreach-scope">Sets today's totals for LinkedIn outreach — this overwrites, so enter the full day's count, not just what changed.</p>
+
+      <div class="field">
+        <label>Lead list</label>
+        <select id="oc-list"><option value="">Unassigned</option></select>
+      </div>
+      <p class="hint-sm" id="outreach-scope">
+        Each save adds a new entry — log the same day twice if you worked two lists.
+      </p>
 
       <div class="row-4">
         <div class="field">
@@ -268,7 +291,7 @@
           <input id="oc-accepted" type="number" min="0" placeholder="0" />
         </div>
         <div class="field">
-          <label>Conversations started</label>
+          <label>DMs sent</label>
           <input id="oc-convos" type="number" min="0" placeholder="0" />
         </div>
         <div class="field">
@@ -276,13 +299,33 @@
           <input id="oc-replied" type="number" min="0" placeholder="0" />
         </div>
       </div>
+      <div class="row-2">
+        <div class="field">
+          <label>Calls booked</label>
+          <input id="oc-calls" type="number" min="0" placeholder="0" />
+        </div>
+        <div class="field">
+          <label>Signed</label>
+          <input id="oc-closed" type="number" min="0" placeholder="0" />
+        </div>
+      </div>
+
+      <!-- Appears only once a reply count is entered. Names are worth storing
+           from the reply down; capturing everyone contacted is both useless
+           and expensive. -->
+      <div class="field" id="replied-names-field" style="display:none">
+        <label id="replied-names-label">Who replied?</label>
+        <div id="replied-names"></div>
+        <p class="hint-sm">Each becomes a lead, tagged to this list and script. Leave blank to just count them.</p>
+      </div>
+
       <div class="field">
-        <label>Calls booked</label>
-        <input id="oc-calls" type="number" min="0" placeholder="0" />
+        <label>Notes</label>
+        <textarea id="oc-notes" placeholder="What you tried, what you noticed"></textarea>
       </div>
     </div>
     <div class="footer">
-      <button class="primary-btn" id="save-outreach-btn">Save outreach for this day</button>
+      <button class="primary-btn" id="save-outreach-btn">Log entry</button>
     </div>
   </div>
 

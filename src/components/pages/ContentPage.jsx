@@ -230,7 +230,15 @@ export default function ContentPage({
 
       {/* ══ Saved content ══ */}
       {view === "saved" && (
-        <SavedContent items={data.swipeFile} onAdd={onAddSwipe} onDelete={onDeleteSwipe} />
+        <SavedContent
+          // Agency-only. Clients now have their own saved library (the
+          // extension files posts against whoever is signed in), and mixing
+          // theirs into this page would leave the owner scrolling other
+          // people's swipe files to find their own.
+          items={(data.swipeFile || []).filter((s) => !s.clientId)}
+          onAdd={onAddSwipe}
+          onDelete={onDeleteSwipe}
+        />
       )}
 
       {/* Keyed by the post so the modal REMOUNTS per post. It renders

@@ -339,7 +339,7 @@ export function syncPublishedFromBuffer(d, sent = []) {
   return { data: d, changed };
 }
 export function addSwipe(d, s) {
-  d.swipeFile.push({ id: uid(), ...s });
+  d.swipeFile.push({ id: uid(), clientId: null, ...s });
   return d;
 }
 export function deleteSwipe(d, id) {
@@ -365,9 +365,16 @@ function normalizeProfileUrl(url) {
 export function upsertCommentTarget(d, t) {
   if (!Array.isArray(d.commentTargets)) d.commentTargets = [];
   const key = normalizeProfileUrl(t.profileUrl);
-  const existing = d.commentTargets.find((x) => normalizeProfileUrl(x.profileUrl) === key);
+  const clientId = t.clientId || null;
+  // Deduped per (clientId, profileUrl), not by URL alone. The same person can
+  // legitimately sit on the agency's list AND a client's — they're different
+  // people engaging from different accounts — and a URL-only key would have
+  // let one silently overwrite the other's row.
+  const existing = d.commentTargets.find(
+    (x) => normalizeProfileUrl(x.profileUrl) === key && (x.clientId || null) === clientId
+  );
   if (existing) Object.assign(existing, t);
-  else d.commentTargets.push({ id: uid(), inSearch: false, addedAt: today(), notes: "", ...t });
+  else d.commentTargets.push({ id: uid(), inSearch: false, addedAt: today(), notes: "", ...t, clientId });
   return d;
 }
 export function updateCommentTarget(d, id, patch) {

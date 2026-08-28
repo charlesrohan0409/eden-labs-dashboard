@@ -37,17 +37,72 @@ async function init() {
   $("name").focus();
 }
 
+let SESSION = { role: null, clientId: null, label: null };
+
 function applySession(session) {
+  SESSION = session || SESSION;
   const chip = $("role-chip");
+  chip.style.display = "inline-block";
   if (session.role === "client") {
-    $("header-sub").textContent = `Scoped to ${session.label || "a client"}`;
-    chip.textContent = "Client";
-    chip.style.display = "inline-block";
+    const who = session.label || "a client";
+    $("header-sub").textContent = `Everything saves to ${who}`;
+    chip.textContent = who;
+    chip.classList.add("client");
     $("outreach-scope").textContent =
-      `Sets today's totals for ${session.label || "this client"}'s LinkedIn outreach — this overwrites, so enter the full day's count, not just what changed.`;
+      `Each save adds a new entry for ${who} — log the same day twice if you worked two lists.`;
   } else {
-    $("header-sub").textContent = "Eden Labs CRM";
-    chip.style.display = "none";
+    $("header-sub").textContent = "Everything saves to Eden Labs";
+    chip.textContent = "Eden Labs";
+    chip.classList.remove("client");
+  }
+  loadCampaigns();
+}
+
+// ---- Lead lists + scripts for the outreach pickers --------------------------
+// Fetched per session, so a client profile only ever sees that client's
+// campaigns. Failing quietly is correct here: the entry still saves without
+// a list, it just can't be diagnosed later.
+function loadCampaigns() {
+  chrome.runtime.sendMessage({ type: "LIST_CAMPAIGNS" }, (res) => {
+    if (!res?.ok) return;
+    const fill = (el, rows, blank) => {
+      el.innerHTML = "";
+      const none = document.createElement("option");
+      none.value = ""; none.textContent = blank;
+      el.appendChild(none);
+      (rows || []).forEach((r) => {
+        const o = document.createElement("option");
+        o.value = r.id; o.textContent = r.name;
+        el.appendChild(o);
+      });
+      // One list means no decision to make — pick it.
+      if ((rows || []).length === 1) el.value = rows[0].id;
+    };
+    fill($("oc-list"), res.lists, "Unassigned");
+    fill($("oc-script"), res.scripts, "No script");
+  });
+}
+
+// ---- Reply names ------------------------------------------------------------
+// The boxes appear only when a reply count is entered, and exactly that many
+// of them. Capturing names is worth it from the reply stage down; capturing
+// everyone contacted is both unreadable and expensive to store.
+function syncRepliedNames() {
+  const n = Number($("oc-replied").value) || 0;
+  const field = $("replied-names-field");
+  const box = $("replied-names");
+  if (!n) { field.style.display = "none"; box.innerHTML = ""; return; }
+  field.style.display = "";
+  $("replied-names-label").textContent = `Who replied? (${n})`;
+  const existing = [...box.querySelectorAll("input")].map((i) => i.value);
+  box.innerHTML = "";
+  for (let i = 0; i < n; i++) {
+    const inp = document.createElement("input");
+    inp.type = "text";
+    inp.placeholder = i === 0 ? "Name  ·  or  Name | Company" : "Name";
+    inp.value = existing[i] || "";
+    inp.style.marginBottom = "6px";
+    box.appendChild(inp);
   }
 }
 
@@ -71,6 +126,7 @@ $("connect-btn").addEventListener("click", () => chrome.runtime.openOptionsPage(
 $("save-lead-btn").addEventListener("click", saveLead);
 $("name").addEventListener("keydown", (e) => { if (e.key === "Enter") saveLead(); });
 $("save-outreach-btn").addEventListener("click", saveOutreach);
+$("oc-replied").addEventListener("input", syncRepliedNames);
 
 async function saveLead() {
   const name = $("name").value.trim();
@@ -117,26 +173,44 @@ async function saveOutreach() {
 
   const entry = {
     date,
+    listId:   $("oc-list").value || null,
+    scriptId: $("oc-script").value || null,
+    notes:    $("oc-notes").value.trim(),
     linkedinConnectionsSent:      Number($("oc-sent").value) || 0,
     linkedinConnectionsAccepted:  Number($("oc-accepted").value) || 0,
     linkedinConversationsStarted: Number($("oc-convos").value) || 0,
     linkedinReplied:              Number($("oc-replied").value) || 0,
     linkedinCallsBooked:          Number($("oc-calls").value) || 0,
+    linkedinDealsClosed:          Number($("oc-closed").value) || 0,
+    repliedNames: [...document.querySelectorAll("#replied-names input")]
+      .map((i) => i.value.trim())
+      .filter(Boolean),
   };
 
-  $("save-outreach-btn").disabled = true;
-  $("save-outreach-btn").innerHTML = '<span class="spin">⟳</span> Saving…';
+  const anything = ["linkedinConnectionsSent", "linkedinConnectionsAccepted",
+    "linkedinConversationsStarted", "linkedinReplied", "linkedinCallsBooked",
+    "linkedinDealsClosed"].some((k) => entry[k] > 0);
+  if (!anything) { showStatus("error", "Enter at least one number."); return; }
+
+  const btn = $("save-outreach-btn");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin">⟳</span> Saving…';
 
   const result = await chrome.runtime.sendMessage({ type: "LOG_OUTREACH", entry });
 
+  btn.disabled = false;
+  btn.innerHTML = "Log entry";
+
   if (result.ok) {
-    showStatus("success", `✓ Outreach saved for ${date}.`);
-    $("save-outreach-btn").innerHTML = "Save outreach for this day";
-    $("save-outreach-btn").disabled = false;
+    const who = SESSION.role === "client" ? (SESSION.label || "this client") : "Eden Labs";
+    showStatus("success", `✓ Logged for ${who}.`);
+    // Clear the counts so a second list on the same day starts from zero
+    // rather than silently re-submitting the first list's numbers.
+    ["oc-sent", "oc-accepted", "oc-convos", "oc-replied", "oc-calls", "oc-closed", "oc-notes"]
+      .forEach((id) => { $(id).value = ""; });
+    syncRepliedNames();
   } else {
     showStatus("error", result.error || "Something went wrong.");
-    $("save-outreach-btn").disabled = false;
-    $("save-outreach-btn").innerHTML = "Save outreach for this day";
   }
 }
 

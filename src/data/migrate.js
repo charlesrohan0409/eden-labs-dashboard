@@ -186,12 +186,19 @@ export function migrateData(loaded) {
   merged.swipeFile = merged.swipeFile.map((s) => ({
     author: s.source || "", authorPhoto: "", authorUrl: "", url: "", text: "",
     savedAt: "", note: "", tag: "hook",
+    // Whose library this is. Both this and commentTargets were built as
+    // single-tenant owner-only collections with no client field at all, which
+    // is the reason a client's Chrome profile couldn't use those parts of the
+    // extension — it wasn't a permissions problem, there was nowhere to file
+    // the row. Existing entries are the owner's.
+    clientId: null,
     ...s,
   }));
 
   // The commenting list (LinkedIn profiles to engage with daily) — owner-only,
   // populated from the Chrome extension or the dashboard.
   merged.commentTargets = merged.commentTargets.map((t) => ({
+    clientId: null,
     name: "", profileUrl: "", photoUrl: "", headline: "", inSearch: false, addedAt: "", notes: "",
     ...t,
   }));

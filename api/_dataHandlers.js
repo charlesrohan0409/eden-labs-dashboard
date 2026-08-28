@@ -402,16 +402,25 @@ const EXTENSION_ACTIONS = {
   // belong to them. The clientId hinge below assigns it from the token, so
   // a client session physically cannot file one against someone else.
   saveInbound:         { ownerOnly: false },
-  saveSwipe:           { ownerOnly: true },
-  addCommentTarget:    { ownerOnly: true },
-  updateCommentTarget: { ownerOnly: true },
-  deleteCommentTarget: { ownerOnly: true },
+  // Opened to client sessions. A Chrome profile signed in with a client's
+  // PIN is sitting in THAT client's LinkedIn — the posts it saves and the
+  // people it lists to comment on are that client's work, not the agency's.
+  // The clientId hinge below files them from the token, so a client session
+  // physically cannot write to another client's library.
+  saveSwipe:           { ownerOnly: false },
+  addCommentTarget:    { ownerOnly: false },
+  updateCommentTarget: { ownerOnly: false },
+  deleteCommentTarget: { ownerOnly: false },
+  // Manual outreach logging from the popup, and the lists/scripts the
+  // pickers need to offer.
+  logOutreachEntry:    { ownerOnly: false },
+  listCampaigns:       { ownerOnly: false, readOnly: true },
   // Read-only — the overlay's panel needs to show what's already on the
   // list, not just write to it. Owner-only like the rest of the comment-
   // target actions, and deliberately returns just this one array rather
   // than routing through handlePortalDataGet's shape (which is client-only
   // and scoped to a single client's posts/dms/calls, not this).
-  listCommentTargets: { ownerOnly: true, readOnly: true },
+  listCommentTargets: { ownerOnly: false, readOnly: true },
 };
 
 export async function handleExtension(headers, body) {
@@ -434,7 +443,18 @@ export async function handleExtension(headers, body) {
   const { data, version } = await loadWithVersion();
 
   if (action === "listCommentTargets") {
-    return { status: 200, body: { ok: true, targets: data.commentTargets || [] } };
+    // Scoped to whoever is signed in — an owner session sees the agency's own
+    // list (clientId null), a client session sees only theirs.
+    const targets = (data.commentTargets || []).filter((t) => (t.clientId || null) === clientId);
+    return { status: 200, body: { ok: true, targets } };
+  }
+
+  if (action === "listCampaigns") {
+    const mine = (arr) => (arr || []).filter((x) => (x.clientId || null) === clientId && x.status === "active");
+    return {
+      status: 200,
+      body: { ok: true, lists: mine(data.leadLists), scripts: mine(data.scripts) },
+    };
   }
 
   // Never PUT /api/data here — there's no optimistic locking, so a stale
@@ -477,6 +497,7 @@ export async function handleExtension(headers, body) {
     case "saveSwipe": {
       if (!p.author?.trim() && !p.text?.trim()) return { status: 400, body: { error: "Need at least an author or some text." } };
       M.addSwipe(data, {
+        clientId,
         author: p.author || "", authorPhoto: p.authorPhoto || "", authorUrl: p.authorUrl || "",
         url: p.url || "", text: p.text || "", note: p.note || "", tag: p.tag || "hook",
         savedAt: new Date().toISOString(),
@@ -486,6 +507,7 @@ export async function handleExtension(headers, body) {
     case "addCommentTarget": {
       if (!p.profileUrl?.trim()) return { status: 400, body: { error: "`profileUrl` is required." } };
       M.upsertCommentTarget(data, {
+        clientId,
         name: p.name || "", profileUrl: p.profileUrl, photoUrl: p.photoUrl || "",
         headline: p.headline || "", notes: p.notes || "",
       });
@@ -493,12 +515,41 @@ export async function handleExtension(headers, body) {
     }
     case "updateCommentTarget": {
       if (!p.id) return { status: 400, body: { error: "`id` is required." } };
+      // Ownership-checked now that clients can reach this — without it a
+      // client session could edit a row belonging to the agency or another
+      // client just by knowing its id.
+      const t = (data.commentTargets || []).find((x) => x.id === p.id);
+      if (!t || (t.clientId || null) !== clientId) return { status: 403, body: { error: "Not your list." } };
       M.updateCommentTarget(data, p.id, p.patch || {});
       break;
     }
     case "deleteCommentTarget": {
       if (!p.id) return { status: 400, body: { error: "`id` is required." } };
+      const t = (data.commentTargets || []).find((x) => x.id === p.id);
+      if (!t || (t.clientId || null) !== clientId) return { status: 403, body: { error: "Not your list." } };
       M.deleteCommentTarget(data, p.id);
+      break;
+    }
+    case "logOutreachEntry": {
+      M.addOutreachEntry(data, {
+        clientId,
+        date: p.date || new Date().toISOString().slice(0, 10),
+        listId: p.listId || null,
+        scriptId: p.scriptId || null,
+        notes: p.notes || "",
+        linkedinConnectionsSent: Number(p.linkedinConnectionsSent) || 0,
+        linkedinConnectionsAccepted: Number(p.linkedinConnectionsAccepted) || 0,
+        linkedinConversationsStarted: Number(p.linkedinConversationsStarted) || 0,
+        linkedinReplied: Number(p.linkedinReplied) || 0,
+        linkedinCallsBooked: Number(p.linkedinCallsBooked) || 0,
+        linkedinDealsClosed: Number(p.linkedinDealsClosed) || 0,
+      });
+      if (Array.isArray(p.repliedNames) && p.repliedNames.length) {
+        M.addRepliedLeads(data, {
+          names: p.repliedNames, clientId,
+          listId: p.listId || null, scriptId: p.scriptId || null, date: p.date,
+        });
+      }
       break;
     }
   }

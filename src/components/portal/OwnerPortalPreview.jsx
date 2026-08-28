@@ -44,6 +44,10 @@ function portalShapeFor(data, clientId) {
     outreachByChannel: (data.outreachByChannel || []).filter((o) => o.clientId === clientId),
     contacts: data.contacts.filter((x) => x.clientId === clientId),
     comments: (data.comments || []).filter((x) => x.clientId === clientId),
+    outreachLog: (data.outreachLog || []).filter((e) => e.clientId === clientId),
+    leadLists: (data.leadLists || [])
+      .filter((l) => l.clientId === clientId)
+      .map((l) => ({ id: l.id, name: l.name, status: l.status })),
   };
 }
 

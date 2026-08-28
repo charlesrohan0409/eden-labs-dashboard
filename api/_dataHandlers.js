@@ -299,6 +299,16 @@ function buildPortalData(full, clientId) {
     outreachByChannel: full.outreachByChannel.filter((o) => o.clientId === clientId),
     contacts: full.contacts.filter((c) => c.clientId === clientId),
     comments: full.comments.filter((c) => c.clientId === clientId),
+    // The portal's Outreach tab needs these. Strict === clientId, not the
+    // forClient() helper: that treats a falsy clientId as "the agency's own",
+    // so a bug there would leak Eden Labs' own outreach into a client's
+    // dashboard rather than simply showing nothing.
+    outreachLog: (full.outreachLog || []).filter((e) => e.clientId === clientId),
+    // Names only — the list is context for the client's own numbers, and the
+    // niche notes on it are internal targeting thinking, not theirs to read.
+    leadLists: (full.leadLists || [])
+      .filter((l) => l.clientId === clientId)
+      .map((l) => ({ id: l.id, name: l.name, status: l.status })),
   };
 }
 

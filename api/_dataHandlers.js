@@ -268,6 +268,10 @@ function stripClientForPortal(c) {
     photoUrl: c.photoUrl,
     logoUrl: c.logoUrl,
     type: c.type,
+    // The portal builds its nav from this. Without it navForClient always
+    // took its fallback and a content-only client still saw an Outreach tab —
+    // precisely what the services field was added to prevent.
+    services: c.services || [],
     delivery: c.delivery || [],
     contract: {
       value: c.contract?.value ?? 0,
@@ -286,6 +290,41 @@ function stripClientForPortal(c) {
     },
   };
 }
+
+/**
+ * Strips a client-supplied patch down to fields that client is allowed to set.
+ *
+ * Every update path here ownership-checks the record by its CURRENT id and
+ * then applied the patch with a bare Object.assign. The check passing said
+ * nothing about what the patch contained, so a client could send a patch for
+ * a record they legitimately own and rewrite its identity:
+ *
+ *   { clientId: "<another client>" }  moves the record into their portal
+ *   { clientId: null }                moves it into the agency's own CRM
+ *   { id: "<someone else's id>" }     forges a collision, and the delete
+ *                                     handlers filter by id, so the victim's
+ *                                     row is removed alongside it
+ *
+ * An allowlist is the only shape that fails safe here: a field added later is
+ * invisible to clients until someone deliberately lists it, rather than
+ * becoming writable the moment it exists.
+ */
+function pickAllowed(patch, allowed) {
+  const out = {};
+  if (!patch || typeof patch !== "object") return out;
+  allowed.forEach((k) => { if (patch[k] !== undefined) out[k] = patch[k]; });
+  return out;
+}
+
+// Deliberately narrow. `id` and `clientId` are absent from all three by
+// design — identity is never client-writable.
+const CLIENT_PATCH_FIELDS = {
+  // A client edits the words of their own post; status transitions go through
+  // updatePostStatus, which validates them.
+  post: ["content", "media", "poll", "type", "contentType", "topic"],
+  contact: ["name", "company", "title", "email", "phone", "url", "notes", "dealValue"],
+  commentTarget: ["name", "headline", "notes", "inSearch"],
+};
 
 function buildPortalData(full, clientId) {
   const client = full.clients.find((c) => c.id === clientId);
@@ -343,7 +382,7 @@ export async function handlePortalAction(headers, body) {
       case "updatePost": {
         const post = full.posts.find((x) => x.id === p?.id);
         if (!post || post.clientId !== clientId) return { status: 403, body: { error: "Not your post." } };
-        M.updatePost(full, p.id, p.patch || {});
+        M.updatePost(full, p.id, pickAllowed(p.patch, CLIENT_PATCH_FIELDS.post));
         break;
       }
       case "updatePostStatus": {
@@ -370,7 +409,7 @@ export async function handlePortalAction(headers, body) {
       case "updateContact": {
         const contact = full.contacts.find((x) => x.id === p?.id);
         if (!contact || contact.clientId !== clientId) return { status: 403, body: { error: "Not your contact." } };
-        M.updateContact(full, p.id, p.patch || {});
+        M.updateContact(full, p.id, pickAllowed(p.patch, CLIENT_PATCH_FIELDS.contact));
         break;
       }
       case "deleteContact": {
@@ -536,7 +575,7 @@ export async function handleExtension(headers, body) {
       // client just by knowing its id.
       const t = (data.commentTargets || []).find((x) => x.id === p.id);
       if (!t || (t.clientId || null) !== clientId) return { status: 403, body: { error: "Not your list." } };
-      M.updateCommentTarget(data, p.id, p.patch || {});
+      M.updateCommentTarget(data, p.id, pickAllowed(p.patch, CLIENT_PATCH_FIELDS.commentTarget));
       break;
     }
     case "deleteCommentTarget": {

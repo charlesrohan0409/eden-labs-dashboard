@@ -173,6 +173,14 @@ export function deleteClient(d, id) {
   // inbound board and keep counting toward the dashboard's "needs a reply"
   // total for a client that no longer exists.
   if (Array.isArray(d.inbound)) d.inbound = d.inbound.filter((e) => e.clientId !== id);
+  // Four collections gained a clientId when the extension was opened to
+  // client profiles and campaigns were added. Left behind they are
+  // unreachable from every UI (each filters by clientId) but still
+  // re-serialised on every save — invisible, undeletable blob growth.
+  if (Array.isArray(d.leadLists)) d.leadLists = d.leadLists.filter((l) => l.clientId !== id);
+  if (Array.isArray(d.scripts)) d.scripts = d.scripts.filter((x) => x.clientId !== id);
+  if (Array.isArray(d.swipeFile)) d.swipeFile = d.swipeFile.filter((x) => x.clientId !== id);
+  if (Array.isArray(d.commentTargets)) d.commentTargets = d.commentTargets.filter((t) => t.clientId !== id);
   return d;
 }
 export function endContract(d, id, reason) {
@@ -887,6 +895,11 @@ export function updateScript(d, id, patch) {
 export function deleteScript(d, id) {
   d.scripts = (d.scripts || []).filter((x) => x.id !== id);
   (d.outreachLog || []).forEach((e) => { if (e.scriptId === id) e.scriptId = null; });
+  // Contacts too — addRepliedLeads stamps scriptId onto them, and deleting
+  // the script without clearing it left them pointing at nothing. Silently
+  // broke "trace a won deal back to what worked", which is the reason the
+  // reference exists. deleteLeadList already did this; this didn't.
+  (d.contacts || []).forEach((c) => { if (c.scriptId === id) c.scriptId = null; });
   return d;
 }
 
@@ -899,20 +912,26 @@ export function deleteScript(d, id) {
 // individually.
 export function addOutreachEntry(d, entry) {
   if (!Array.isArray(d.outreachLog)) d.outreachLog = [];
+  // Spread FIRST, then the normalised fields — the other way round let an
+  // explicit `undefined` on `entry` win over the default, and a row stored
+  // with `date: undefined` crashes buildMonthlySeries on `e.date.slice()`,
+  // blanking the whole Growth page the moment granularity is switched.
   d.outreachLog.push({
+    ...entry,
     id: uid(),
     clientId: entry.clientId || null,
     date: entry.date || today(),
     listId: entry.listId || null,
     scriptId: entry.scriptId || null,
-    notes: "",
-    ...entry,
+    notes: entry.notes || "",
   });
   return d;
 }
 export function updateOutreachEntry(d, id, patch) {
   const e = (d.outreachLog || []).find((x) => x.id === id);
-  if (e) Object.assign(e, patch);
+  // `id` and `clientId` stripped: a patch should correct an entry, never
+  // move it to another owner or forge a collision with someone else's row.
+  if (e) { const { id: _i, clientId: _c, ...safe } = patch || {}; Object.assign(e, safe); }
   return d;
 }
 export function deleteOutreachEntry(d, id) {

@@ -296,7 +296,9 @@ export function byScript(entries, scripts, targets) {
       const totals = funnelOf(rows);
       const sent = totals.linkedinConversationsStarted;
       const replied = totals.linkedinReplied;
-      const t = (targets || DEFAULT_OUTREACH_TARGETS).replyRate;
+      // Per-key fallback, same as diagnose(): a settings object that exists
+      // but is missing replyRate would otherwise white-screen the page.
+      const t = targets?.replyRate || DEFAULT_OUTREACH_TARGETS.replyRate;
       const rate = sent ? (replied / sent) * 100 : null;
       return {
         scriptId,

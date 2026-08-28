@@ -20,6 +20,7 @@ import {
 } from "../../lib/outreach";
 import PillTabs from "../ui/PillTabs";
 import OutreachLogger from "../ui/OutreachLogger";
+import CampaignManager from "../ui/CampaignManager";
 import OutreachDiagnosis from "../ui/OutreachDiagnosis";
 import WeeklyPace from "../ui/WeeklyPace";
 
@@ -58,7 +59,8 @@ function FunnelCard({ title, icon: Icon, tone, stages, totals, windowLabel }) {
 
 export default function GrowthDetail({
   data, setView, onAddOutreachEntry, onUpdateOutreachEntry, onDeleteOutreachEntry,
-  onAddLeadList, onAddScript,
+  onAddLeadList, onUpdateLeadList, onDeleteLeadList,
+  onAddScript, onUpdateScript, onDeleteScript,
 }) {
   const { money } = useCurrency();
   const [funnelDays, setFunnelDays] = useState(7);
@@ -249,12 +251,25 @@ export default function GrowthDetail({
           onAddList={onAddLeadList}
           onAddScript={onAddScript}
         />
-        <OutreachDiagnosis
-          entries={ownEntries}
-          lists={data.leadLists}
-          scripts={data.scripts}
-          targets={targets}
-        />
+        <div className="space-y-4">
+          <OutreachDiagnosis
+            entries={ownEntries}
+            lists={data.leadLists}
+            scripts={data.scripts}
+            targets={targets}
+          />
+          <CampaignManager
+            clientId={null}
+            lists={data.leadLists}
+            scripts={data.scripts}
+            onAddList={onAddLeadList}
+            onUpdateList={onUpdateLeadList}
+            onDeleteList={onDeleteLeadList}
+            onAddScript={onAddScript}
+            onUpdateScript={onUpdateScript}
+            onDeleteScript={onDeleteScript}
+          />
+        </div>
       </div>
 
       {/* ── Recent entries ── */}

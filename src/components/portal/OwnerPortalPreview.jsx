@@ -29,7 +29,7 @@ function portalShapeFor(data, clientId) {
     // Mirrors stripClientForPortal on the server — allowlist, not a denylist.
     clients: [{
       id: c.id, name: c.name, company: c.company, photoUrl: c.photoUrl,
-      logoUrl: c.logoUrl, type: c.type, delivery: c.delivery || [],
+      logoUrl: c.logoUrl, type: c.type, services: c.services || [], delivery: c.delivery || [],
       contract: {
         value: c.contract?.value ?? 0, status: c.contract?.status || "",
         cycle: c.contract?.cycle || "", serviceType: c.contract?.serviceType || "",

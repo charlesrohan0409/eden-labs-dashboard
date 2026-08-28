@@ -169,6 +169,7 @@ export default function ClientDetail({
       name: client.name, company: client.company === "—" ? "" : client.company,
       email: client.email || "", industry: client.industry || "", type: client.type || DEFAULT_CLIENT_TYPE,
       photoUrl: client.photoUrl || "", logoUrl: client.logoUrl || "",
+      services: Array.isArray(client.services) ? client.services : [],
     });
     setEditClientOpen(true);
   };
@@ -182,6 +183,7 @@ export default function ClientDetail({
       type: editClientForm.type,
       photoUrl: editClientForm.photoUrl,
       logoUrl: editClientForm.logoUrl,
+      services: editClientForm.services,
     });
     setEditClientOpen(false);
   };
@@ -1304,6 +1306,50 @@ export default function ClientDetail({
                 className={`${inputCls} w-full mt-1`}
               />
             </div>
+
+            {/* What this client actually buys. Drives their portal nav: a
+                content-only client shouldn't see an Outreach tab, because an
+                empty tab reads as a broken product rather than a service they
+                didn't purchase. The field existed and was derived on migrate,
+                but nothing could ever change it. */}
+            {editClientForm.type === "linkedin" && (
+              <div>
+                <label className="text-xs text-stone-500 font-medium">What we do for them</label>
+                <div className="flex gap-2 mt-1">
+                  {[
+                    { id: "content", label: "Content", hint: "Posts + inbound" },
+                    { id: "outreach", label: "Outreach", hint: "Connections + DMs" },
+                  ].map((sv) => {
+                    const on = editClientForm.services.includes(sv.id);
+                    return (
+                      <button
+                        key={sv.id}
+                        type="button"
+                        onClick={() => setEditClientForm({
+                          ...editClientForm,
+                          services: on
+                            ? editClientForm.services.filter((x) => x !== sv.id)
+                            : [...editClientForm.services, sv.id],
+                        })}
+                        className={`flex-1 text-left rounded-xl border px-3 py-2 transition-[background-color,border-color,transform] duration-150 active:scale-[0.98] ${
+                          on
+                            ? "border-emerald-600 bg-emerald-50/70"
+                            : "border-line bg-white hover:border-stone-300"
+                        }`}
+                      >
+                        <div className={`text-[13px] font-medium ${on ? "text-emerald-900" : "text-stone-600"}`}>
+                          {sv.label}
+                        </div>
+                        <div className="text-[11px] text-stone-400">{sv.hint}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-stone-400 mt-1.5">
+                  Decides which tabs appear in their portal.
+                </p>
+              </div>
+            )}
             <div className="flex gap-2">
               <div className="flex-1">
                 <label className="text-xs text-stone-500 font-medium">Industry</label>

@@ -237,7 +237,11 @@ export default function App() {
             onUpdateOutreachEntry={actions.updateOutreachEntry}
             onDeleteOutreachEntry={actions.deleteOutreachEntry}
             onAddLeadList={actions.addLeadList}
+            onUpdateLeadList={actions.updateLeadList}
+            onDeleteLeadList={actions.deleteLeadList}
             onAddScript={actions.addScript}
+            onUpdateScript={actions.updateScript}
+            onDeleteScript={actions.deleteScript}
           />
         )}
 

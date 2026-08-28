@@ -10,7 +10,8 @@ const inputCls =
   "border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
 
 const BLANK = () => ({
-  date: today(), listId: "", scriptId: "", notes: "",
+  // null = untouched (fall back to the only list); "" = deliberately unassigned.
+  date: today(), listId: null, scriptId: null, notes: "",
   ...Object.fromEntries(LINKEDIN_STAGES.map((s) => [s.key, ""])),
 });
 
@@ -47,10 +48,13 @@ export default function OutreachLogger({
     [scripts, clientId]
   );
 
-  // Default to the only list when there is one — most days there is. The
-  // picker only asks when the answer is genuinely ambiguous.
-  const listId = f.listId || (myLists.length === 1 ? myLists[0].id : "");
-  const scriptId = f.scriptId || (myScripts.length === 1 ? myScripts[0].id : "");
+  // Default to the only list when there is one — most days there is — but
+  // only until the field is TOUCHED. Deriving with `||` meant picking
+  // "Unassigned" set f.listId to "" and the fallback immediately re-applied
+  // the single list, so the select snapped back and every entry was
+  // force-attributed. Untouched is null; "" is a real, chosen, empty answer.
+  const listId = f.listId ?? (myLists.length === 1 ? myLists[0].id : "");
+  const scriptId = f.scriptId ?? (myScripts.length === 1 ? myScripts[0].id : "");
 
   const num = (k) => Number(f[k]) || 0;
   const repliedCount = num("linkedinReplied");

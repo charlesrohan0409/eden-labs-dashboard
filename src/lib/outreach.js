@@ -10,7 +10,7 @@ import { weekStart, toDateKey } from "./utils.js";
 export const LINKEDIN_STAGES = [
   { key: "linkedinConnectionsSent", label: "Connections sent" },
   { key: "linkedinConnectionsAccepted", label: "Accepted" },
-  { key: "linkedinConversationsStarted", label: "Conversations started" },
+  { key: "linkedinConversationsStarted", label: "DMs sent" },
   { key: "linkedinReplied", label: "Replied" },
   { key: "linkedinCallsBooked", label: "Calls booked" },
   { key: "linkedinDealsClosed", label: "Deals closed" },
@@ -155,6 +155,11 @@ export const DEFAULT_OUTREACH_TARGETS = {
   weeklyConnections: 200,
 };
 
+// How long a stage gets before a zero counts as a verdict rather than a
+// not-yet. Sized to how the funnel actually behaves: connection accepts
+// trickle in across roughly a week, and they're logged manually after that.
+export const PENDING_WINDOW_DAYS = 10;
+
 export const DIAGNOSTICS = [
   {
     id: "acceptRate",
@@ -188,6 +193,16 @@ export const DIAGNOSTICS = [
   },
 ];
 
+/** Whole days between a YYYY-MM-DD and today. Null in, null out. */
+export function daysSince(dateStr) {
+  if (!dateStr) return null;
+  const then = new Date(`${dateStr}T12:00:00`);
+  if (Number.isNaN(then.getTime())) return null;
+  const now = new Date();
+  now.setHours(12, 0, 0, 0);
+  return Math.round((now - then) / 86400000);
+}
+
 /** Sums a set of entries into one funnel. */
 export function funnelOf(entries) {
   const totals = { ...EMPTY_ENTRY };
@@ -203,13 +218,24 @@ export function funnelOf(entries) {
  * data yet" mean completely different things, and calling an untested list
  * bad is how you throw away a good one.
  */
-export function diagnose(totals, targets = DEFAULT_OUTREACH_TARGETS) {
+export function diagnose(totals, targets = DEFAULT_OUTREACH_TARGETS, { daysSinceStart = null } = {}) {
   return DIAGNOSTICS.map((d) => {
     const from = Number(totals?.[d.from]) || 0;
     const to = Number(totals?.[d.to]) || 0;
     const t = targets[d.id] || DEFAULT_OUTREACH_TARGETS[d.id];
     if (!from) {
       return { ...d, from, to, rate: null, verdict: "unknown", message: "Not enough data yet." };
+    }
+    // Zero successes against a fresh denominator is an INCOMPLETE measurement,
+    // not a failed one. Connections get accepted over the following week and
+    // the accepts are logged by hand afterwards, so a list looks like a total
+    // failure for its first few days no matter how good it is. Condemning it
+    // then is how a good list gets dropped on day two.
+    if (to === 0 && daysSinceStart != null && daysSinceStart < PENDING_WINDOW_DAYS) {
+      return {
+        ...d, from, to, rate: 0, verdict: "pending",
+        message: "Too early to call — replies at this stage usually land over the following week.",
+      };
     }
     const rate = (to / from) * 100;
     const verdict = rate >= t.good ? "good" : rate >= t.ok ? "ok" : "bad";
@@ -237,6 +263,9 @@ export function byList(entries, lists, targets) {
     .map(([listId, rows]) => {
       const list = (lists || []).find((l) => l.id === listId);
       const totals = funnelOf(rows);
+      // Each list is judged against its OWN age, not the log's — a campaign
+      // started yesterday shouldn't inherit an old one's maturity.
+      const oldest = rows.map((r) => r.date).filter(Boolean).sort()[0];
       return {
         listId,
         list: list || null,
@@ -244,7 +273,8 @@ export function byList(entries, lists, targets) {
         unassigned: !list,
         entries: rows.length,
         totals,
-        diagnostics: diagnose(totals, targets),
+        daysSinceStart: daysSince(oldest),
+        diagnostics: diagnose(totals, targets, { daysSinceStart: daysSince(oldest) }),
       };
     })
     .sort((a, b) => b.totals.linkedinConnectionsSent - a.totals.linkedinConnectionsSent);

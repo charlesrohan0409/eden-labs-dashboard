@@ -5,7 +5,7 @@ import Badge from "../ui/Badge";
 import Avatar from "../ui/Avatar";
 import PortalEmpty from "./PortalEmpty";
 import WeeklyPace from "../ui/WeeklyPace";
-import { LINKEDIN_STAGES, funnelOf, diagnose, conversionPct } from "../../lib/outreach";
+import { LINKEDIN_STAGES, funnelOf, diagnose, conversionPct, daysSince } from "../../lib/outreach";
 
 const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
 
@@ -25,16 +25,19 @@ const STAGE_ICON = {
 // agency is blaming its own tools in front of the person paying for them.
 const CLIENT_WORDING = {
   acceptRate: {
+    pending: "Requests are out — acceptances usually come in over the following week.",
     good: "The people we're reaching are the right fit.",
     ok: "Reaching the right people. We're tightening the targeting further.",
     bad: "This audience isn't responding — we're rebuilding the target list.",
   },
   replyRate: {
+    pending: "Messages are out. Replies typically take a few days.",
     good: "The opening message is landing well.",
     ok: "Conversations are starting. We're testing a stronger opener.",
     bad: "Fewer replies than we want — we're rewriting the opening message.",
   },
   closeRate: {
+    pending: "Calls are booked — outcomes to follow.",
     good: "Calls are converting well.",
     ok: "Calls are converting. There's room to sharpen the offer.",
     bad: "Getting the calls, but they're not closing — worth reviewing the offer together.",
@@ -42,6 +45,7 @@ const CLIENT_WORDING = {
 };
 
 const TONE = {
+  pending: { chip: "sky", bar: "bg-sky-300" },
   good: { chip: "emerald", bar: "bg-emerald-500" },
   ok: { chip: "amber", bar: "bg-amber-500" },
   bad: { chip: "rose", bar: "bg-rose-500" },
@@ -60,7 +64,11 @@ const TONE = {
  */
 export default function PortalOutreach({ entries, lists, contacts, clients, targets, weeklyTarget }) {
   const totals = useMemo(() => funnelOf(entries), [entries]);
-  const results = useMemo(() => diagnose(totals, targets), [totals, targets]);
+  const oldest = useMemo(() => (entries || []).map((e) => e.date).filter(Boolean).sort()[0], [entries]);
+  const results = useMemo(
+    () => diagnose(totals, targets, { daysSinceStart: daysSince(oldest) }),
+    [totals, targets, oldest]
+  );
   const anything = totals.linkedinConnectionsSent > 0 || totals.linkedinConversationsStarted > 0;
 
   // Only people who wrote back — that's who a client can actually do

@@ -1,10 +1,11 @@
 import { TrendingUp, AlertTriangle, CheckCircle2, HelpCircle, Target } from "lucide-react";
 import Card, { CardTitle } from "./Card";
-import { diagnose, byList, byScript } from "../../lib/outreach";
+import { diagnose, byList, byScript, daysSince } from "../../lib/outreach";
 
 const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
 
 const VERDICT = {
+  pending: { icon: HelpCircle, chip: "bg-sky-50 text-sky-700 border-sky-200/70", bar: "bg-sky-300", dot: "bg-sky-300", label: "Too early" },
   good:    { icon: CheckCircle2,   chip: "bg-emerald-50 text-emerald-700 border-emerald-200/70", bar: "bg-emerald-500", dot: "bg-emerald-500", label: "Good" },
   ok:      { icon: TrendingUp,     chip: "bg-amber-50 text-amber-700 border-amber-200/70",       bar: "bg-amber-500",  dot: "bg-amber-500",  label: "OK" },
   bad:     { icon: AlertTriangle,  chip: "bg-rose-50 text-rose-700 border-rose-200/70",          bar: "bg-rose-500",   dot: "bg-rose-500",   label: "Problem" },
@@ -35,7 +36,10 @@ export default function OutreachDiagnosis({ entries, lists, scripts, targets }) 
       })
     : null;
 
-  const results = diagnose(totals || {}, targets);
+  // Age of the whole log, so a zero at any stage reads as "not measured yet"
+  // rather than "failed" while the funnel is still filling in.
+  const oldest = (entries || []).map((e) => e.date).filter(Boolean).sort()[0];
+  const results = diagnose(totals || {}, targets, { daysSinceStart: daysSince(oldest) });
   const lists_ = byList(entries, lists, targets);
   const scripts_ = byScript(entries, scripts, targets);
   const worst = results.find((r) => r.verdict === "bad");

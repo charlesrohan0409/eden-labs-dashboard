@@ -79,6 +79,61 @@ export function buildDailySeries(outreachLog, days = 30) {
 
 // n/0 is meaningless, not 0% — the funnel view shows "—" for those instead
 // of a misleading 0%.
+/**
+ * How many leads reached a given CRM stage inside a window.
+ *
+ * Uses `stageDates`, so a lead that has since moved past the stage still
+ * counts for the week it actually got there — a funnel that only looked at
+ * the CURRENT stage would report a booked call as un-booked the moment it
+ * became a proposal.
+ */
+export function crmReached(contacts, stage, since, clientId) {
+  return (contacts || []).filter((c) => {
+    if (clientId !== undefined && (c.clientId || null) !== (clientId || null)) return false;
+    const on = c.stageDates?.[stage];
+    if (!on) return false;
+    return !since || on >= since;
+  }).length;
+}
+
+/**
+ * Outreach totals reconciled against the CRM.
+ *
+ * Calls get booked in two places and the app recorded them in two places
+ * that never spoke: dragging a lead to "Call booked" on the CRM board, and
+ * typing a number into the outreach logger. The Growth page read only the
+ * second, so it reported 0 calls while two named leads sat in Call booked —
+ * the dashboard disagreeing with itself about a fact the user could see.
+ *
+ * Reconciled with MAX, not a sum. These are two records of the SAME funnel
+ * stage, so adding them counts one real call twice the moment you both log
+ * it and move the lead. Max is the honest reading of "two records of one
+ * thing, either of which may be incomplete": if the CRM has 2 and you
+ * logged 0, you booked 2; if you logged 3 but only 2 became leads, you
+ * booked 3 and one never got a card.
+ *
+ * Email calls are left alone — there is no CRM stage for them, so nothing
+ * to reconcile against and no risk of double counting.
+ */
+export function reconcileWithCrm(totals, contacts, since, clientId) {
+  if (!totals) return totals;
+  const crmCalls = crmReached(contacts, "call_booked", since, clientId);
+  const crmClosed = crmReached(contacts, "closed", since, clientId);
+  return {
+    ...totals,
+    linkedinCallsBooked: Math.max(Number(totals.linkedinCallsBooked) || 0, crmCalls),
+    linkedinDealsClosed: Math.max(Number(totals.linkedinDealsClosed) || 0, crmClosed),
+    // Kept so the UI can show WHERE the number came from. A reconciled
+    // figure that can't be traced back is the same trust problem in a new
+    // costume.
+    _crm: { callsBooked: crmCalls, dealsClosed: crmClosed },
+    _logged: {
+      callsBooked: Number(totals.linkedinCallsBooked) || 0,
+      dealsClosed: Number(totals.linkedinDealsClosed) || 0,
+    },
+  };
+}
+
 export function conversionPct(from, to) {
   if (!from) return null;
   return Math.round((to / from) * 100);

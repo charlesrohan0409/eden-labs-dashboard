@@ -33,7 +33,7 @@ import OutreachLogger from "../ui/OutreachLogger";
 import OutreachDiagnosis from "../ui/OutreachDiagnosis";
 import WeeklyPace from "../ui/WeeklyPace";
 import IconStat from "../ui/IconStat";
-import { forClient, sumEntries } from "../../lib/outreach";
+import { forClient, sumEntries, reconcileWithCrm } from "../../lib/outreach";
 import CampaignManager from "../ui/CampaignManager";
 
 // ---- Activity log icon / colour per event type ----
@@ -215,8 +215,12 @@ export default function ClientDetail({
   const clientTotals = useMemo(() => {
     const since = new Date();
     since.setDate(since.getDate() - 29);
-    return sumEntries(clientEntries, since.toISOString().slice(0, 10));
-  }, [clientEntries]);
+    const key = since.toISOString().slice(0, 10);
+    // Reconciled against this client's own CRM leads, same as the agency
+    // Growth page — a call booked for a client shows on their board, so it
+    // has to show in their funnel too.
+    return reconcileWithCrm(sumEntries(clientEntries, key), data.contacts, key, client.id);
+  }, [clientEntries, data.contacts, client.id]);
   const visibleTabs = tabIds.map((t) => ({ value: t, label: TAB_LABELS[t] || t }));
   // If the active tab isn't available for this client's type (e.g. you were on
   // Content, then opened a book client), fall back to Overview rather than
@@ -541,6 +545,8 @@ export default function ClientDetail({
                 lists={data.leadLists}
                 scripts={data.scripts}
                 targets={data.settings?.outreachTargets}
+                contacts={data.contacts}
+                clientId={client.id}
               />
               <CampaignManager
                 clientId={client.id}

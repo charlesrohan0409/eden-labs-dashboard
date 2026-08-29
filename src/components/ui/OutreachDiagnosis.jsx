@@ -2,7 +2,7 @@ import { useState } from "react";
 import { TrendingUp, AlertTriangle, CheckCircle2, HelpCircle, Target } from "lucide-react";
 import Card, { CardTitle } from "./Card";
 import PillTabs from "./PillTabs";
-import { diagnose, byList, byScript, daysSince } from "../../lib/outreach";
+import { diagnose, byList, byScript, daysSince, reconcileWithCrm } from "../../lib/outreach";
 import { toDateKey } from "../../lib/utils";
 
 const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
@@ -27,7 +27,7 @@ const VERDICT = {
  * list and a failed list look identical in a spreadsheet, and confusing them
  * is how a good list gets thrown away.
  */
-export default function OutreachDiagnosis({ entries, lists, scripts, targets }) {
+export default function OutreachDiagnosis({ entries, lists, scripts, targets, contacts, clientId }) {
   // A WINDOW, not the whole log. This used to sum every entry ever recorded,
   // so "connections sent" only ever went up — it read 341 on an account
   // whose ceiling is 200 a week, which makes the number impossible to sanity
@@ -60,7 +60,11 @@ export default function OutreachDiagnosis({ entries, lists, scripts, targets }) 
   // Age of the log WITHIN the window, so a zero at any stage reads as "not
   // measured yet" rather than "failed" while the funnel is still filling in.
   const oldest = windowed.map((e) => e.date).filter(Boolean).sort()[0];
-  const results = diagnose(totals || {}, targets, { daysSinceStart: daysSince(oldest) });
+  // Same CRM reconciliation the Growth headline uses — otherwise this card
+  // would judge "call → signed" against a calls figure of 0 while the board
+  // shows booked calls, and confidently blame the wrong stage.
+  const reconciled = totals ? reconcileWithCrm(totals, contacts, since, clientId) : null;
+  const results = diagnose(reconciled || {}, targets, { daysSinceStart: daysSince(oldest) });
   const lists_ = byList(windowed, lists, targets);
   const scripts_ = byScript(windowed, scripts, targets);
   const worst = results.find((r) => r.verdict === "bad");

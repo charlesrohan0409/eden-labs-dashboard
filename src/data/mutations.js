@@ -220,6 +220,19 @@ export function updateStage(d, id, stage) {
   if (c) {
     c.stage = stage;
     c.closedDate = stage === "closed" ? today() : null;
+    // WHEN each stage was first reached, not just where the lead is now.
+    //
+    // Only `closed` was ever dated, which meant "how many calls did I book
+    // last week" had no answer from the CRM at all — the Growth page fell
+    // back to the hand-typed outreach tally and reported 0 while two leads
+    // sat in Call booked. A stage is a fact with a date; storing only the
+    // current position throws the date away.
+    //
+    // First-reached, not last-set: a lead that goes to Call booked, slips
+    // back to Lead, then forward again booked ONE call, and re-stamping
+    // would move that call into whichever week the lead last bounced.
+    if (!c.stageDates) c.stageDates = {};
+    if (!c.stageDates[stage]) c.stageDates[stage] = today();
   }
   return d;
 }

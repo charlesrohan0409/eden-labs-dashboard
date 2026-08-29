@@ -16,7 +16,7 @@ import { useBufferPerformance } from "../../hooks/useBufferPerformance";
 import { useCurrency } from "../../hooks/useCurrency";
 import {
   LINKEDIN_STAGES, EMAIL_STAGES, EMPTY_ENTRY, sumEntries, buildDailySeries, buildWeeklySeries,
-  buildMonthlySeries, conversionPct, forClient,
+  buildMonthlySeries, conversionPct, forClient, reconcileWithCrm,
 } from "../../lib/outreach";
 import PillTabs from "../ui/PillTabs";
 import OutreachLogger from "../ui/OutreachLogger";
@@ -84,7 +84,13 @@ export default function GrowthDetail({
     d.setDate(d.getDate() - funnelDays + 1);
     return toDateKey(d);
   }, [funnelDays]);
-  const totals = useMemo(() => sumEntries(outreachLog, sinceDate), [outreachLog, sinceDate]);
+  // Reconciled against the CRM in ONE place, so the headline stat, the
+  // funnel card and the diagnosis all read the same number. Correcting it at
+  // each display site is how they drift apart again.
+  const totals = useMemo(
+    () => reconcileWithCrm(sumEntries(outreachLog, sinceDate), data.contacts, sinceDate),
+    [outreachLog, sinceDate, data.contacts]
+  );
 
   // Same underlying data, three ways to look at it — daily for "what
   // happened this week," weekly/monthly for "is this actually trending up."
@@ -272,6 +278,7 @@ export default function GrowthDetail({
             lists={data.leadLists}
             scripts={data.scripts}
             targets={targets}
+            contacts={data.contacts}
           />
           <CampaignManager
             clientId={null}

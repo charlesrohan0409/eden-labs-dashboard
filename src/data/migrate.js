@@ -148,11 +148,39 @@ export function migrateData(loaded) {
 
   // Ensure older contacts have deal/contact fields, and move any saved on the
   // previous five-stage pipeline onto the current one.
-  merged.contacts = merged.contacts.map((c) => ({
-    dealValue: 0, closedDate: null, clientId: null, phone: "", email: "", addedDate: "", photoUrl: "",
-    ...c,
-    stage: LEGACY_STAGE_MAP[c.stage] || c.stage || "lead",
-  }));
+  merged.contacts = merged.contacts.map((c) => {
+    const stage = LEGACY_STAGE_MAP[c.stage] || c.stage || "lead";
+    // Backfilled so leads that already reached a stage aren't invisible to
+    // every windowed count until they happen to move again. A lead sitting
+    // in Call booked booked that call at some point; without a date the
+    // Growth page can only report zero, which is how it came to disagree
+    // with the CRM in the first place.
+    //
+    // `closedDate` is a real recorded date and is trusted. Everything else
+    // falls back to `addedDate` — an approximation, and deliberately a
+    // conservative one: it can only place the event EARLIER than it
+    // happened, so a windowed count may under-report an old lead but can
+    // never invent recent activity that didn't occur.
+    const stageDates = { ...(c.stageDates || {}) };
+    if (stage !== "lead" && !stageDates[stage]) {
+      stageDates[stage] = (stage === "closed" && c.closedDate) || c.addedDate || "";
+    }
+    // Reaching a later stage means the earlier ones happened too — a lead in
+    // Proposal sent necessarily had a call booked.
+    const ORDER = ["lead", "call_booked", "proposal_sent", "closed"];
+    const idx = ORDER.indexOf(stage);
+    if (idx > 0) {
+      ORDER.slice(1, idx).forEach((s) => {
+        if (!stageDates[s]) stageDates[s] = stageDates[stage] || c.addedDate || "";
+      });
+    }
+    return {
+      dealValue: 0, closedDate: null, clientId: null, phone: "", email: "", addedDate: "", photoUrl: "",
+      ...c,
+      stage,
+      stageDates,
+    };
+  });
 
   // Posts gained a type, media, poll, a precise publish time, and — once
   // actually pushed to Buffer — the id Buffer assigned it.

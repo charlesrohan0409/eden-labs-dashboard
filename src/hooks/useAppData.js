@@ -247,7 +247,7 @@ export function useAppData(token, onUnauthorized) {
     renameExpenseCategory: (from, to) => update((d) => M.renameExpenseCategory(d, from, to)),
     deleteExpenseCategory: (name) => update((d) => M.deleteExpenseCategory(d, name)),
 
-    addLoan:    (l) => update((d) => M.addLoan(d, l)),
+    addLoan:    (l, rate) => update((d) => M.addLoan(d, l, rate)),
     updateLoan: (id, patch) => update((d) => M.updateLoan(d, id, patch)),
     deleteLoan: (id) => update((d) => M.deleteLoan(d, id)),
     settleLoan: (id, opts) => update((d) => M.settleLoan(d, id, opts)),

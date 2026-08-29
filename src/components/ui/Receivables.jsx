@@ -28,11 +28,15 @@ export default function Receivables({
   loans = [], invoices = [], clients = [], accounts = [], book = "all",
   onAdd, onUpdate, onDelete, onSettle,
 }) {
-  const { moneyIn } = useCurrency();
+  const { moneyIn, rate } = useCurrency();
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
   const rows = inBook(buildReceivables(loans, invoices, clients), book);
+  const accountNameOf = (r) =>
+    r.kind === "loan"
+      ? (accounts.find((a) => a.id === r.source?.lentFromAccountId)?.name || "")
+      : "";
 
   // Totals are per-currency rather than one summed figure. Adding ₹ to $
   // produces a number that is wrong in both, and this list is exactly where
@@ -106,6 +110,10 @@ export default function Receivables({
                 <div className="text-[11px] text-stone-400 truncate">
                   {r.reason || (isInvoice ? "Unpaid invoice" : "Lent")}
                   {r.dueDate && ` · due ${formatLongDate(r.dueDate)}`}
+                  {/* Named so the balance drop on that account has a visible
+                      cause — an unexplained withdrawal is the thing that
+                      makes people stop trusting the numbers. */}
+                  {accountNameOf(r) && ` · from ${accountNameOf(r)}`}
                 </div>
               </div>
 
@@ -125,7 +133,7 @@ export default function Receivables({
                   <span className="text-[10px] text-stone-300 px-1">On Invoices tab</span>
                 ) : (
                   <>
-                    <button onClick={() => onSettle?.(r.id)} aria-label="Mark repaid"
+                    <button onClick={() => onSettle?.(r.id, { rate })} aria-label="Mark repaid"
                       title="Mark repaid"
                       className="p-1 rounded-md text-stone-300 hover:text-emerald-700 hover:bg-emerald-50 transition-colors">
                       <Check size={12} />
@@ -155,7 +163,7 @@ export default function Receivables({
           accounts={accounts}
           defaultBook={book === "all" ? "personal" : book}
           onCancel={() => setAdding(false)}
-          onSave={(patch) => { onAdd?.(patch); setAdding(false); }}
+          onSave={(patch) => { onAdd?.(patch, rate); setAdding(false); }}
         />
       )}
     </Card>
@@ -163,6 +171,10 @@ export default function Receivables({
 }
 
 function LoanForm({ loan, accounts = [], onSave, onCancel, defaultBook = "personal" }) {
+  // Editing never re-runs the withdrawal — addLoan is what moves money, and
+  // an edit that silently debited the account a second time would be the
+  // worst kind of bug here. So the account is chosen once, at creation.
+  const isEdit = !!loan;
   const [form, setForm] = useState({
     person: loan?.person || "",
     reason: loan?.reason || "",
@@ -219,10 +231,14 @@ function LoanForm({ loan, accounts = [], onSave, onCancel, defaultBook = "person
             <option value="business">Eden Labs</option>
           </select>
         </div>
-        <div>
-          <label className={label}>Repaid into</label>
+        <div className={isEdit ? "hidden" : ""}>
+          <label className={label}>Paid from</label>
+          {/* Picking an account actually MOVES the money: the balance drops
+              by this amount now, and goes back up when the loan is marked
+              repaid. "Don't track" exists for cash, or for money lent from
+              an account this dashboard doesn't hold. */}
           <select className={input} value={form.accountId} onChange={set("accountId")}>
-            <option value="">Pick later</option>
+            <option value="">Don't touch any balance</option>
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
         </div>

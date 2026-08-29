@@ -21,7 +21,7 @@ export default function Budgets({
   budgets = [], expenses = [], categories = [], book = "all",
   onAddCategory, onAdd, onUpdate, onDelete,
 }) {
-  const { moneyFrom, rate } = useCurrency();
+  const { moneyFrom, moneyIn, currency, rate } = useCurrency();
   const [editing, setEditing] = useState(null);
   const convertAmount = (amount, from, to) => convertBetween(amount, from, to, rate);
 
@@ -29,6 +29,34 @@ export default function Budgets({
   // one control for "whose money am I looking at" beats a per-card control
   // that can silently disagree with the totals above it.
   const visible = book === "all" ? budgets : budgets.filter((b) => bookOf(b) === book);
+
+  // Two groups, because they answer different questions. A monthly grocery
+  // budget is a standing limit you check against; a 10-day budget for an
+  // event is a pot with an end date that stops mattering once it's over.
+  // Mixed into one list, the finished event budgets sit among the live ones
+  // and you have to read every date to work out which is which.
+  const recurring = visible.filter((b) => b.period !== "custom");
+  const oneOff = visible.filter((b) => b.period === "custom");
+
+  /**
+   * Spent / limit across a group, converted into the DISPLAY currency.
+   *
+   * Every other total in this app sums a single frozen currency for exactly
+   * this reason — here the conversion has to happen at read time instead,
+   * because a budget's limit is stored in whatever currency it was set in
+   * and there is no per-budget snapshot to sum. Converting both sides with
+   * the same rate keeps the ratio honest even if the rate has moved.
+   */
+  const totalsFor = (list) =>
+    list.reduce(
+      (acc, b) => {
+        const spentNative = spentOn(b, expenses, convertAmount);
+        acc.spent += convertAmount(spentNative, b.currency, currency);
+        acc.limit += convertAmount(Number(b.limit) || 0, b.currency, currency);
+        return acc;
+      },
+      { spent: 0, limit: 0 }
+    );
 
   /**
    * Rolls a finished custom budget into a fresh window of the same length,
@@ -46,6 +74,11 @@ export default function Budgets({
     const end = new Date(`${start}T12:00:00`);
     end.setDate(end.getDate() + days);
     onUpdate?.(b.id, { startDate: start, endDate: end.toISOString().slice(0, 10) });
+  };
+
+  const rowProps = {
+    expenses, convertAmount, moneyFrom, moneyIn, currency,
+    onEdit: setEditing, onDelete, onRenew: renew,
   };
 
   return (
@@ -66,16 +99,72 @@ export default function Budgets({
         </button>
       </div>
 
-      <div className="space-y-2.5">
-        {visible.map((b, i) => {
-          // Spend is summed in the BUDGET's currency (see spentOn) so a ₹
-          // limit is never compared against a $ total.
-          const spentNative = spentOn(b, expenses, convertAmount);
-          const status = budgetStatus(spentNative, Number(b.limit) || 0);
-          const remaining = (Number(b.limit) || 0) - spentNative;
-          const expired = isBudgetExpired(b);
+      {/* Two sections, each with its own total. Recurring first because
+          that's the standing picture; one-off budgets are episodic and
+          mostly matter while an event is live. */}
+      <Group
+        title="Every month"
+        sub="Standing limits that reset on the calendar"
+        list={recurring}
+        totals={totalsFor(recurring)}
+        {...rowProps}
+      />
+      <Group
+        title="One-off"
+        sub="Set for a specific stretch — an event, a launch, a trip"
+        list={oneOff}
+        totals={totalsFor(oneOff)}
+        className="mt-5"
+        {...rowProps}
+      />
 
-          return (
+      {visible.length === 0 && (
+        <div className="text-xs text-stone-300 py-6 text-center">No budgets set.</div>
+      )}
+
+      {/* key={editing} is load-bearing, not decoration. The list stays
+          clickable while this form is open, so `editing` can go straight from
+          one row's id to another's. Same component, same position, so React
+          reuses the instance and the useState initialisers below never re-run
+          — the form kept showing the FIRST row's values while saving onto the
+          SECOND row's id. Silent overwrite of the wrong record. The key forces
+          a remount whenever the target changes. */}
+      {editing && (
+        <BudgetForm
+          key={editing}
+          budget={editing === "new" ? null : budgets.find((b) => b.id === editing)}
+          categories={categories}
+          defaultBook={book === "all" ? "business" : book}
+          onAddCategory={onAddCategory}
+          onCancel={() => setEditing(null)}
+          onSave={(patch) => {
+            if (editing === "new") onAdd?.(patch);
+            else onUpdate?.(editing, patch);
+            setEditing(null);
+          }}
+        />
+      )}
+    </Card>
+  );
+}
+
+/**
+ * One titled section with its own spent/limit total and a combined bar.
+ *
+ * Hidden entirely when empty rather than showing a "0 / 0" header: an empty
+ * section still reads as a claim about your money, and "One-off — nothing"
+ * is noise on the many months where there are no event budgets at all.
+ */
+function BudgetRow({ b, i, expenses, convertAmount, moneyFrom, onEdit, onDelete, onRenew }) {
+
+  // Spend is summed in the BUDGET's currency (see spentOn) so a ₹
+  // limit is never compared against a $ total.
+  const spentNative = spentOn(b, expenses, convertAmount);
+  const status = budgetStatus(spentNative, Number(b.limit) || 0);
+  const remaining = (Number(b.limit) || 0) - spentNative;
+  const expired = isBudgetExpired(b);
+
+  return (
             <div
               key={b.id}
               style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
@@ -121,13 +210,13 @@ export default function Budgets({
                         Rolling a budget that's still running would throw away
                         the spend it has already counted. */}
                     {expired && (
-                      <button onClick={() => renew(b)} aria-label="Start a new period"
+                      <button onClick={() => onRenew?.(b)} aria-label="Start a new period"
                         title="Start a new period of the same length"
                         className="p-1 rounded-md text-stone-300 hover:text-emerald-700 hover:bg-emerald-50 transition-colors">
                         <RotateCcw size={11} />
                       </button>
                     )}
-                    <button onClick={() => setEditing(b.id)} aria-label="Edit budget"
+                    <button onClick={() => onEdit?.(b.id)} aria-label="Edit budget"
                       className="p-1 rounded-md text-stone-300 hover:text-stone-700 hover:bg-stone-100 transition-colors">
                       <Pencil size={11} />
                     </button>
@@ -148,36 +237,59 @@ export default function Budgets({
                 />
               </div>
             </div>
-          );
-        })}
-        {visible.length === 0 && (
-          <div className="text-xs text-stone-300 py-6 text-center">No budgets set.</div>
-        )}
+  );
+}
+
+function Group({ title, sub, list, totals, className = "", expenses, convertAmount, moneyFrom, moneyIn, currency, onEdit, onDelete, onRenew }) {
+  if (!list.length) return null;
+  const pct = totals.limit > 0 ? (totals.spent / totals.limit) * 100 : 0;
+  const over = totals.spent > totals.limit;
+  return (
+    <div className={className}>
+      <div className="flex items-end justify-between gap-3 mb-2">
+        <div className="min-w-0">
+          <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wide">{title}</div>
+          <div className="text-[10.5px] text-stone-400 mt-0.5">{sub}</div>
+        </div>
+        <div className="text-right shrink-0">
+          <div className="text-[13px] font-semibold tabular-nums text-stone-800">
+            {moneyIn(Math.round(totals.spent), currency)}
+            <span className="text-stone-300 font-normal"> / {moneyIn(Math.round(totals.limit), currency)}</span>
+          </div>
+          <div className={`text-[10px] ${over ? "text-rose-600" : "text-stone-400"}`}>
+            {over
+              ? `${moneyIn(Math.round(totals.spent - totals.limit), currency)} over`
+              : `${moneyIn(Math.round(totals.limit - totals.spent), currency)} left`}
+          </div>
+        </div>
       </div>
 
-      {/* key={editing} is load-bearing, not decoration. The list stays
-          clickable while this form is open, so `editing` can go straight from
-          one row's id to another's. Same component, same position, so React
-          reuses the instance and the useState initialisers below never re-run
-          — the form kept showing the FIRST row's values while saving onto the
-          SECOND row's id. Silent overwrite of the wrong record. The key forces
-          a remount whenever the target changes. */}
-      {editing && (
-        <BudgetForm
-          key={editing}
-          budget={editing === "new" ? null : budgets.find((b) => b.id === editing)}
-          categories={categories}
-          defaultBook={book === "all" ? "business" : book}
-          onAddCategory={onAddCategory}
-          onCancel={() => setEditing(null)}
-          onSave={(patch) => {
-            if (editing === "new") onAdd?.(patch);
-            else onUpdate?.(editing, patch);
-            setEditing(null);
-          }}
+      {/* The group's combined bar, so the section total is readable at a
+          glance without adding up the rows underneath it. */}
+      <div className="h-1 rounded-full bg-stone-100 overflow-hidden mb-2.5">
+        <div
+          className={`h-full w-full rounded-full origin-left transition-transform duration-300 ${EASE}
+            ${over ? "bg-rose-500" : pct >= 80 ? "bg-amber-500" : "bg-emerald-500"}`}
+          style={{ transform: `scaleX(${Math.min(1, pct / 100)})` }}
         />
-      )}
-    </Card>
+      </div>
+
+      <div className="space-y-2.5">
+        {list.map((b, i) => (
+          <BudgetRow
+            key={b.id}
+            b={b}
+            i={i}
+            expenses={expenses}
+            convertAmount={convertAmount}
+            moneyFrom={moneyFrom}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onRenew={onRenew}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 

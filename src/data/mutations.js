@@ -702,21 +702,41 @@ export function deleteExpenseCategory(d, name) {
 // owed to you, but it already exists as an invoice — lib/finance.js derives
 // it at read time rather than copying it into this collection, so the two
 // can never drift apart. See buildReceivables.
-export function addLoan(d, l) {
+export function addLoan(d, l, rate) {
   if (!Array.isArray(d.loans)) d.loans = [];
   const loan = {
     id: uid(), person: "", reason: "", amount: 0, currency: "INR",
     date: today(), dueDate: "", status: "outstanding", book: "personal",
-    notes: "", ...l,
+    notes: "", accountId: "", ...l,
   };
   d.loans.push(loan);
+
+  // The money has actually left the account. Lending is a real withdrawal —
+  // the balance is wrong until this happens, and a receivable list that
+  // didn't move the money would have you reconciling a bank app against a
+  // dashboard that quietly disagrees with it.
+  //
+  // Converted into the ACCOUNT's currency, same as addExpense: lending
+  // ₹20,000 out of a USD account must not subtract 20,000 dollars.
+  const account = (d.accounts || []).find((a) => a.id === loan.accountId);
+  if (account) {
+    const debited = convertBetween(
+      Number(loan.amount) || 0, loan.currency || "INR", account.currency || "INR", rate
+    );
+    // On a credit card the stored balance IS the debt, so money going out
+    // increases it — the same sign rule addExpense uses.
+    account.balance = (Number(account.balance) || 0) + (account.type === "credit" ? debited : -debited);
+    loan.lentFromAccountId = account.id;
+    loan.lentAmount = debited;
+  }
+
   return logFinance(d, {
     type: "loan_added", title: loan.person,
-    description: `Lent to ${loan.person}${loan.reason ? ` — ${loan.reason}` : ""}`,
+    description: `Lent to ${loan.person}${loan.reason ? ` — ${loan.reason}` : ""}${account ? ` from ${account.name}` : ""}`,
     // Negative: the money has left, even though it's expected back. Showing
     // it as a positive here would read as income in the activity feed.
     amount: -(Number(loan.amount) || 0), currency: loan.currency,
-    meta: { loanId: loan.id },
+    meta: { loanId: loan.id, accountId: loan.accountId || null },
   });
 }
 
@@ -726,7 +746,24 @@ export function updateLoan(d, id, patch) {
   return d;
 }
 
+/**
+ * Deletes a loan, putting back any money it took out.
+ *
+ * Deleting is how a mis-typed entry gets removed, so it has to undo the
+ * withdrawal too — otherwise correcting a typo would permanently leave the
+ * account short by the wrong amount, with no record left to explain it.
+ * Only for a loan still outstanding: a settled one has already been
+ * reversed by settleLoan, and reversing it twice would invent money.
+ */
 export function deleteLoan(d, id) {
+  const l = (d.loans || []).find((x) => x.id === id);
+  if (l && l.status !== "settled" && l.lentFromAccountId) {
+    const account = (d.accounts || []).find((a) => a.id === l.lentFromAccountId);
+    if (account) {
+      const amount = Number(l.lentAmount) || 0;
+      account.balance = (Number(account.balance) || 0) + (account.type === "credit" ? -amount : amount);
+    }
+  }
   d.loans = (d.loans || []).filter((x) => x.id !== id);
   return d;
 }
@@ -738,14 +775,25 @@ export function deleteLoan(d, id) {
  * is kept: the money really did leave and come back, and erasing the record
  * would leave an unexplained pair of balance movements.
  */
-export function settleLoan(d, id, { date, accountId } = {}) {
+export function settleLoan(d, id, { date, accountId, rate } = {}) {
   const l = (d.loans || []).find((x) => x.id === id);
   if (!l || l.status === "settled") return d;
   l.status = "settled";
   l.settledDate = date || today();
-  const account = (d.accounts || []).find((a) => a.id === (accountId || l.accountId));
+  // Back into whichever account it came out of, unless told otherwise.
+  const account = (d.accounts || []).find(
+    (a) => a.id === (accountId || l.lentFromAccountId || l.accountId)
+  );
   if (account) {
-    account.balance = (Number(account.balance) || 0) + (Number(l.amount) || 0);
+    // `lentAmount` is what was ACTUALLY debited, already in this account's
+    // currency and frozen at the rate on the day it was lent. Reusing it
+    // means the round trip nets to exactly zero; re-converting at today's
+    // rate would leave a phantom gain or loss on the balance every time a
+    // cross-currency loan was repaid.
+    const credited = account.id === l.lentFromAccountId && l.lentAmount != null
+      ? Number(l.lentAmount) || 0
+      : convertBetween(Number(l.amount) || 0, l.currency || "INR", account.currency || "INR", rate);
+    account.balance = (Number(account.balance) || 0) + (account.type === "credit" ? -credited : credited);
     l.settledIntoAccountId = account.id;
   }
   return logFinance(d, {

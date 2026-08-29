@@ -1,4 +1,4 @@
-import { toDateKey, today } from "./utils.js";
+import { toDateKey, today, formatLongDate } from "./utils.js";
 // Personal finance vocabulary: the account types the balance bar shows, the
 // two kinds of recurring money-out, and the budget periods.
 //
@@ -171,10 +171,10 @@ export function budgetPeriodLabel(budget, todayKey = today()) {
   if (budget?.period !== "custom") return budget?.period === "yearly" ? "This year" : "This month";
   const { from, to } = budgetWindow(budget);
   if (!from || !to) return "Custom";
-  if (to < todayKey) return `Ended ${to}`;
+  if (to < todayKey) return `Ended ${formatLongDate(to)}`;
   const daysLeft = daysUntil(to);
   if (daysLeft === 0) return "Ends today";
-  return `${from} → ${to} · ${daysLeft}d left`;
+  return `${formatLongDate(from)} to ${formatLongDate(to)} · ${daysLeft}d left`;
 }
 
 // What's been spent against a budget in the CURRENT period, expressed in the
@@ -217,6 +217,86 @@ export function budgetStatus(spent, limit) {
   return { pct, tone: "emerald", bar: "bg-emerald-500", label: "On track" };
 }
 
+
+// ---- receivables: money owed TO you ----
+//
+// Two different things that answer the same question — "what am I owed, and
+// by whom" — and which the dashboard previously couldn't answer at all.
+//
+//  1. Money you LENT. A friend, a contractor float, a deposit. Recorded by
+//     hand, because nothing else in the app knows it happened.
+//  2. An OVERDUE INVOICE. Already recorded — it's just an invoice past its
+//     due date — so it is DERIVED here rather than copied. Copying would
+//     create a second record that has to be kept in sync, and the moment
+//     the invoice is marked paid the copy would sit there claiming money
+//     that has already arrived.
+//
+// That derivation is the whole design: the manual list is small and the
+// invoice list is the source of truth, so the combined view is built at
+// read time and can never disagree with either.
+export const LOAN_STATUS = {
+  outstanding: { label: "Outstanding", tone: "amber",   chip: "bg-amber-50 text-amber-700 ring-amber-600/15" },
+  settled:     { label: "Settled",     tone: "emerald", chip: "bg-emerald-50 text-emerald-700 ring-emerald-600/15" },
+  writtenOff:  { label: "Written off", tone: "stone",   chip: "bg-stone-100 text-stone-500 ring-stone-400/15" },
+};
+export const LOAN_STATUS_LIST = Object.entries(LOAN_STATUS).map(([id, m]) => ({ id, ...m }));
+export const loanStatusMeta = (id) => LOAN_STATUS[id] || LOAN_STATUS.outstanding;
+
+/**
+ * Everything currently owed to you, from both sources, as one list.
+ *
+ * Invoice-derived rows are marked `kind: "invoice"` and carry the invoice's
+ * id so the UI can send you to the real record rather than pretending the
+ * receivable is editable here — the way to settle it is to mark the invoice
+ * paid, and offering a second "settle" button would let the two disagree.
+ *
+ * `settled` and `writtenOff` loans are excluded: this list answers "what is
+ * still outstanding", and a settled loan is history, not a receivable.
+ */
+export function buildReceivables(loans, invoices, clients, todayKey = today()) {
+  const manual = (loans || [])
+    .filter((l) => (l.status || "outstanding") === "outstanding")
+    .map((l) => ({
+      kind: "loan",
+      id: l.id,
+      name: l.person || "Someone",
+      reason: l.reason || "",
+      amount: Number(l.amount) || 0,
+      currency: l.currency || "INR",
+      date: l.date || "",
+      dueDate: l.dueDate || "",
+      book: bookOf(l),
+      overdueBy: l.dueDate && l.dueDate < todayKey ? -daysUntil(l.dueDate) : 0,
+      source: l,
+    }));
+
+  const fromInvoices = (invoices || [])
+    .filter((i) => effectiveInvoiceStatus(i, todayKey) === "overdue")
+    .map((i) => {
+      const client = (clients || []).find((c) => c.id === i.clientId);
+      const due = i.dueDate || i.date || "";
+      return {
+        kind: "invoice",
+        id: i.id,
+        name: client?.name || client?.company || "Client",
+        reason: i.description || "Unpaid invoice",
+        // The invoice's own currency, same split every other total uses.
+        amount: Number(i.nativeAmount ?? i.amount) || 0,
+        currency: i.currency || "USD",
+        date: i.date || "",
+        dueDate: due,
+        // Client work is always the agency's book — a client's unpaid
+        // invoice is never personal money.
+        book: "business",
+        overdueBy: due ? -daysUntil(due) : 0,
+        source: i,
+      };
+    });
+
+  // Most overdue first: this list is a chase list, and the thing that has
+  // been outstanding longest is the thing to act on.
+  return [...manual, ...fromInvoices].sort((a, b) => b.overdueBy - a.overdueBy);
+}
 
 // ---- expense categories ----
 //

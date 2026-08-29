@@ -405,6 +405,9 @@ export const seedData = () => ({
   outgoings: [],
   // Spending limits per expense category, checked against `expenses`.
   budgets: [],
+  // Money lent out and not yet back. Overdue client invoices are NOT
+  // copied in here — finance.js derives those from the invoices themselves.
+  loans: [],
   // The category vocabulary shared by expenses, budgets and recurring items.
   // Owner-editable — see lib/finance.js.
   expenseCategories: [...DEFAULT_EXPENSE_CATEGORIES],

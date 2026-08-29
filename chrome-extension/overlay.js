@@ -634,6 +634,23 @@ if (!window.__edenLabsOverlayInjected) {
         spaceOut(n);
       }
     });
+
+    // The author's own line breaks, turned into real newlines.
+    //
+    // This is what was flattening every saved post into one block. LinkedIn
+    // writes post line breaks as <br> — 32 of them in a typical long post —
+    // and this clone is DETACHED from the document. On an unrendered
+    // element `innerText` is specified to fall back to `textContent`, and
+    // textContent drops <br> entirely. So the reader below was never seeing
+    // a single line break no matter which property it asked for, and the
+    // structure the author wrote (one-line hook, blank line, short
+    // paragraphs) came out as an unreadable wall.
+    //
+    // Done here rather than in the reader so every caller gets it, and on
+    // the clone so the live post is never touched.
+    clone.querySelectorAll("br").forEach((br) => {
+      br.replaceWith(br.ownerDocument.createTextNode("\n"));
+    });
     return clone;
   }
 
@@ -687,15 +704,19 @@ if (!window.__edenLabsOverlayInjected) {
 
   function textFromElement(raw, authorLow, headlineLow) {
     const el = stripChrome(raw);
-    // innerText preserves the line breaks that make a post readable, but
-    // it's undefined outside a rendering engine and empty for some nodes —
-    // textContent is the floor.
-    const text = el.innerText || el.textContent || "";
+    // textContent, deliberately — stripChrome has already turned every <br>
+    // into a real newline, and this clone is detached, which makes
+    // innerText no better than textContent anyway (see the note there).
+    const text = el.textContent || "";
     return text
       .split("\n")
       .map((l) => l.trim())
+      // Blank lines SURVIVE. They're the paragraph breaks the author wrote,
+      // and dropping them (which this used to do) is most of what made a
+      // saved post unreadable — the run-collapse below caps them at one
+      // blank line so the spacing stays tidy without being flattened.
       .filter((l) => {
-        if (!l) return false;
+        if (!l) return true;
         const low = l.toLowerCase();
         if (isJunkLine(l)) return false;
         if (authorLow && low === authorLow) return false;
@@ -745,7 +766,16 @@ if (!window.__edenLabsOverlayInjected) {
     // labels can end up fused onto the same line as real content — see
     // linesOf), so once THAT candidate came before this one it always won
     // and this cleaner extraction was never reached.
-    const ps = [...post.querySelectorAll("p")];
+    // DIRECT children of the post's branching level, not every <p> in the
+    // card. Verified live across six real posts: each card holds 7-9 <p>
+    // tags, but exactly ONE of them is a direct child at this level and it
+    // is always the body (854 / 1261 / 2903 / 521 / 774 / 259 chars) — the
+    // rest are short actor-block fragments like "Visit my website" and
+    // "• Following", which a blanket querySelectorAll swept into the saved
+    // text ahead of the actual post.
+    const branch = firstBranchingLevel(post);
+    const direct = [...branch.children].filter((c) => c.tagName === "P");
+    const ps = direct.length ? direct : [...post.querySelectorAll("p")];
     if (ps.length) {
       const joined = ps
         .map((p) => textFromElement(p, authorLow, headlineLow))
@@ -763,27 +793,53 @@ if (!window.__edenLabsOverlayInjected) {
   }
 
   /** Engagement counts, best-effort — absent on a post with none. */
+  const countOf = (t) => {
+    const m = String(t || "").replace(/,/g, "").match(/([\d.]+)\s*([KM])?/i);
+    if (!m) return 0;
+    const n = parseFloat(m[1]) || 0;
+    const suffix = (m[2] || "").toUpperCase();
+    return Math.round(suffix === "K" ? n * 1000 : suffix === "M" ? n * 1000000 : n);
+  };
+
+  /**
+   * The engagement counts row.
+   *
+   * Both numbers are found by looking for text of the shape "<n> reactions"
+   * / "<n> comments", NOT by aria-label — which is what was quietly
+   * returning 0 reactions on every post.
+   *
+   * The old selector led with `[aria-label*="reaction" i]`, and the FIRST
+   * thing that matches in a post is the Like button, whose label is
+   * "Reaction button state: no reaction" — it contains the word "reaction".
+   * So the count was read off the Like button, whose visible text is just
+   * "Like", which has no digits in it, which parses to 0. Every post.
+   * Comments were unaffected only because that path already searched by
+   * text content, which is the approach both now use.
+   *
+   * Verified live: the real count is a plain <span> reading "29 reactions"
+   * with no aria-label and no usable class name.
+   */
+  function findCount(post, word) {
+    // A leaf element, so "29 reactions" is matched rather than some ancestor
+    // whose combined text happens to contain it (the whole counts row reads
+    // "29 reactions29 3 comments3 comments", which would parse as 29 for
+    // both by accident).
+    const re = new RegExp(`^[\\d.,]+\\s*[KM]?\\s*${word}s?$`, "i");
+    const hit = [...post.querySelectorAll("span, a, button, div")].find((n) => {
+      if (n.children.length) return false;
+      // Never the action-bar control itself. "Reaction button state: …" and
+      // "Open reactions menu" both live on buttons that carry no count.
+      const aria = n.getAttribute?.("aria-label") || "";
+      if (/button state|open reactions/i.test(aria)) return false;
+      return re.test((n.textContent || "").trim());
+    });
+    return hit ? countOf(hit.textContent) : 0;
+  }
+
   function postStats(post) {
-    const num = (t) => {
-      const m = String(t || "").replace(/,/g, "").match(/([\d.]+)\s*([KM])?/i);
-      if (!m) return 0;
-      const n = parseFloat(m[1]) || 0;
-      const suffix = (m[2] || "").toUpperCase();
-      return Math.round(suffix === "K" ? n * 1000 : suffix === "M" ? n * 1000000 : n);
-    };
-    // Matches a SPAN as readily as a button: LinkedIn renders the reaction
-    // count either way depending on whether the post has any, and keying
-    // only on button silently returned 0 for the ones that do.
-    const reactionEl = post.querySelector(
-      '.social-details-social-counts__reactions-count,' +
-      '[aria-label*="reaction" i],' +
-      '[data-test-id="social-actions__reaction-count"]'
-    );
-    const commentEl = [...post.querySelectorAll('.social-details-social-counts__comments, button, span, a')]
-      .find((n) => /\bcomments?\b/i.test(n.getAttribute?.("aria-label") || n.textContent || ""));
     return {
-      reactions: num(reactionEl?.getAttribute("aria-label") || reactionEl?.textContent),
-      comments: num(commentEl?.getAttribute?.("aria-label") || commentEl?.textContent),
+      reactions: findCount(post, "reaction"),
+      comments: findCount(post, "comment"),
     };
   }
 

@@ -697,6 +697,65 @@ export function deleteExpenseCategory(d, name) {
   return d;
 }
 
+// ---- money lent out ----
+// Only the MANUAL side lives here. An overdue client invoice is also money
+// owed to you, but it already exists as an invoice — lib/finance.js derives
+// it at read time rather than copying it into this collection, so the two
+// can never drift apart. See buildReceivables.
+export function addLoan(d, l) {
+  if (!Array.isArray(d.loans)) d.loans = [];
+  const loan = {
+    id: uid(), person: "", reason: "", amount: 0, currency: "INR",
+    date: today(), dueDate: "", status: "outstanding", book: "personal",
+    notes: "", ...l,
+  };
+  d.loans.push(loan);
+  return logFinance(d, {
+    type: "loan_added", title: loan.person,
+    description: `Lent to ${loan.person}${loan.reason ? ` — ${loan.reason}` : ""}`,
+    // Negative: the money has left, even though it's expected back. Showing
+    // it as a positive here would read as income in the activity feed.
+    amount: -(Number(loan.amount) || 0), currency: loan.currency,
+    meta: { loanId: loan.id },
+  });
+}
+
+export function updateLoan(d, id, patch) {
+  const l = (d.loans || []).find((x) => x.id === id);
+  if (l) Object.assign(l, patch);
+  return d;
+}
+
+export function deleteLoan(d, id) {
+  d.loans = (d.loans || []).filter((x) => x.id !== id);
+  return d;
+}
+
+/**
+ * Marks a loan repaid and puts the money back in an account.
+ *
+ * Settled rather than deleted, for the same reason a cancelled subscription
+ * is kept: the money really did leave and come back, and erasing the record
+ * would leave an unexplained pair of balance movements.
+ */
+export function settleLoan(d, id, { date, accountId } = {}) {
+  const l = (d.loans || []).find((x) => x.id === id);
+  if (!l || l.status === "settled") return d;
+  l.status = "settled";
+  l.settledDate = date || today();
+  const account = (d.accounts || []).find((a) => a.id === (accountId || l.accountId));
+  if (account) {
+    account.balance = (Number(account.balance) || 0) + (Number(l.amount) || 0);
+    l.settledIntoAccountId = account.id;
+  }
+  return logFinance(d, {
+    type: "loan_settled", title: l.person,
+    description: `${l.person} repaid${account ? ` into ${account.name}` : ""}`,
+    amount: Number(l.amount) || 0, currency: l.currency,
+    meta: { loanId: l.id },
+  });
+}
+
 export function addBudget(d, b) {
   if (!Array.isArray(d.budgets)) d.budgets = [];
   const budget = { id: uid(), period: "monthly", currency: "INR", ...b };

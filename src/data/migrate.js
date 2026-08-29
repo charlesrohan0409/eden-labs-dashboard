@@ -14,7 +14,7 @@ export function migrateData(loaded) {
     "outreachLog", "channelPerf", "integrations", "calls", "outreachByChannel",
     "comments", "swipeFile", "activityLog", "commentTargets",
     "accounts", "outgoings", "budgets", "expenseCategories", "financeLog", "inbound",
-    "leadLists", "scripts", "commentLog", "swipeFolders",
+    "leadLists", "scripts", "commentLog", "swipeFolders", "loans",
   ].forEach((key) => {
     if (!Array.isArray(merged[key])) merged[key] = defaults[key];
   });

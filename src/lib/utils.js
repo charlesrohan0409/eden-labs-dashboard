@@ -265,6 +265,29 @@ export function formatDateTime(value) {
   });
 }
 
+/**
+ * "1st September 2026" — a date written the way a person says it out loud.
+ *
+ * Used where a date is READ rather than scanned: a budget's window, a
+ * receivable's due date. Bare "2026-09-01" is fine in a dense table where
+ * the eye is comparing columns, but as prose in a sentence it makes the
+ * reader do the parsing.
+ *
+ * Parsed at noon so a YYYY-MM-DD string can't drift a day backwards in
+ * timezones behind UTC — `new Date("2026-09-01")` is midnight UTC, which is
+ * still 31 August in most of the Americas.
+ */
+export function formatLongDate(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(`${String(dateStr).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return dateStr;
+  const day = d.getDate();
+  // 11th/12th/13th are the exception the mod-10 rule gets wrong.
+  const teen = day % 100 >= 11 && day % 100 <= 13;
+  const suffix = teen ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[day % 10] || "th");
+  return `${day}${suffix} ${d.toLocaleDateString(undefined, { month: "long" })} ${d.getFullYear()}`;
+}
+
 // "in 3 days" / "2 days overdue" / "today" — used by tasks and renewals.
 export function relativeDays(dateStr) {
   if (!dateStr) return null;

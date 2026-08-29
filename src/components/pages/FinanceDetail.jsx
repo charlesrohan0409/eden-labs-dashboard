@@ -22,6 +22,7 @@ import CategoryManager from "../ui/CategoryManager";
 import FinanceActivity from "../ui/FinanceActivity";
 import Outgoings from "../ui/Outgoings";
 import Budgets from "../ui/Budgets";
+import Receivables from "../ui/Receivables";
 import { downloadCSV, today, computeMRR, billingTypeLabel , monthBuckets } from "../../lib/utils";
 import { useCurrency } from "../../hooks/useCurrency";
 import { formatAmount, CURRENCIES, convertBetween } from "../../lib/currency";
@@ -54,7 +55,8 @@ export default function FinanceDetail({
   onAddInvoice, onGenerateInvoices, onUpdateInvoiceStatus, onDeleteInvoice,
   onAddAccount, onUpdateAccount, onDeleteAccount,
   onAddOutgoing, onUpdateOutgoing, onDeleteOutgoing, onCancelOutgoing, onPayOutgoing,
-  onAddBudget, onUpdateBudget, onDeleteBudget, onAddExpenseCategory, token,
+  onAddBudget, onUpdateBudget, onDeleteBudget, onAddExpenseCategory,
+  onAddLoan, onUpdateLoan, onDeleteLoan, onSettleLoan, token,
 }) {
   const [activeTab, setActiveTab] = useState("overview");
   // Which book the "My money" tab is showing. Defaults to everything —
@@ -850,6 +852,22 @@ export default function FinanceDetail({
               onDelete={onDeleteBudget}
             />
           </div>
+
+          {/* Sits under the two run-rate cards because it answers a
+              different question — not "what leaves each month" but "what
+              hasn't come back". Full width: rows carry a name, a reason and
+              a due date, which don't fit a half-width column. */}
+          <Receivables
+            loans={data.loans}
+            invoices={data.invoices}
+            clients={data.clients}
+            accounts={data.accounts}
+            book={book}
+            onAdd={onAddLoan}
+            onUpdate={onUpdateLoan}
+            onDelete={onDeleteLoan}
+            onSettle={onSettleLoan}
+          />
 
           <FinanceActivity log={data.financeLog} />
         </div>

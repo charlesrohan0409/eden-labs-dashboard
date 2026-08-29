@@ -144,15 +144,43 @@ export function periodKey(dateStr, period) {
  */
 export function budgetWindow(budget, now = new Date()) {
   if (budget?.period === "custom") {
-    return { from: budget.startDate || "", to: budget.endDate || "" };
+    // Both ends required. A custom budget missing a date used to produce an
+    // UNBOUNDED window — and because spentOn skips a bound it doesn't have,
+    // that silently counted every expense in the category ever recorded.
+    // An incomplete range measures nothing rather than everything; the form
+    // won't create one, but old or hand-edited rows can still be missing a
+    // date and quietly reading as wildly over budget is the worse failure.
+    const from = budget.startDate || "";
+    const to = budget.endDate || "";
+    return from && to ? { from, to } : { from: "", to: "", invalid: true };
   }
   const y = now.getFullYear();
+  let from, to;
   if (budget?.period === "yearly") {
-    return { from: `${y}-01-01`, to: `${y}-12-31` };
+    from = `${y}-01-01`;
+    to = `${y}-12-31`;
+  } else {
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
+    from = `${y}-${m}-01`;
+    to = `${y}-${m}-${String(lastDay).padStart(2, "0")}`;
   }
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
-  return { from: `${y}-${m}-01`, to: `${y}-${m}-${String(lastDay).padStart(2, "0")}` };
+  // A budget never counts spending from before it existed.
+  //
+  // This is the "expense on the 19th hit a budget I set later" bug. A
+  // monthly budget's window is the whole calendar month, so one created on
+  // the 25th retroactively absorbed everything spent since the 1st — money
+  // that was already gone before the limit was ever decided, which makes a
+  // brand-new budget open at "over budget" through no action of yours.
+  //
+  // Clamping to the creation date fixes the first period only: every later
+  // month starts after `createdAt` anyway, so the max() stops applying on
+  // its own and a mature budget measures its full month. Budgets saved
+  // before this field existed have no createdAt and keep the old behaviour,
+  // since inventing a creation date would be a guess about history.
+  const started = budget?.createdAt ? String(budget.createdAt).slice(0, 10) : "";
+  if (started && started > from) from = started;
+  return { from, to };
 }
 
 /** A custom budget whose end date has passed — finished, not just quiet. */
@@ -168,9 +196,24 @@ export function isBudgetExpired(budget, todayKey = today()) {
  * weeks to go than with two days.
  */
 export function budgetPeriodLabel(budget, todayKey = today()) {
-  if (budget?.period !== "custom") return budget?.period === "yearly" ? "This year" : "This month";
-  const { from, to } = budgetWindow(budget);
-  if (!from || !to) return "Custom";
+  if (budget?.period !== "custom") {
+    const { from, to } = budgetWindow(budget);
+    const d = new Date(`${to}T12:00:00`);
+    // Names the actual period rather than saying "This month". Which month a
+    // budget is measuring was exactly the ambiguity behind "my September
+    // budget counted an August expense" — the label never said which month
+    // it meant, so there was nothing on screen to contradict the assumption.
+    const name = budget?.period === "yearly"
+      ? String(d.getFullYear())
+      : d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    // `from` only differs from the 1st when budgetWindow clamped it to the
+    // creation date. Saying so matters: a first month that reads lower than
+    // expected otherwise looks like expenses went missing.
+    const clamped = from.slice(-2) !== "01";
+    return clamped ? `${name} · counting from ${formatLongDate(from)}` : name;
+  }
+  const { from, to, invalid } = budgetWindow(budget);
+  if (invalid || !from || !to) return "Needs a start and end date";
   if (to < todayKey) return `Ended ${formatLongDate(to)}`;
   const daysLeft = daysUntil(to);
   if (daysLeft === 0) return "Ends today";
@@ -185,7 +228,10 @@ export function budgetPeriodLabel(budget, todayKey = today()) {
 // pure function with no dependency on the live FX rate, which lives in React
 // state. Callers pass the one from useCurrency.
 export function spentOn(budget, expenses, convert, now = new Date()) {
-  const { from: winFrom, to: winTo } = budgetWindow(budget, now);
+  const win = budgetWindow(budget, now);
+  // An unusable range measures nothing — see budgetWindow.
+  if (win.invalid) return 0;
+  const { from: winFrom, to: winTo } = win;
   // A budget only ever measures its OWN book. Without this, a personal
   // "Software" budget would count the agency's Figma seat against it — same
   // category name, entirely different money — and read as over budget for a

@@ -806,7 +806,10 @@ export function settleLoan(d, id, { date, accountId, rate } = {}) {
 
 export function addBudget(d, b) {
   if (!Array.isArray(d.budgets)) d.budgets = [];
-  const budget = { id: uid(), period: "monthly", currency: "INR", ...b };
+  // Stamped so the budget can't count spending that happened before it
+  // existed — see budgetWindow. Spread last so an explicit createdAt (a
+  // re-import, a test) still wins.
+  const budget = { id: uid(), period: "monthly", currency: "INR", createdAt: today(), ...b };
   d.budgets.push(budget);
   return logFinance(d, {
     type: "budget_created", title: budget.category,

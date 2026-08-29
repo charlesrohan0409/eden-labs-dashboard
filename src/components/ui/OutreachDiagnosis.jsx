@@ -1,6 +1,9 @@
+import { useState } from "react";
 import { TrendingUp, AlertTriangle, CheckCircle2, HelpCircle, Target } from "lucide-react";
 import Card, { CardTitle } from "./Card";
+import PillTabs from "./PillTabs";
 import { diagnose, byList, byScript, daysSince } from "../../lib/outreach";
+import { toDateKey } from "../../lib/utils";
 
 const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
 
@@ -25,8 +28,26 @@ const VERDICT = {
  * is how a good list gets thrown away.
  */
 export default function OutreachDiagnosis({ entries, lists, scripts, targets }) {
-  const totals = entries?.length
-    ? entries.reduce((acc, e) => {
+  // A WINDOW, not the whole log. This used to sum every entry ever recorded,
+  // so "connections sent" only ever went up — it read 341 on an account
+  // whose ceiling is 200 a week, which makes the number impossible to sanity
+  // check and the rate impossible to act on. Worse, an old under-performing
+  // batch permanently drags the ratio down, so a list that is working today
+  // still reads as a problem.
+  //
+  // 30 days by default: long enough for acceptances to land (they lag sends
+  // by days, so a short window structurally understates the rate), short
+  // enough that the number reflects what you are doing now.
+  const [days, setDays] = useState(30);
+  const since = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - (days - 1));
+    return toDateKey(d);
+  })();
+  const windowed = (entries || []).filter((e) => !e.date || e.date >= since);
+
+  const totals = windowed.length
+    ? windowed.reduce((acc, e) => {
         Object.keys(acc).forEach((k) => { acc[k] += Number(e[k]) || 0; });
         return acc;
       }, {
@@ -36,20 +57,37 @@ export default function OutreachDiagnosis({ entries, lists, scripts, targets }) 
       })
     : null;
 
-  // Age of the whole log, so a zero at any stage reads as "not measured yet"
-  // rather than "failed" while the funnel is still filling in.
-  const oldest = (entries || []).map((e) => e.date).filter(Boolean).sort()[0];
+  // Age of the log WITHIN the window, so a zero at any stage reads as "not
+  // measured yet" rather than "failed" while the funnel is still filling in.
+  const oldest = windowed.map((e) => e.date).filter(Boolean).sort()[0];
   const results = diagnose(totals || {}, targets, { daysSinceStart: daysSince(oldest) });
-  const lists_ = byList(entries, lists, targets);
-  const scripts_ = byScript(entries, scripts, targets);
+  const lists_ = byList(windowed, lists, targets);
+  const scripts_ = byScript(windowed, scripts, targets);
   const worst = results.find((r) => r.verdict === "bad");
 
   return (
     <div className="space-y-4">
       <Card className="p-5">
-        <CardTitle sub="Each number blames one thing — that's what tells you which to change">
-          What's working
-        </CardTitle>
+        <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
+          <div className="min-w-0">
+            <div className="text-[15px] font-semibold text-stone-900 tracking-tight">What's working</div>
+            <div className="text-xs text-stone-400 mt-0.5">
+              Each number blames one thing — that's what tells you which to change
+            </div>
+          </div>
+          {/* The window is part of the number's meaning, so it's stated
+              rather than assumed. */}
+          <PillTabs
+            size="sm"
+            value={days}
+            onChange={setDays}
+            options={[
+              { value: 7, label: "7 days" },
+              { value: 30, label: "30 days" },
+              { value: 90, label: "90 days" },
+            ]}
+          />
+        </div>
 
         {worst && (
           <div className="flex items-start gap-2.5 rounded-xl border border-rose-200/70 bg-rose-50 px-3.5 py-3 mb-4">

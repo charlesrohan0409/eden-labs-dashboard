@@ -11,7 +11,7 @@
 // real commitment and it survives one bad day, which is what makes it worth
 // looking at every morning.
 
-import { toDateKey } from "./utils.js";
+import { toDateKey, workDayKey } from "./utils.js";
 import { normalizeStatus } from "./content.js";
 
 export const PILLARS = [
@@ -119,10 +119,15 @@ function weekKeyOf(dateStr) {
  * demand for time already gone.
  */
 export function weekScore(rhythm, from = new Date()) {
-  const key = weekKeyOf(toDateKey(from));
+  // The WORK day, not the calendar day. At 1am on Monday the work day is
+  // still Sunday, so both the week bucket and "which day of the week is it"
+  // have to come from the same shifted date — otherwise a late Sunday
+  // session is scored against Monday, and on a Sunday/Monday boundary it
+  // lands in the wrong WEEK entirely.
+  const todayKey = workDayKey(from);
+  const key = weekKeyOf(todayKey);
   const thisWeek = rhythm.filter((d) => weekKeyOf(d.date) === key);
-  const todayKey = toDateKey(from);
-  const dayIdx = (from.getDay() + 6) % 7;   // Monday = 0 … Sunday = 6
+  const dayIdx = (new Date(`${todayKey}T12:00:00`).getDay() + 6) % 7;   // Monday = 0 … Sunday = 6
 
   // Only days something is actually expected on count toward the goal or the
   // catch-up maths. Rest days aren't shortfall.

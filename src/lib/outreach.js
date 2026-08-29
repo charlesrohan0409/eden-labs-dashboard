@@ -3,7 +3,7 @@
 // page component so the field list, funnel order, and date-bucketing math
 // aren't duplicated between the log form, the funnel view, and the chart.
 
-import { weekStart, toDateKey } from "./utils.js";
+import { weekStart, toDateKey, workDayKey } from "./utils.js";
 
 // Each stage in the order it happens — the funnel view walks this list and
 // shows the conversion % from one stage to the next.
@@ -325,7 +325,13 @@ export function byScript(entries, scripts, targets) {
 // silently re-bucket every content chart.
 
 export function outreachWeekStart(date = new Date()) {
-  const d = date instanceof Date ? new Date(date) : new Date(`${date}T12:00:00`);
+  // Anchored on the WORK day: outreach done at 1am on Sunday belongs to
+  // Saturday, which is the previous quota week. Using calendar midnight
+  // would move that batch into the new week's total and make the week you
+  // just finished look short.
+  const d = date instanceof Date
+    ? new Date(`${workDayKey(date)}T12:00:00`)
+    : new Date(`${String(date).slice(0, 10)}T12:00:00`);
   d.setDate(d.getDate() - d.getDay()); // getDay(): 0 = Sunday
   d.setHours(0, 0, 0, 0);
   return d;

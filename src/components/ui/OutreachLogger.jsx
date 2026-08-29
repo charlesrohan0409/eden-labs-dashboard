@@ -3,7 +3,7 @@ import { Plus, X, UserPlus, StickyNote, Check } from "lucide-react";
 import Card, { CardTitle } from "./Card";
 import PrimaryButton from "./PrimaryButton";
 import { LINKEDIN_STAGES } from "../../lib/outreach";
-import { today } from "../../lib/utils";
+import { workToday } from "../../lib/utils";
 
 const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
 const inputCls =
@@ -11,7 +11,7 @@ const inputCls =
 
 const BLANK = () => ({
   // null = untouched (fall back to the only list); "" = deliberately unassigned.
-  date: today(), listId: null, scriptId: null, notes: "",
+  date: workToday(), listId: null, scriptId: null, notes: "",
   ...Object.fromEntries(LINKEDIN_STAGES.map((s) => [s.key, ""])),
 });
 
@@ -63,7 +63,7 @@ export default function OutreachLogger({
   const submit = () => {
     if (!hasAnything) return;
     const entry = {
-      clientId, date: f.date || today(), listId: listId || null,
+      clientId, date: f.date || workToday(), listId: listId || null,
       scriptId: scriptId || null, notes: f.notes.trim(),
       ...Object.fromEntries(LINKEDIN_STAGES.map((s) => [s.key, num(s.key)])),
     };

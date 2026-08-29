@@ -210,6 +210,39 @@ export function toDateKey(date = new Date()) {
 
 export const today = () => toDateKey();
 
+/**
+ * When the working day rolls over, for the things that get done late.
+ *
+ * Outreach, content and commenting regularly happen after midnight, and
+ * calendar midnight is the wrong boundary for them: sending connections at
+ * 1am on Tuesday is Monday's work, but a midnight rollover files it as
+ * Tuesday — which breaks the streak for Monday (no activity recorded) AND
+ * double-counts Tuesday. Both halves of that are wrong, and the streak is
+ * the thing meant to reward actually doing the work.
+ *
+ * 6am is the cutoff: late enough to cover any realistic late-night session,
+ * early enough that it can't swallow a genuine early start.
+ */
+export const WORK_DAY_START_HOUR = 6;
+
+/**
+ * The work-day key for a moment in time — the calendar date, except that
+ * anything before 6am counts as the previous day.
+ *
+ * Deliberately separate from today(): invoices, expenses and due dates use
+ * the real calendar, and an expense entered at 2am belongs to that calendar
+ * date. Only the effort-tracking flows (outreach, content, commenting, and
+ * the streak built on them) use this.
+ */
+export function workDayKey(date = new Date()) {
+  const d = date instanceof Date ? new Date(date) : new Date(date);
+  if (d.getHours() < WORK_DAY_START_HOUR) d.setDate(d.getDate() - 1);
+  return toDateKey(d);
+}
+
+/** Today, as the work day currently in progress. */
+export const workToday = () => workDayKey();
+
 // Monday-start week key (YYYY-MM-DD of that week's Monday) — used to bucket
 // daily rows into weeks without pulling in a date library. Originally lived
 // in lib/outreach.js (weekly outreach charts); promoted here once

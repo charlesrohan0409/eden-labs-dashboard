@@ -4,7 +4,7 @@ import {
 } from "lucide-react";
 import Card, { CardTitle } from "./Card";
 import { buildRhythm, weekScore, currentStreak, bestStreak, PILLARS, DEFAULT_REST } from "../../lib/rhythm";
-import { today } from "../../lib/utils";
+import { workToday } from "../../lib/utils";
 import { useEffect, useRef } from "react";
 
 const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
@@ -41,7 +41,10 @@ export default function GrowthRhythm({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
-  const todayKey = today();
+  // workToday, not today: work done at 1am belongs to the previous day.
+  // With calendar midnight, a late session broke the streak for the day it
+  // was actually done and double-counted the day it was filed under.
+  const todayKey = workToday();
 
   const rhythm = useMemo(
     () => buildRhythm({ posts, outreachLog, commentLog, clientId, days, rest }),
@@ -76,7 +79,7 @@ export default function GrowthRhythm({
 
   const commit = () => {
     const n = Number(draft);
-    if (!Number.isNaN(n) && draft !== "") onLogComments({ clientId, date: today(), count: Math.max(0, n) });
+    if (!Number.isNaN(n) && draft !== "") onLogComments({ clientId, date: workToday(), count: Math.max(0, n) });
     setEditing(false);
     setDraft("");
   };
@@ -175,7 +178,7 @@ export default function GrowthRhythm({
           ) : (
             <span className="flex items-center gap-1.5 ml-auto">
               <button
-                onClick={() => onBumpComments({ clientId, date: today(), by: -1 })}
+                onClick={() => onBumpComments({ clientId, date: workToday(), by: -1 })}
                 disabled={todayComments === 0}
                 aria-label="One fewer"
                 className={`w-7 h-7 rounded-full border border-line bg-white flex items-center justify-center
@@ -192,7 +195,7 @@ export default function GrowthRhythm({
                 {todayComments}
               </button>
               <button
-                onClick={() => onBumpComments({ clientId, date: today(), by: 1 })}
+                onClick={() => onBumpComments({ clientId, date: workToday(), by: 1 })}
                 aria-label="One more"
                 className={`w-7 h-7 rounded-full bg-stone-900 text-white flex items-center justify-center
                   transition-transform duration-150 ${EASE} active:scale-[0.9] hover:bg-stone-800`}

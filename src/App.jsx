@@ -30,21 +30,11 @@ const PerformancePage = lazy(() => import("./components/pages/PerformancePage"))
 const CalendarPage   = lazy(() => import("./components/pages/CalendarPage"));
 const IntegrationsPage = lazy(() => import("./components/pages/IntegrationsPage"));
 
-function PageLoader() {
-  return (
-    <div className="flex-1 flex items-center justify-center text-stone-400 text-sm">
-      <svg className="animate-spin h-5 w-5 mr-2 text-emerald-700" viewBox="0 0 24 24" fill="none">
-        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-      </svg>
-      Loading…
-    </div>
-  );
-}
+// Not lazy — this is what renders WHILE the lazy chunks load, so it has to
+// already be in the initial bundle.
+import { PageLoader, FullScreenLoader } from "./components/ui/Loader";
 
-function FullScreenLoader() {
-  return <div className="min-h-screen flex items-center justify-center text-stone-400 text-sm">Loading…</div>;
-}
+
 
 // Fixed so it's visible no matter which page/portal is showing — a save
 // failure (most likely a full localStorage quota, now that posts can carry

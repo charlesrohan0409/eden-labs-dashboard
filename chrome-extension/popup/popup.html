@@ -225,8 +225,14 @@
           </select>
         </div>
         <div class="field">
-          <label>Est. deal value ($)</label>
-          <input id="deal-value" type="number" placeholder="e.g. 3500" min="0" />
+          <label>Est. deal value</label>
+          <div style="display:flex;gap:6px">
+            <input id="deal-value" type="number" placeholder="e.g. 250000" min="0" style="flex:1;min-width:0" />
+            <select id="deal-currency" style="width:74px;flex-shrink:0">
+              <option value="INR">INR</option>
+              <option value="USD">USD</option>
+            </select>
+          </div>
         </div>
       </div>
 

@@ -203,6 +203,80 @@ async function extensionAction(action, payload) {
   return json;
 }
 
+// Uploads a data: URL to Storage and returns the permanent URL that
+// replaces it. Deliberately NOT routed through extensionAction: this posts
+// to /api/upload, whose body shape ({dataUrl, filename}) predates the action
+// envelope and is shared with the dashboard's own media pipeline.
+async function uploadImage(dataUrl, filename) {
+  const { token } = await chrome.storage.local.get("token");
+  if (!token) throw new Error("Not connected — open Settings to enter your PIN.");
+  const res = await fetch(`${API}/api/upload`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ dataUrl, filename }),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.url) throw new Error(json.error || "Upload failed");
+  return json.url;
+}
+
+// ---- FX ---------------------------------------------------------------
+//
+// A deal quoted in rupees has to be stored two ways: the native amount (what
+// was actually agreed, and what gets shown) and a USD snapshot (what the
+// board's pipeline/closed-won/average-deal totals sum, since adding ₹ to $
+// is meaningless). The server can't do that conversion — it has no rate —
+// and sending the raw ₹ figure as `dealValue` would inflate every one of
+// those totals by ~90x, which is the exact bug already fixed once for
+// expenses. So the extension resolves the rate itself.
+//
+// Same two public, unauthenticated sources the dashboard uses, cached for
+// 12h. If every source fails the lead is still saved — with the native
+// amount intact and no USD snapshot, which under-reports the pipeline
+// rather than wildly over-reporting it.
+const RATE_KEY = "usdInrRate";
+const RATE_TTL_MS = 12 * 60 * 60 * 1000;
+const RATE_SOURCES = [
+  { url: "https://api.exchangerate-api.com/v4/latest/USD", read: (j) => j?.rates?.INR },
+  { url: "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json", read: (j) => j?.usd?.inr },
+];
+
+async function usdToInrRate() {
+  const cached = (await chrome.storage.local.get(RATE_KEY))[RATE_KEY];
+  if (cached?.rate && Date.now() - cached.fetchedAt < RATE_TTL_MS) return cached.rate;
+  for (const src of RATE_SOURCES) {
+    try {
+      const res = await fetch(src.url);
+      if (!res.ok) continue;
+      const rate = src.read(await res.json());
+      if (typeof rate !== "number" || !Number.isFinite(rate) || rate <= 0) continue;
+      await chrome.storage.local.set({ [RATE_KEY]: { rate, fetchedAt: Date.now() } });
+      return rate;
+    } catch { /* try the next source */ }
+  }
+  // An expired cached rate still beats nothing.
+  return cached?.rate || null;
+}
+
+/** Splits a lead's typed amount into the native + USD-snapshot fields. */
+async function withDealCurrency(lead) {
+  const native = Number(lead.dealValue) || 0;
+  const code = lead.dealCurrency || "USD";
+  if (!native) return { ...lead, dealValue: null, nativeDealValue: null, dealCurrency: code, dealFxRate: 1 };
+  if (code === "USD") {
+    return { ...lead, dealValue: native, nativeDealValue: native, dealCurrency: "USD", dealFxRate: 1 };
+  }
+  const rate = await usdToInrRate();
+  return {
+    ...lead,
+    // null, not the raw ₹ figure, when the rate is unavailable — see above.
+    dealValue: rate ? native / rate : null,
+    nativeDealValue: native,
+    dealCurrency: code,
+    dealFxRate: rate || null,
+  };
+}
+
 // ---- Message router (popup/settings/content scripts → background) --------
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -222,7 +296,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === "SAVE_LEAD") {
-    extensionAction("saveLead", msg.lead)
+    withDealCurrency(msg.lead)
+      .then((lead) => extensionAction("saveLead", lead))
       .then(() => sendResponse({ ok: true }))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
@@ -243,6 +318,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     extensionAction("listSwipeFolders", {})
       .then((json) => sendResponse({ ok: true, folders: json.folders || [] }))
       .catch(() => sendResponse({ ok: false, folders: [] }));
+    return true;
+  }
+
+  if (msg.type === "ADD_SWIPE_FOLDER") {
+    extensionAction("addSwipeFolder", { name: msg.name })
+      .then((json) => sendResponse({ ok: true, folderId: json.folderId || null }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  // Goes to /api/upload rather than through the action envelope: that
+  // endpoint already exists for the dashboard's own media, already writes
+  // to Storage rather than into the data blob, and already accepts either
+  // an owner or a client token — which is exactly the scoping this needs.
+  if (msg.type === "UPLOAD_IMAGE") {
+    uploadImage(msg.dataUrl, msg.filename)
+      .then((url) => sendResponse({ ok: true, url }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
 

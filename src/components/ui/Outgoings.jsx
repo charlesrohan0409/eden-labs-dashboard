@@ -9,7 +9,7 @@ import CategorySelect from "./CategorySelect";
 import { useCurrency } from "../../hooks/useCurrency";
 import {
   OUTGOING_KIND_LIST, outgoingMeta, CADENCE_LIST, CADENCES,
-  advanceDate, renewalLabel,
+  advanceDate, renewalLabel, bookOf, bookMeta, inBook,
 } from "../../lib/finance";
 import { CURRENCIES } from "../../lib/currency";
 import { today } from "../../lib/utils";
@@ -23,13 +23,17 @@ const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
  * renewal date forward and adjusts the linked account. See lib/finance.js for
  * why that's deliberate rather than unfinished.
  */
-export default function Outgoings({ outgoings = [], accounts = [], categories = [], onAddCategory, onAdd, onUpdate, onDelete, onCancel, onPay, token }) {
+export default function Outgoings({ outgoings = [], accounts = [], categories = [], book = "all", onAddCategory, onAdd, onUpdate, onDelete, onCancel, onPay, token }) {
   const { moneyFrom, convertFrom, currency } = useCurrency();
   const [filter, setFilter] = useState("all");
   const [editing, setEditing] = useState(null);
 
-  const active = outgoings.filter((o) => o.status !== "cancelled");
-  const visible = outgoings
+  // Book first, then the kind/status tabs below. The run-rate is computed
+  // from `active`, so filtering here is what makes "what do my personal
+  // subscriptions cost me a month" a number this card can actually answer.
+  const scoped = inBook(outgoings, book);
+  const active = scoped.filter((o) => o.status !== "cancelled");
+  const visible = scoped
     .filter((o) => (filter === "all" ? o.status !== "cancelled"
                   : filter === "cancelled" ? o.status === "cancelled"
                   : o.kind === filter && o.status !== "cancelled"))
@@ -125,8 +129,16 @@ export default function Outgoings({ outgoings = [], accounts = [], categories = 
               />
 
               <div className="min-w-0 flex-1">
-                <div className={`text-[13px] font-medium truncate ${cancelled ? "text-stone-400 line-through" : "text-stone-800"}`}>
+                <div className={`text-[13px] font-medium truncate flex items-center gap-1.5 ${cancelled ? "text-stone-400 line-through" : "text-stone-800"}`}>
                   {o.name}
+                  {/* Business is the default and the majority, so only the
+                      exception is badged — tagging both would put a chip on
+                      every row and stop it carrying information. */}
+                  {bookOf(o) === "personal" && (
+                    <span className={`text-[9.5px] font-medium rounded-full px-1.5 py-px ring-1 shrink-0 ${bookMeta("personal").chip}`}>
+                      Personal
+                    </span>
+                  )}
                 </div>
                 <div className="text-[11px] text-stone-400 truncate">
                   {CADENCES[o.cadence]?.label}
@@ -197,6 +209,7 @@ export default function Outgoings({ outgoings = [], accounts = [], categories = 
           categories={categories}
           onAddCategory={onAddCategory}
           token={token}
+          defaultBook={book === "all" ? "business" : book}
           onCancel={() => setEditing(null)}
           onSave={(patch) => {
             if (editing === "new") onAdd?.(patch);
@@ -209,10 +222,13 @@ export default function Outgoings({ outgoings = [], accounts = [], categories = 
   );
 }
 
-function OutgoingForm({ outgoing, accounts, categories, onAddCategory, onSave, onCancel, token }) {
+function OutgoingForm({ outgoing, accounts, categories, onAddCategory, onSave, onCancel, token, defaultBook = "business" }) {
   const [form, setForm] = useState({
     name: outgoing?.name || "",
     kind: outgoing?.kind || "subscription",
+    // Inherits the page's current book so adding a subscription while
+    // looking at Personal doesn't file it against the agency.
+    book: outgoing ? bookOf(outgoing) : defaultBook,
     amount: outgoing?.amount ?? "",
     currency: outgoing?.currency || "INR",
     cadence: outgoing?.cadence || "monthly",
@@ -243,6 +259,13 @@ function OutgoingForm({ outgoing, accounts, categories, onAddCategory, onSave, o
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        <div>
+          <label className={label}>Book</label>
+          <select className={input} value={form.book} onChange={set("book")}>
+            <option value="business">Eden Labs</option>
+            <option value="personal">Personal</option>
+          </select>
+        </div>
         <div>
           <label className={label}>Kind</label>
           <select className={input} value={form.kind} onChange={set("kind")}>

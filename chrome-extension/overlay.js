@@ -867,6 +867,102 @@ if (!window.__edenLabsOverlayInjected) {
     return link ? link.href.split("?")[0] : location.href.split("?")[0];
   }
 
+  /**
+   * The post's own media — the images that are part of the POST, not the
+   * chrome around it.
+   *
+   * Three different things on a feed card are <img> tags pointing at
+   * media.licdn.com, and only one of them is the post: the author's avatar,
+   * the reaction glyphs on the counts row, and the actual attached image.
+   * Filtering by URL path alone isn't enough (LinkedIn's paths churn like
+   * everything else here), so this also requires real display size —
+   * avatars render at 48px and reaction glyphs at 16px, while a post image
+   * is always the width of the card.
+   *
+   * Returns rendered-size-sorted URLs, biggest first, so a carousel's lead
+   * image is the one that represents the post.
+   */
+  function postImages(post) {
+    const seen = new Set();
+    return [...post.querySelectorAll("img")]
+      .filter((img) => {
+        const src = img.currentSrc || img.src || "";
+        if (!src || !/^https?:/i.test(src)) return false;
+        if (seen.has(src)) return false;
+        // Avatars, company logos and the little reaction glyphs all live on
+        // the same CDN as the post's own image — excluded by path, since
+        // these three particular path fragments have been stable for years.
+        if (/profile-displayphoto|company-logo|school-logo|org-logo|reaction|emoji|ghost/i.test(src)) return false;
+        const r = img.getBoundingClientRect();
+        // A post image spans the card. Anything this small is chrome: the
+        // biggest avatar LinkedIn renders in a feed card is 48px.
+        if (r.width < 160 || r.height < 100) return false;
+        seen.add(src);
+        return true;
+      })
+      .sort((a, b) => {
+        const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+        return rb.width * rb.height - ra.width * ra.height;
+      })
+      // A hard cap rather than everything: a carousel can hold twenty
+      // slides, and each one costs an upload round-trip plus storage.
+      .slice(0, 4)
+      .map((img) => img.currentSrc || img.src);
+  }
+
+  // Wide enough to read a carousel slide's text on a dashboard card,
+  // small enough that four of them don't dominate the storage bucket.
+  const SHOT_MAX_DIMENSION = 1200;
+  const SHOT_QUALITY = 0.82;
+
+  /**
+   * Downloads a LinkedIn image and re-encodes it as a JPEG data URL.
+   *
+   * Verified live that a content script's fetch to media.licdn.com returns
+   * real bytes, which is the whole basis for this working — the same fetch
+   * from the service worker would need a host permission for the CDN, and
+   * a canvas drawn from the live <img> would be tainted by cross-origin
+   * rules. Going through a blob sidesteps both: the bytes are ours by the
+   * time they touch a canvas, so toDataURL is allowed.
+   */
+  async function imageToDataUrl(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const bitmap = await createImageBitmap(blob);
+    const scale = Math.min(1, SHOT_MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    return canvas.toDataURL("image/jpeg", SHOT_QUALITY);
+  }
+
+  /**
+   * Uploads images to our own storage, returning the permanent URLs.
+   *
+   * Failures are skipped rather than thrown: a post whose image couldn't be
+   * copied is still worth saving for its text, and losing the whole save
+   * over one unreadable image would be the worse outcome by far.
+   */
+  async function uploadImages(urls) {
+    const out = [];
+    for (const url of urls) {
+      try {
+        const dataUrl = await imageToDataUrl(url);
+        const stored = await new Promise((resolve) => {
+          safeSendMessage(
+            { type: "UPLOAD_IMAGE", dataUrl, filename: `swipe-${Date.now()}.jpg` },
+            (res) => resolve(res?.ok ? res.url : null)
+          );
+        });
+        if (stored) out.push(stored);
+      } catch { /* skip this one — see above */ }
+    }
+    return out;
+  }
+
   async function readPost(post) {
     if (expandPost(post)) {
       // Let LinkedIn re-render the expanded body before reading it.
@@ -880,6 +976,7 @@ if (!window.__edenLabsOverlayInjected) {
       text: postText(post, author),
       url: postUrl(post),
       stats: postStats(post),
+      images: postImages(post),
       ...author,
     };
   }
@@ -908,13 +1005,41 @@ if (!window.__edenLabsOverlayInjected) {
     );
   }
 
-  /** The row holding Like/Comment/Repost — the shallowest ancestor with both. */
+  /**
+   * Is this element the Comment control?
+   *
+   * Checked by aria-label OR visible text, because on the current rollout
+   * it has NO aria-label at all — verified live, the Comment control's
+   * aria-label is literally null and its only identifier is the word
+   * "Comment" inside it. It is also not always a <button>: the row is
+   * Like (button) / Comment (button) / Repost (button) / Send (anchor).
+   */
+  function isCommentControl(el) {
+    const label = el.getAttribute?.("aria-label") || "";
+    if (/\bcomment\b/i.test(label)) return true;
+    return /^comment$/i.test((el.textContent || "").trim());
+  }
+
+  /**
+   * The row holding Like / Comment / Repost / Send.
+   *
+   * This is where the whole "congested action bar" bug came from. The old
+   * version looked for `button[aria-label*="comment"]`, which matches
+   * NOTHING on the current LinkedIn — so the loop always fell through to
+   * `like.parentElement`, a ~119px wrapper that holds only the Like button.
+   * Appending to that squeezed Like's own label until it wrapped to
+   * "Li / ke", which is exactly what showed up on screen. The button was
+   * never in the action bar at all; it was inside the Like button's box.
+   */
   function actionBarOf(like) {
     let row = like.parentElement;
     for (let i = 0; row && i < 6; i++, row = row.parentElement) {
-      if (row.querySelector('button[aria-label*="comment" i]')) return row;
+      const hit = [...row.querySelectorAll("button, a")].some(isCommentControl);
+      // Must actually be the ROW, not an ancestor that merely contains it —
+      // the first match walking up is the shallowest, which is the row.
+      if (hit) return row;
     }
-    return like.parentElement;
+    return null;
   }
 
   /**
@@ -952,34 +1077,55 @@ if (!window.__edenLabsOverlayInjected) {
     btn.type = "button";
     btn.setAttribute("data-eden-save", "1");
     btn.setAttribute("aria-label", "Save this post to Eden Labs");
+    // The only affordance. A text label was tried and removed: LinkedIn's
+    // action bar is a fixed-width flex row that divides space equally, so a
+    // fifth item wide enough to read "Eden Labs" stole enough from the other
+    // four that the native "Like" wrapped to "Li / ke". An icon-only control
+    // is ~32px against ~100px, which the row absorbs without reflowing
+    // anything — the native labels stay on one line. The tooltip carries the
+    // meaning instead, which is how LinkedIn's own icon-only controls work.
     btn.title = "Save to Eden Labs";
-    // A bookmark icon labelled "Save" is what LinkedIn's OWN inline save
-    // action already looks like — sitting them side by side produced two
-    // visually identical buttons a user could not tell apart. This uses our
-    // own mark (the "EL" badge from the other widgets) and names the
-    // destination rather than the verb, so it reads as a distinct
-    // third-party control rather than a duplicate of the native one.
+    // Our own mark rather than a bookmark glyph. A bookmark labelled "Save"
+    // is exactly what LinkedIn's native save action already looks like, and
+    // side by side the two were indistinguishable. The "EL" badge is the
+    // same mark the widgets use, so it reads as a distinct third-party
+    // control at a glance.
     btn.innerHTML =
-      '<span style="display:inline-flex;align-items:center;justify-content:center;' +
-      'width:16px;height:16px;border-radius:4px;background:#065f46;color:#fff;' +
-      'font:800 9px/1 -apple-system,sans-serif;letter-spacing:-.02em;flex-shrink:0;">EL</span>' +
-      '<span data-eden-save-label>Eden Labs</span>';
+      '<span data-eden-save-mark style="display:inline-flex;align-items:center;justify-content:center;' +
+      'width:19px;height:19px;border-radius:5px;background:#065f46;color:#fff;' +
+      "font:800 9.5px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;" +
+      'letter-spacing:-.03em;flex-shrink:0;transition:transform .16s cubic-bezier(.23,1,.32,1);">EL</span>';
     Object.assign(btn.style, {
       display: "inline-flex",
       alignItems: "center",
-      gap: "6px",
-      padding: "8px 10px",
+      justifyContent: "center",
+      width: "32px",
+      height: "32px",
+      padding: "0",
       margin: "0 2px",
       border: "none",
-      borderRadius: "4px",
+      borderRadius: "50%",
       background: "transparent",
-      color: "rgba(0,0,0,.6)",
-      font: "600 14px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
       cursor: "pointer",
-      transition: "background-color .15s ease, color .15s ease",
+      flexShrink: "0",
+      // transform and background-color only — both skip layout and paint.
+      transition:
+        "background-color .16s cubic-bezier(.23,1,.32,1), transform .16s cubic-bezier(.23,1,.32,1)",
     });
-    btn.addEventListener("mouseenter", () => { btn.style.background = "rgba(0,0,0,.08)"; });
-    btn.addEventListener("mouseleave", () => { btn.style.background = "transparent"; });
+    // Hover is a pointer-only affordance; on touch it fires on tap and
+    // sticks, so the button would sit permanently highlighted after a save.
+    if (window.matchMedia?.("(hover: hover) and (pointer: fine)").matches) {
+      btn.addEventListener("mouseenter", () => { btn.style.background = "rgba(0,0,0,.06)"; });
+      btn.addEventListener("mouseleave", () => { btn.style.background = "transparent"; });
+    }
+    // Press feedback: the interface confirming it heard you, before any
+    // network work starts. Scales the whole button, not the mark, so the
+    // hit area appears to compress rather than the logo shrinking inside it.
+    btn.addEventListener("pointerdown", () => { btn.style.transform = "scale(0.92)"; });
+    const release = () => { btn.style.transform = "none"; };
+    btn.addEventListener("pointerup", release);
+    btn.addEventListener("pointerleave", release);
+    btn.addEventListener("pointercancel", release);
     return btn;
   }
 
@@ -1005,13 +1151,17 @@ if (!window.__edenLabsOverlayInjected) {
     post.dataset[INJECTED_FLAG] = "1";
 
     const btn = makeActionButton();
-    const label = btn.querySelector("[data-eden-save-label]");
+    // With no text label left to swap to "Reading…", the busy state is the
+    // mark itself dimming and pulsing. Reading a post takes ~250ms, so this
+    // is mostly insurance against a slow expand — but a control that looks
+    // identical whether or not it registered the click is the one thing
+    // that makes people click twice.
+    const mark = btn.querySelector("[data-eden-save-mark]");
     btn.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const original = label.textContent;
-      label.textContent = "Reading…";
       btn.disabled = true;
+      btn.style.opacity = "0.55";
       try {
         const read = await readPost(post);
         if (!read.text) { showToast("Couldn't read that post", true); return; }
@@ -1019,7 +1169,8 @@ if (!window.__edenLabsOverlayInjected) {
       } catch {
         showToast("Couldn't read that post", true);
       } finally {
-        label.textContent = original;
+        btn.style.opacity = "";
+        if (mark) mark.style.transform = "none";
         btn.disabled = false;
       }
     });
@@ -1262,6 +1413,49 @@ if (!window.__edenLabsOverlayInjected) {
         #status.error { background: #fff1f2; color: #9f1239; border: 1px solid #fecdd3; }
         @keyframes spin { to { transform: rotate(360deg); } }
         .spin { animation: spin .7s linear infinite; display: inline-block; }
+
+        /* Engagement, shown as read-only chips. This is the number that
+           makes a saved post worth studying — a hook that pulled 400
+           reactions and one that pulled 4 read identically once they're
+           just text in a library. Read-only because it's a measurement,
+           not an opinion: an editable field would invite "fixing" it. */
+        .stats { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+        .stat {
+          display: inline-flex; align-items: baseline; gap: 4px;
+          background: #f5f5f4; border: 1px solid #e7e5e4; border-radius: 999px;
+          padding: 3px 9px; font-size: 11px; color: #57534e;
+        }
+        .stat b { font-size: 12px; font-weight: 650; color: #1c1917; font-variant-numeric: tabular-nums; }
+
+        /* Image strip. Each thumb toggles — saving the post shouldn't force
+           saving a stock photo you don't want, and un-picking after the
+           fact means editing the record in the dashboard. */
+        .shots { display: flex; gap: 6px; flex-wrap: wrap; }
+        .shot {
+          width: 56px; height: 56px; border-radius: 8px; overflow: hidden;
+          border: 2px solid #16a34a; padding: 0; cursor: pointer; background: #f5f5f4;
+          transition: opacity .16s cubic-bezier(.23,1,.32,1),
+                      border-color .16s cubic-bezier(.23,1,.32,1),
+                      transform .16s cubic-bezier(.23,1,.32,1);
+        }
+        .shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .shot:active { transform: scale(0.95); }
+        .shot[data-off="1"] { opacity: .38; border-color: #e7e5e4; }
+        .hint { font-size: 10.5px; color: #a8a29e; margin-top: 5px; line-height: 1.4; }
+
+        /* Inline folder creation. Filing at save time is the only moment
+           you actually remember why the post mattered; bouncing to the
+           dashboard to make a folder first means it lands unsorted. */
+        .folder-row { display: flex; gap: 6px; align-items: stretch; }
+        .icon-btn {
+          flex-shrink: 0; width: 32px; border: 1px solid #e7e5e4; border-radius: 8px;
+          background: #fff; color: #57534e; cursor: pointer; font-size: 15px; line-height: 1;
+          transition: background-color .16s cubic-bezier(.23,1,.32,1),
+                      border-color .16s cubic-bezier(.23,1,.32,1),
+                      transform .16s cubic-bezier(.23,1,.32,1);
+        }
+        .icon-btn:hover { background: #f5f5f4; border-color: #d6d3d1; }
+        .icon-btn:active { transform: scale(0.94); }
       </style>
       <div class="card">
         <div class="header">
@@ -1274,6 +1468,12 @@ if (!window.__edenLabsOverlayInjected) {
         </div>
         <div class="body">
           <div id="status"></div>
+          <div class="stats" id="stats" style="display:none"></div>
+          <div class="field" id="shots-field" style="display:none">
+            <label>Images</label>
+            <div class="shots" id="shots"></div>
+            <div class="hint">Tap to include or skip. Saved to your library, not linked — LinkedIn's own image links expire.</div>
+          </div>
           <div class="field">
             <label>Post text</label>
             <textarea id="swipe-text"></textarea>
@@ -1296,7 +1496,10 @@ if (!window.__edenLabsOverlayInjected) {
           </div>
           <div class="field">
             <label>Folder</label>
-            <select id="folder"><option value="">Uncategorised</option></select>
+            <div class="folder-row">
+              <select id="folder"><option value="">Uncategorised</option></select>
+              <button class="icon-btn" id="new-folder" type="button" title="New folder">+</button>
+            </div>
           </div>
           <div class="field">
             <label>Note (optional)</label>
@@ -1311,16 +1514,76 @@ if (!window.__edenLabsOverlayInjected) {
     $("swipe-text").value = swipe.text || "";
     $("author").value = author;
 
+    // Engagement, if it was read off the post. Hidden entirely rather than
+    // shown as zeros on a manual save — "0 reactions" and "not measured"
+    // are different facts, and only one of them is worth acting on.
+    const stats = swipe.stats || null;
+    if (stats && (stats.reactions || stats.comments)) {
+      const el = $("stats");
+      el.innerHTML =
+        `<span class="stat"><b>${stats.reactions || 0}</b> reactions</span>` +
+        `<span class="stat"><b>${stats.comments || 0}</b> comments</span>`;
+      el.style.display = "flex";
+    }
+
+    // Image thumbnails, all included by default — the common case is a post
+    // whose image IS the point, and opting out is one tap.
+    const shotUrls = Array.isArray(swipe.images) ? swipe.images : [];
+    const dropped = new Set();
+    if (shotUrls.length) {
+      $("shots-field").style.display = "";
+      const wrap = $("shots");
+      shotUrls.forEach((url) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "shot";
+        b.title = "Include this image";
+        const img = document.createElement("img");
+        img.src = url;
+        img.alt = "";
+        // A thumbnail that fails to load is a link we couldn't read, which
+        // means the upload would fail too — drop it rather than offering a
+        // broken tile the user can "include".
+        img.addEventListener("error", () => { dropped.add(url); b.remove(); });
+        b.appendChild(img);
+        b.addEventListener("click", () => {
+          const off = b.dataset.off === "1";
+          b.dataset.off = off ? "" : "1";
+          if (off) dropped.delete(url); else dropped.add(url);
+        });
+        wrap.appendChild(b);
+      });
+    }
+
     // Folders come from whichever account is signed in, so a client profile
     // only ever sees that client's own groupings.
-    safeSendMessage({ type: "LIST_SWIPE_FOLDERS" }, (res) => {
-      if (!res?.ok || !res.folders?.length) return;
-      const sel = $("folder");
-      if (!sel) return;
-      res.folders.forEach((f) => {
-        const o = document.createElement("option");
-        o.value = f.id; o.textContent = f.name;
-        sel.appendChild(o);
+    const loadFolders = (selectId) => {
+      safeSendMessage({ type: "LIST_SWIPE_FOLDERS" }, (res) => {
+        const sel = $("folder");
+        if (!res?.ok || !sel) return;
+        sel.innerHTML = '<option value="">Uncategorised</option>';
+        (res.folders || []).forEach((f) => {
+          const o = document.createElement("option");
+          o.value = f.id; o.textContent = f.name;
+          sel.appendChild(o);
+        });
+        if (selectId) sel.value = selectId;
+      });
+    };
+    loadFolders();
+
+    $("new-folder").addEventListener("click", () => {
+      const name = window.prompt("New folder name");
+      if (!name?.trim()) return;
+      safeSendMessage({ type: "ADD_SWIPE_FOLDER", name: name.trim() }, (res) => {
+        if (res?.ok) {
+          // Reload rather than push the option locally: the id is assigned
+          // server-side, and guessing one here would file the post into a
+          // folder that doesn't exist.
+          loadFolders(res.folderId || null);
+        } else {
+          showStatus("error", res?.error || "Couldn't create that folder.");
+        }
       });
     });
 
@@ -1335,11 +1598,24 @@ if (!window.__edenLabsOverlayInjected) {
       el.style.display = "block";
     };
 
-    $("save").addEventListener("click", () => {
+    $("save").addEventListener("click", async () => {
       const text = $("swipe-text").value.trim();
       if (!text) { showStatus("error", "Post text can't be empty."); return; }
       const btn = $("save");
       btn.disabled = true;
+
+      // Images are COPIED, not linked. LinkedIn's CDN URLs carry a signed
+      // expiry, so a saved post that merely pointed at one would render
+      // fine today and show a broken tile in a few weeks — by which time
+      // the post may well be edited or deleted and unrecoverable. Uploading
+      // is the difference between a library and a list of dead links.
+      const keep = shotUrls.filter((u) => !dropped.has(u));
+      let images = [];
+      if (keep.length) {
+        btn.innerHTML = '<span class="spin">⟳</span> Saving images…';
+        images = await uploadImages(keep);
+      }
+
       btn.innerHTML = '<span class="spin">⟳</span> Saving…';
       safeSendMessage({
         type: "SAVE_SWIPE",
@@ -1355,6 +1631,7 @@ if (!window.__edenLabsOverlayInjected) {
           // when it was actually read off the post, so a manual save doesn't
           // record a fake zero that later reads as "this flopped".
           stats: swipe.stats && (swipe.stats.reactions || swipe.stats.comments) ? swipe.stats : null,
+          images,
           note: $("note").value.trim(),
         },
       }, (result) => {

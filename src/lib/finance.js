@@ -83,10 +83,48 @@ export function renewalLabel(dateStr) {
   return { text: `In ${d}d`, tone: "stone", overdue: false };
 }
 
+// ---- books: whose money is this? ----
+//
+// Money moving through this dashboard belongs to one of two books. The
+// agency's rent and the personal Netflix subscription are both real
+// outgoings, but summing them answers no question anyone actually has:
+// "what did the business spend this month" and "what did I spend this
+// month" are different numbers, and a single blended total is wrong for
+// both. Kept as a field on the record rather than two collections so every
+// existing total, chart and CSV keeps working untouched — they just gain a
+// filter.
+//
+// Existing rows have no `book`, and are treated as business: this dashboard
+// was the agency's ledger long before it was anything else, so that's what
+// the untagged history actually is. Guessing "personal" for them would
+// silently pull real business costs out of every business total.
+export const BOOKS = {
+  business: { id: "business", label: "Eden Labs", short: "Business", chip: "bg-emerald-50 text-emerald-700 ring-emerald-600/15", dot: "bg-emerald-500" },
+  personal: { id: "personal", label: "Personal",  short: "Personal", chip: "bg-violet-50 text-violet-700 ring-violet-600/15",   dot: "bg-violet-500" },
+};
+export const BOOK_LIST = Object.values(BOOKS);
+export const bookOf = (record) => (record?.book === "personal" ? "personal" : "business");
+export const bookMeta = (id) => BOOKS[id] || BOOKS.business;
+
+/** Filters any book-tagged collection. `null`/"all" means don't filter. */
+export function inBook(rows, book) {
+  if (!book || book === "all") return rows || [];
+  return (rows || []).filter((r) => bookOf(r) === book);
+}
+
 // ---- budgets ----
+//
+// `custom` is the one that isn't a calendar period: it runs between an
+// explicit start and end date, and once that window is past it stops
+// accumulating rather than silently rolling into the next one. That's the
+// difference between "my monthly software budget" and "the ₹40k I've set
+// aside for this launch" — the second has an end, and a budget that quietly
+// resets past its end date would report a finished project as on track
+// forever.
 export const BUDGET_PERIODS = {
   monthly: { label: "Monthly" },
   yearly:  { label: "Yearly" },
+  custom:  { label: "Custom dates" },
 };
 export const BUDGET_PERIOD_LIST = Object.entries(BUDGET_PERIODS).map(([id, m]) => ({ id, ...m }));
 
@@ -94,6 +132,49 @@ export const BUDGET_PERIOD_LIST = Object.entries(BUDGET_PERIODS).map(([id, m]) =
 export function periodKey(dateStr, period) {
   if (!dateStr) return "";
   return period === "yearly" ? dateStr.slice(0, 4) : dateStr.slice(0, 7);
+}
+
+/**
+ * The window a budget currently measures, as {from, to} date keys.
+ *
+ * Calendar periods derive their window from `now`, which is what makes them
+ * reset on their own — no stored cursor to drift, and no reset job that has
+ * to have run for the number to be right. A custom budget's window is
+ * whatever was typed.
+ */
+export function budgetWindow(budget, now = new Date()) {
+  if (budget?.period === "custom") {
+    return { from: budget.startDate || "", to: budget.endDate || "" };
+  }
+  const y = now.getFullYear();
+  if (budget?.period === "yearly") {
+    return { from: `${y}-01-01`, to: `${y}-12-31` };
+  }
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
+  return { from: `${y}-${m}-01`, to: `${y}-${m}-${String(lastDay).padStart(2, "0")}` };
+}
+
+/** A custom budget whose end date has passed — finished, not just quiet. */
+export function isBudgetExpired(budget, todayKey = today()) {
+  return budget?.period === "custom" && !!budget.endDate && budget.endDate < todayKey;
+}
+
+/**
+ * Human label for the window a budget covers.
+ *
+ * Says how long a custom budget has left, because that's the number that
+ * changes what you do — "₹12k left" means something different with three
+ * weeks to go than with two days.
+ */
+export function budgetPeriodLabel(budget, todayKey = today()) {
+  if (budget?.period !== "custom") return budget?.period === "yearly" ? "This year" : "This month";
+  const { from, to } = budgetWindow(budget);
+  if (!from || !to) return "Custom";
+  if (to < todayKey) return `Ended ${to}`;
+  const daysLeft = daysUntil(to);
+  if (daysLeft === 0) return "Ends today";
+  return `${from} → ${to} · ${daysLeft}d left`;
 }
 
 // What's been spent against a budget in the CURRENT period, expressed in the
@@ -104,11 +185,24 @@ export function periodKey(dateStr, period) {
 // pure function with no dependency on the live FX rate, which lives in React
 // state. Callers pass the one from useCurrency.
 export function spentOn(budget, expenses, convert, now = new Date()) {
-  const key = budget.period === "yearly"
-    ? String(now.getFullYear())
-    : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const { from: winFrom, to: winTo } = budgetWindow(budget, now);
+  // A budget only ever measures its OWN book. Without this, a personal
+  // "Software" budget would count the agency's Figma seat against it — same
+  // category name, entirely different money — and read as over budget for a
+  // spend the person never made.
+  const book = bookOf(budget);
   return (expenses || [])
-    .filter((e) => e.category === budget.category && periodKey(e.date, budget.period) === key)
+    .filter((e) => {
+      if (e.category !== budget.category) return false;
+      if (bookOf(e) !== book) return false;
+      const d = e.date || "";
+      if (!d) return false;
+      // Inclusive on both ends: a budget running "to the 31st" that excluded
+      // the 31st would quietly under-report the last day of every window.
+      if (winFrom && d < winFrom) return false;
+      if (winTo && d > winTo) return false;
+      return true;
+    })
     .reduce((sum, e) => {
       const amount = Number(e.nativeAmount ?? e.amount) || 0;
       const from = e.currency || "USD";

@@ -7,6 +7,26 @@ import Modal from "./Modal";
 import PrimaryButton from "./PrimaryButton";
 import { STAGE_WEIGHTS, today } from "../../lib/utils";
 import { useCurrency } from "../../hooks/useCurrency";
+import { CURRENCIES, convertBetween } from "../../lib/currency";
+
+// A lead's deal value, in whatever currency it was actually quoted in.
+//
+// Same split invoices already use, and for the same reason: `dealValue`
+// stays a frozen USD snapshot so every aggregate on this board — weighted
+// pipeline, closed-won, average deal size — keeps summing one comparable
+// number. Summing ₹ and $ together would be meaningless. `nativeDealValue`
+// + `dealCurrency` are what was actually quoted, and what gets displayed;
+// `dealFxRate` is frozen at entry so a later rate move can't silently
+// reprice a deal that closed months ago.
+function dealFields(amount, code, rate) {
+  const native = Number(amount) || 0;
+  return {
+    dealValue: convertBetween(native, code || "USD", "USD", rate),
+    nativeDealValue: native,
+    dealCurrency: code || "USD",
+    dealFxRate: (code || "USD") === "USD" ? 1 : rate,
+  };
+}
 
 export const STAGES = ["lead", "call_booked", "proposal_sent", "closed", "lost"];
 
@@ -25,12 +45,21 @@ export const STAGE_META = {
 // editable here — this is the one place to fill in details added later
 // (a call happened, a deal value firmed up, notes from a conversation).
 function EditLeadModal({ contact, onClose, onUpdateContact, onDeleteContact }) {
-  const [form, setForm] = useState(contact);
+  const { rate } = useCurrency();
+  // Seeds the amount field from the NATIVE value so opening a ₹ lead shows
+  // ₹, not its USD snapshot — editing and saving without touching the field
+  // would otherwise silently rewrite the deal to the converted number.
+  const seed = (c) => ({
+    ...c,
+    dealValue: c?.nativeDealValue ?? c?.dealValue ?? "",
+    dealCurrency: c?.dealCurrency || "USD",
+  });
+  const [form, setForm] = useState(() => seed(contact));
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Re-sync if a different card is opened without unmounting.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => setForm(contact), [contact?.id]);
+  useEffect(() => setForm(seed(contact)), [contact?.id]);
 
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
@@ -44,7 +73,7 @@ function EditLeadModal({ contact, onClose, onUpdateContact, onDeleteContact }) {
       title: form.title?.trim() || "",
       stage: form.stage,
       source: form.source?.trim() || "",
-      dealValue: Number(form.dealValue) || 0,
+      ...dealFields(form.dealValue, form.dealCurrency, rate),
       phone: form.phone?.trim() || "",
       email: form.email?.trim() || "",
       notes: form.notes?.trim() || "",
@@ -124,8 +153,13 @@ function EditLeadModal({ contact, onClose, onUpdateContact, onDeleteContact }) {
 
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className={labelCls}>Deal value ($)</label>
-            <input type="number" min="0" className={`${inputCls} mt-1`} value={form.dealValue || ""} onChange={(e) => set({ dealValue: e.target.value })} />
+            <label className={labelCls}>Deal value</label>
+            <div className="flex gap-1.5 mt-1">
+              <input type="number" min="0" className={`${inputCls} flex-1 min-w-0`} value={form.dealValue || ""} onChange={(e) => set({ dealValue: e.target.value })} />
+              <select className={`${inputCls} w-20 shrink-0`} value={form.dealCurrency || "USD"} onChange={(e) => set({ dealCurrency: e.target.value })}>
+                {Object.values(CURRENCIES).map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}
+              </select>
+            </div>
           </div>
           <div>
             <label className={labelCls}>Source</label>
@@ -162,7 +196,7 @@ function EditLeadModal({ contact, onClose, onUpdateContact, onDeleteContact }) {
 // ---------- One lead card ----------
 function LeadCard({ contact, onUpdateStage, onEdit, onDragStart, onDragEnd, dragging }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const { money } = useCurrency();
+  const { money, moneyIn } = useCurrency();
   const meta = STAGE_META[contact.stage] || STAGE_META.lead;
 
   return (
@@ -242,9 +276,16 @@ function LeadCard({ contact, onUpdateStage, onEdit, onDragStart, onDragEnd, drag
 
       <div className="flex items-center justify-between gap-2 mt-3.5 pt-3 border-t border-stone-100">
         <Badge tone={meta.tone}>{contact.source || "manual"}</Badge>
-        {contact.dealValue > 0 && (
+        {/* Shown in the currency it was quoted in, not the dashboard's
+            display currency — "₹4,00,000" is the number that was actually
+            agreed, and converting it for display makes it unrecognisable
+            on the call where you have to say it out loud. Falls back to the
+            USD snapshot for leads saved before the split existed. */}
+        {(Number(contact.nativeDealValue ?? contact.dealValue) || 0) > 0 && (
           <span className="text-sm font-semibold text-stone-800 tnum">
-            {money(contact.dealValue)}
+            {contact.nativeDealValue != null
+              ? moneyIn(contact.nativeDealValue, contact.dealCurrency || "USD")
+              : money(contact.dealValue)}
           </span>
         )}
       </div>
@@ -254,8 +295,8 @@ function LeadCard({ contact, onUpdateStage, onEdit, onDragStart, onDragEnd, drag
 
 // ---------- Board ----------
 export default function CrmBoard({ contacts, onAddContact, onUpdateStage, onUpdateContact, onDeleteContact, showExtensionHint = true }) {
-  const { money } = useCurrency();
-  const [form, setForm] = useState({ name: "", company: "", title: "", source: "manual", dealValue: "", phone: "", email: "" });
+  const { money, rate } = useCurrency();
+  const [form, setForm] = useState({ name: "", company: "", title: "", source: "manual", dealValue: "", dealCurrency: "INR", phone: "", email: "" });
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
@@ -363,13 +404,16 @@ export default function CrmBoard({ contacts, onAddContact, onUpdateStage, onUpda
           <div className="flex flex-wrap gap-2">
             <input placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={`${inputCls} flex-1 min-w-[8rem]`} />
             <input placeholder="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={`${inputCls} flex-1 min-w-[8rem]`} />
-            <input placeholder="Deal value ($)" type="number" value={form.dealValue} onChange={(e) => setForm({ ...form, dealValue: e.target.value })} className={`${inputCls} w-32`} />
+            <input placeholder="Deal value" type="number" value={form.dealValue} onChange={(e) => setForm({ ...form, dealValue: e.target.value })} className={`${inputCls} w-28`} />
+            <select value={form.dealCurrency} onChange={(e) => setForm({ ...form, dealCurrency: e.target.value })} className={`${inputCls} w-20`}>
+              {Object.values(CURRENCIES).map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}
+            </select>
             <PrimaryButton
               icon={Plus}
               onClick={() => {
                 if (!form.name) return;
-                onAddContact({ ...form, stage: "lead", dealValue: Number(form.dealValue) || 0, addedDate: today() });
-                setForm({ name: "", company: "", title: "", source: "manual", dealValue: "", phone: "", email: "" });
+                onAddContact({ ...form, stage: "lead", ...dealFields(form.dealValue, form.dealCurrency, rate), addedDate: today() });
+                setForm({ name: "", company: "", title: "", source: "manual", dealValue: "", dealCurrency: "INR", phone: "", email: "" });
                 setShowForm(false);
               }}
             >

@@ -468,6 +468,12 @@ const EXTENSION_ACTIONS = {
   logOutreachEntry:    { ownerOnly: false },
   listCampaigns:       { ownerOnly: false, readOnly: true },
   listSwipeFolders:    { ownerOnly: false, readOnly: true },
+  // Filing at save time is the only moment the reason for filing is fresh,
+  // and that's worthless if the right folder doesn't exist yet and making
+  // one means leaving LinkedIn for the dashboard. Client sessions get this
+  // for the same reason they get saveSwipe — the folders are scoped by the
+  // clientId hinge below, so one can only ever create its own.
+  addSwipeFolder:      { ownerOnly: false },
   // Read-only — the overlay's panel needs to show what's already on the
   // list, not just write to it. Owner-only like the rest of the comment-
   // target actions, and deliberately returns just this one array rather
@@ -517,6 +523,12 @@ export async function handleExtension(headers, body) {
     };
   }
 
+  // Ids minted inside the switch that the caller needs back. The extension
+  // can't guess one — it's assigned here — and a "create folder then file
+  // this post into it" flow would otherwise need two round-trips and a
+  // re-list to find out what it just made.
+  let extra = {};
+
   // Never PUT /api/data here — there's no optimistic locking, so a stale
   // full-blob write from a long-open popup would roll back everything the
   // dashboard did since the popup was opened. Every action below does its
@@ -528,7 +540,16 @@ export async function handleExtension(headers, body) {
         name: p.name.trim(), company: p.company || "", title: p.title || "",
         stage: p.stage || "lead", source: p.source || "Chrome Extension",
         url: p.url || "", notes: p.notes || "", email: p.email || "", phone: p.phone || "",
-        photoUrl: p.photoUrl || "", dealValue: p.dealValue || null,
+        photoUrl: p.photoUrl || "",
+        // Split, same as invoices and expenses: dealValue is the USD
+        // snapshot every pipeline total sums, nativeDealValue is what was
+        // actually quoted. The extension does the conversion (it can reach
+        // an FX source; this handler can't) and sends a null snapshot
+        // rather than a wrong one if no rate was available.
+        dealValue: p.dealValue ?? null,
+        nativeDealValue: p.nativeDealValue ?? null,
+        dealCurrency: p.dealCurrency || "USD",
+        dealFxRate: p.dealFxRate ?? null,
         clientId, closedDate: null, addedDate: new Date().toISOString().slice(0, 10),
       });
       break;
@@ -577,8 +598,31 @@ export async function handleExtension(headers, body) {
         stats: p.stats && typeof p.stats === "object"
           ? { reactions: Number(p.stats.reactions) || 0, comments: Number(p.stats.comments) || 0 }
           : null,
+        // Already uploaded to our own Storage by the time they arrive — the
+        // extension copies them rather than sending LinkedIn's signed CDN
+        // links, which expire. Capped and type-checked here anyway, since
+        // this is a public endpoint and the blob is shared state.
+        images: Array.isArray(p.images)
+          ? p.images.filter((u) => typeof u === "string" && /^https?:\/\//.test(u)).slice(0, 4)
+          : [],
         savedAt: new Date().toISOString(),
       });
+      break;
+    }
+    case "addSwipeFolder": {
+      const name = (p.name || "").trim();
+      if (!name) return { status: 400, body: { error: "Folder needs a name." } };
+      // Same name, same owner = the folder they meant. The "+" button is
+      // one tap next to a dropdown that may be scrolled past the existing
+      // folder, so typing a name that already exists is the expected
+      // mistake, not an edge case — and silently making a second "Hooks"
+      // would split the library in a way that's tedious to undo.
+      const existing = (data.swipeFolders || []).find(
+        (f) => (f.clientId || null) === clientId && (f.name || "").trim().toLowerCase() === name.toLowerCase()
+      );
+      if (existing) { extra = { folderId: existing.id }; break; }
+      M.addSwipeFolder(data, { clientId, name });
+      extra = { folderId: (data.swipeFolders || []).at(-1)?.id || null };
       break;
     }
     case "addCommentTarget": {
@@ -638,7 +682,7 @@ export async function handleExtension(headers, body) {
   if (!saved.ok) {
     return { status: 409, body: { error: "The dashboard was being edited at the same time. Try that again." } };
   }
-  return { status: 200, body: { ok: true } };
+  return { status: 200, body: { ok: true, ...extra } };
 }
 
 // Routes that need the HTTP method and headers, not just a POST body — kept

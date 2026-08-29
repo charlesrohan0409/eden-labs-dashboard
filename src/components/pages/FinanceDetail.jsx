@@ -33,7 +33,7 @@ import { effectiveInvoiceStatus } from "../../lib/finance.js";
 // hand back a fresh copy, not a reference every reset then mutates in common.
 const BLANK_EXPENSE = () => ({
   category: "Software", vendor: "", amount: "", currency: "INR",
-  date: today(), accountId: "",
+  date: today(), accountId: "", book: "business",
 });
 
 const STATUS_TONE = { paid: "emerald", pending: "amber", overdue: "rose", draft: "stone" };
@@ -57,6 +57,10 @@ export default function FinanceDetail({
   onAddBudget, onUpdateBudget, onDeleteBudget, onAddExpenseCategory, token,
 }) {
   const [activeTab, setActiveTab] = useState("overview");
+  // Which book the "My money" tab is showing. Defaults to everything —
+  // opening the tab filtered would hide half the outgoings behind a control
+  // you'd have to notice before you could trust the totals.
+  const [book, setBook] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [search, setSearch] = useState("");
   const [genStatus, setGenStatus] = useState("");
@@ -728,6 +732,14 @@ export default function FinanceDetail({
                 </select>
               </div>
               <input type="date" value={exp.date} onChange={(e) => setExp({ ...exp, date: e.target.value })} className={`${inputCls} w-full`} />
+              {/* Whose money this was. Business is the default because that
+                  is what this ledger has always been — the untagged history
+                  is agency spend, and defaulting the other way would move
+                  real business costs out of every business total. */}
+              <select value={exp.book} onChange={(e) => setExp({ ...exp, book: e.target.value })} className={`${inputCls} w-full`}>
+                <option value="business">Eden Labs expense</option>
+                <option value="personal">Personal expense</option>
+              </select>
               <select value={exp.accountId} onChange={(e) => setExp({ ...exp, accountId: e.target.value })} className={`${inputCls} w-full`}>
                 <option value="">Don't touch any balance</option>
                 {data.accounts.map((a) => <option key={a.id} value={a.id}>Paid from {a.name}</option>)}
@@ -761,6 +773,7 @@ export default function FinanceDetail({
                     currency: exp.currency,
                     fxRate,
                     date: exp.date || today(),
+                    book: exp.book || "business",
                     accountId: exp.accountId || null,
                   }, rate);
                   setExp(BLANK_EXPENSE());
@@ -795,10 +808,28 @@ export default function FinanceDetail({
             onDelete={onDeleteAccount}
             token={token}
           />
+
+          {/* Whose money. One control at the top of the tab rather than a
+              filter inside each card, so the subscriptions list and the
+              budgets measuring them can never be showing different books —
+              which would quietly explain a budget as "over" using spend the
+              list below it isn't displaying. */}
+          <PillTabs
+            size="sm"
+            value={book}
+            onChange={setBook}
+            options={[
+              { value: "all", label: "Everything" },
+              { value: "business", label: "Eden Labs" },
+              { value: "personal", label: "Personal" },
+            ]}
+          />
+
           <div className="grid lg:grid-cols-2 gap-4 items-start">
             <Outgoings
               outgoings={data.outgoings}
               accounts={data.accounts}
+              book={book}
               onAdd={onAddOutgoing}
               onUpdate={onUpdateOutgoing}
               onDelete={onDeleteOutgoing}
@@ -811,6 +842,7 @@ export default function FinanceDetail({
             <Budgets
               budgets={data.budgets}
               expenses={data.expenses}
+              book={book}
               categories={data.expenseCategories}
               onAddCategory={onAddExpenseCategory}
               onAdd={onAddBudget}

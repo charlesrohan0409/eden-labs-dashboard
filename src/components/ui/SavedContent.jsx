@@ -1,9 +1,41 @@
 import { useState } from "react";
-import { Plus, Trash2, ExternalLink, X, Bookmark, Search, FolderOpen} from "lucide-react";
+import { Plus, Trash2, ExternalLink, X, Bookmark, Search, FolderOpen, Heart, MessageCircle } from "lucide-react";
 import Card from "./Card";
 import Avatar from "./Avatar";
 import PrimaryButton from "./PrimaryButton";
 import { today } from "../../lib/utils";
+
+const compact = (n) =>
+  n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, "")}k` : String(n);
+
+/**
+ * Engagement as it was when the post was captured.
+ *
+ * This is the whole reason to save someone else's post rather than screenshot
+ * it: a hook that pulled 400 reactions is worth studying and one that pulled
+ * 4 is not, and nothing you write down afterwards can tell them apart. It
+ * renders only when the numbers were actually READ off the post — a manual
+ * paste has no engagement to report, and showing it "0 · 0" would read as a
+ * flop rather than as unmeasured.
+ */
+function Engagement({ stats }) {
+  if (!stats) return null;
+  const reactions = Number(stats.reactions) || 0;
+  const comments = Number(stats.comments) || 0;
+  if (!reactions && !comments) return null;
+  return (
+    <div className="flex items-center gap-3 text-[11px] text-stone-500">
+      <span className="inline-flex items-center gap-1">
+        <Heart size={11} className="text-rose-400" />
+        <span className="font-semibold text-stone-700 tabular-nums">{compact(reactions)}</span>
+      </span>
+      <span className="inline-flex items-center gap-1">
+        <MessageCircle size={11} className="text-sky-400" />
+        <span className="font-semibold text-stone-700 tabular-nums">{compact(comments)}</span>
+      </span>
+    </div>
+  );
+}
 
 const TAGS = [
   { id: "hook", label: "Hook", chip: "bg-sky-50 text-sky-700 ring-sky-600/15" },
@@ -283,20 +315,54 @@ export default function SavedContent({
           const isLong = (body || "").length > 260;
           return (
             <div key={s.id} className="group relative bg-white border border-line rounded-xl p-3.5 flex flex-col hover:border-stone-300 transition-colors">
-              <div className="flex items-center gap-2 mb-2.5">
-                <Avatar name={s.author || "Unknown"} photoUrl={s.authorPhoto} size={28} />
+              {/* Author block reads like the post's own header — avatar,
+                  name, then the headline underneath, which is the line that
+                  tells you WHY this person's hook worked. */}
+              <div className="flex items-start gap-2 mb-2.5">
+                <Avatar name={s.author || "Unknown"} photoUrl={s.authorPhoto} size={32} />
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium text-stone-800 truncate">{s.author || "Unknown"}</div>
-                  {s.savedAt && <div className="text-[10px] text-stone-400">Saved {s.savedAt}</div>}
+                  {s.headline && (
+                    <div className="text-[10.5px] text-stone-400 truncate leading-snug">{s.headline}</div>
+                  )}
+                  {s.savedAt && (
+                    <div className="text-[10px] text-stone-300 mt-0.5">Saved {String(s.savedAt).slice(0, 10)}</div>
+                  )}
                 </div>
                 <span className={`text-[10px] font-medium rounded-full px-2 py-0.5 ring-1 shrink-0 ${tag.chip}`}>
                   {tag.label}
                 </span>
               </div>
 
-              <div className={`text-[13px] text-stone-700 whitespace-pre-wrap leading-relaxed flex-1 ${expanded ? "" : "line-clamp-6"}`}>
+              <div className={`text-[13px] text-stone-700 whitespace-pre-wrap leading-relaxed ${expanded ? "" : "line-clamp-6"}`}>
                 {body || <span className="text-stone-300">No text saved</span>}
               </div>
+
+              {/* The post's own images, copied into our Storage at save time
+                  rather than hotlinked — LinkedIn's CDN URLs are signed and
+                  expire. A single image runs full width; several tile, since
+                  a carousel's shape is part of what's being studied. */}
+              {Array.isArray(s.images) && s.images.length > 0 && (
+                <div className={`mt-2.5 grid gap-1 ${s.images.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+                  {s.images.map((src, idx) => (
+                    <a
+                      key={src}
+                      href={src}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className={`block overflow-hidden rounded-lg border border-line bg-stone-50
+                        ${s.images.length === 3 && idx === 0 ? "col-span-2" : ""}`}
+                    >
+                      <img
+                        src={src}
+                        alt=""
+                        loading="lazy"
+                        className={`w-full object-cover ${s.images.length === 1 ? "max-h-56" : "h-24"}`}
+                      />
+                    </a>
+                  ))}
+                </div>
+              )}
 
               {isLong && (
                 <button
@@ -314,6 +380,20 @@ export default function SavedContent({
                   {s.note}
                 </div>
               )}
+
+              {/* Engagement sits on its own row directly under the post,
+                  exactly where LinkedIn puts it — the same reading order,
+                  so the number attaches to the post it belongs to rather
+                  than floating in the card's furniture. mt-auto pins this
+                  whole footer block to the bottom so cards in a row line
+                  their actions up regardless of how long the text is. */}
+              <div className="mt-auto">
+                {s.stats && (
+                  <div className="pt-2.5 mt-2.5 border-t border-stone-100">
+                    <Engagement stats={s.stats} />
+                  </div>
+                )}
+              </div>
 
               <div className="flex items-center gap-2 mt-2.5">
                 {s.url && (

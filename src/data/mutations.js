@@ -644,6 +644,11 @@ export function payOutgoing(d, id, { date, nextRenewal }) {
     nativeAmount: Number(o.amount) || 0,
     currency: o.currency || "INR",
     date: paidOn,
+    // Inherited, not defaulted. A personal subscription's charge is a
+    // personal expense — without this the business book would silently
+    // absorb every personal renewal the moment it was marked paid, which
+    // is exactly the blending the two books exist to prevent.
+    book: o.book === "personal" ? "personal" : "business",
     outgoingId: o.id,
   });
   o.lastPaidDate = paidOn;

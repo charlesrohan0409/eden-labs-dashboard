@@ -3,7 +3,7 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 import {
-  ArrowLeft, Send, FileDown, TrendingUp, CheckCircle2, DollarSign, Phone, Link2, Copy, Check,
+  ArrowLeft, Send, FileDown, TrendingUp, CheckCircle2, DollarSign, Phone, Link2, Copy, Check, Users,
   AlertTriangle, Ban, Eye, Clock, StickyNote, Activity, FileText, MessageSquare, CheckCheck, Trash2,
   Plus, Pencil, X, Upload,
 } from "lucide-react";
@@ -31,6 +31,9 @@ import NumberField from "../ui/NumberField";
 import GrowthRhythm from "../ui/GrowthRhythm";
 import OutreachLogger from "../ui/OutreachLogger";
 import OutreachDiagnosis from "../ui/OutreachDiagnosis";
+import WeeklyPace from "../ui/WeeklyPace";
+import IconStat from "../ui/IconStat";
+import { forClient, sumEntries } from "../../lib/outreach";
 import CampaignManager from "../ui/CampaignManager";
 
 // ---- Activity log icon / colour per event type ----
@@ -203,6 +206,17 @@ export default function ClientDetail({
   // that client's PIN, which is useless when you're sat at the dashboard.
   const doesOutreach = (client.services || []).includes("outreach");
   const tabIds = clientType.tabs.flatMap((t) => (t === "content" && doesOutreach ? [t, "growth"] : [t]));
+
+  // This client's outreach only. `forClient` matches clientId strictly, so
+  // the agency's own rows (clientId null) stay out of these totals.
+  const clientEntries = useMemo(() => forClient(data.outreachLog, client.id), [data.outreachLog, client.id]);
+  // 30 days rather than the Growth page's switchable 7/30: a single client's
+  // log is thinner, and a 7-day window on it is mostly zeroes.
+  const clientTotals = useMemo(() => {
+    const since = new Date();
+    since.setDate(since.getDate() - 29);
+    return sumEntries(clientEntries, since.toISOString().slice(0, 10));
+  }, [clientEntries]);
   const visibleTabs = tabIds.map((t) => ({ value: t, label: TAB_LABELS[t] || t }));
   // If the active tab isn't available for this client's type (e.g. you were on
   // Content, then opened a book client), fall back to Overview rather than
@@ -485,6 +499,22 @@ export default function ClientDetail({
       {/* ══ Growth — this client's own outreach + rhythm ══ */}
       {activeTab === "growth" && (
         <div className="space-y-5">
+          {/* Same headline numbers the agency's own Growth page leads with,
+              scoped to this client. Without these the client tab could only
+              show what was logged, never how it was tracking — you had to
+              hold the target in your head to know whether a week was good.
+              forClient uses a strict === match so agency-level rows (which
+              carry clientId null) can never leak into a client's totals. */}
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <WeeklyPace entries={clientEntries} target={data.settings?.outreachTargets?.weeklyConnections} />
+            <IconStat icon={Users} tone="sky" label="LI connections sent"
+              value={clientTotals.linkedinConnectionsSent} trendLabel="last 30d" />
+            <IconStat icon={MessageSquare} tone="violet" label="Replies"
+              value={clientTotals.linkedinReplied + clientTotals.emailReplied} trendLabel="last 30d · LI + email" />
+            <IconStat icon={Phone} tone="amber" label="Calls booked"
+              value={clientTotals.linkedinCallsBooked + clientTotals.emailCallsBooked} trendLabel="last 30d · LI + email" />
+          </div>
+
           <GrowthRhythm
             posts={data.posts}
             outreachLog={data.outreachLog}

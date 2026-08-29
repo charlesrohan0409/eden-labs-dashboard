@@ -144,6 +144,9 @@ async function saveLead() {
     title:      $("title").value.trim()      || "",
     stage:      $("stage").value,
     dealValue:  Number($("deal-value").value) || null,
+    // background.js resolves the FX rate and splits this into the native
+    // amount plus a USD snapshot before it ever reaches the server.
+    dealCurrency: $("deal-currency").value || "INR",
     email:      $("email").value.trim()      || "",
     phone:      $("phone").value.trim()      || "",
     notes:      $("notes").value.trim()      || "",

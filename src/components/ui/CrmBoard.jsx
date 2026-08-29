@@ -5,7 +5,7 @@ import Badge from "./Badge";
 import Card from "./Card";
 import Modal from "./Modal";
 import PrimaryButton from "./PrimaryButton";
-import { STAGE_WEIGHTS, today } from "../../lib/utils";
+import { STAGE_WEIGHTS, today, formatLongDate } from "../../lib/utils";
 import { useCurrency } from "../../hooks/useCurrency";
 import { CURRENCIES, convertBetween } from "../../lib/currency";
 
@@ -63,7 +63,13 @@ function EditLeadModal({ contact, onClose, onUpdateContact, onDeleteContact }) {
 
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
-  const inputCls = "w-full border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
+  // Width is NOT baked into the base. Appending `w-20` to a string that
+  // already contains `w-full` doesn't override it — Tailwind resolves
+  // competing utilities by their order in the generated stylesheet, not by
+  // their order in the class string, so `w-full` won and the currency select
+  // stretched to the full cell while the amount input collapsed to nothing.
+  const inputBase = "border border-line rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/20";
+  const inputCls = `w-full ${inputBase}`;
   const labelCls = "text-[11px] font-medium text-stone-400 uppercase tracking-wide";
 
   const save = () => {
@@ -86,7 +92,7 @@ function EditLeadModal({ contact, onClose, onUpdateContact, onDeleteContact }) {
       open
       onClose={onClose}
       title="Edit lead"
-      subtitle={`Added ${contact.addedDate || "—"}`}
+      subtitle={contact.addedDate ? `Added ${formatLongDate(contact.addedDate)}` : "Added —"}
       footer={
         confirmDelete ? (
           <div className="flex items-center gap-2 w-full">
@@ -155,8 +161,8 @@ function EditLeadModal({ contact, onClose, onUpdateContact, onDeleteContact }) {
           <div>
             <label className={labelCls}>Deal value</label>
             <div className="flex gap-1.5 mt-1">
-              <input type="number" min="0" className={`${inputCls} flex-1 min-w-0`} value={form.dealValue || ""} onChange={(e) => set({ dealValue: e.target.value })} />
-              <select className={`${inputCls} w-20 shrink-0`} value={form.dealCurrency || "USD"} onChange={(e) => set({ dealCurrency: e.target.value })}>
+              <input type="number" min="0" className={`${inputBase} flex-1 min-w-0`} value={form.dealValue || ""} onChange={(e) => set({ dealValue: e.target.value })} />
+              <select className={`${inputBase} w-[4.75rem] shrink-0`} value={form.dealCurrency || "USD"} onChange={(e) => set({ dealCurrency: e.target.value })}>
                 {Object.values(CURRENCIES).map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}
               </select>
             </div>

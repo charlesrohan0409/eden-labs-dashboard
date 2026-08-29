@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Eden Labs CRM",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "description": "Save LinkedIn leads, log outreach against a lead list, and build a daily comment list — for Eden Labs or any client profile.",
 
   "permissions": ["contextMenus", "storage", "scripting", "activeTab"],

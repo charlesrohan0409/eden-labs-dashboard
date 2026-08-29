@@ -596,7 +596,11 @@ export async function handleExtension(headers, body) {
         url: p.url || "", text: p.text || "", note: p.note || "", tag: p.tag || "hook",
         folderId: folder ? folder.id : null,
         stats: p.stats && typeof p.stats === "object"
-          ? { reactions: Number(p.stats.reactions) || 0, comments: Number(p.stats.comments) || 0 }
+          ? {
+              reactions: Number(p.stats.reactions) || 0,
+              comments: Number(p.stats.comments) || 0,
+              reposts: Number(p.stats.reposts) || 0,
+            }
           : null,
         // Already uploaded to our own Storage by the time they arrive — the
         // extension copies them rather than sending LinkedIn's signed CDN

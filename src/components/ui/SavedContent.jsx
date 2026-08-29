@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Trash2, ExternalLink, X, Bookmark, Search, FolderOpen, Heart, MessageCircle } from "lucide-react";
+import { Plus, Trash2, ExternalLink, X, Bookmark, Search, FolderOpen, Heart, MessageCircle, Repeat2 } from "lucide-react";
 import Card from "./Card";
 import Avatar from "./Avatar";
 import PrimaryButton from "./PrimaryButton";
@@ -22,7 +22,8 @@ function Engagement({ stats }) {
   if (!stats) return null;
   const reactions = Number(stats.reactions) || 0;
   const comments = Number(stats.comments) || 0;
-  if (!reactions && !comments) return null;
+  const reposts = Number(stats.reposts) || 0;
+  if (!reactions && !comments && !reposts) return null;
   return (
     <div className="flex items-center gap-3 text-[11px] text-stone-500">
       <span className="inline-flex items-center gap-1">
@@ -33,6 +34,15 @@ function Engagement({ stats }) {
         <MessageCircle size={11} className="text-sky-400" />
         <span className="font-semibold text-stone-700 tabular-nums">{compact(comments)}</span>
       </span>
+      {/* Only when there are any. A "0" beside two real numbers reads as a
+          measurement rather than as "nobody reshared this", and most posts
+          have none. */}
+      {reposts > 0 && (
+        <span className="inline-flex items-center gap-1">
+          <Repeat2 size={11} className="text-emerald-500" />
+          <span className="font-semibold text-stone-700 tabular-nums">{compact(reposts)}</span>
+        </span>
+      )}
     </div>
   );
 }

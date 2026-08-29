@@ -819,27 +819,74 @@ if (!window.__edenLabsOverlayInjected) {
    * Verified live: the real count is a plain <span> reading "29 reactions"
    * with no aria-label and no usable class name.
    */
-  function findCount(post, word) {
-    // A leaf element, so "29 reactions" is matched rather than some ancestor
-    // whose combined text happens to contain it (the whole counts row reads
-    // "29 reactions29 3 comments3 comments", which would parse as 29 for
-    // both by accident).
-    const re = new RegExp(`^[\\d.,]+\\s*[KM]?\\s*${word}s?$`, "i");
-    const hit = [...post.querySelectorAll("span, a, button, div")].find((n) => {
+  /** Every leaf element in a post — the only place a count ever lives. */
+  const leavesOf = (post) =>
+    [...post.querySelectorAll("span, a, button, div")].filter((n) => {
       if (n.children.length) return false;
-      // Never the action-bar control itself. "Reaction button state: …" and
-      // "Open reactions menu" both live on buttons that carry no count.
+      // Never an action-bar control. "Reaction button state: …" and
+      // "Open reactions menu" are buttons that carry no count, and the
+      // first of those is what made this read 0 for months: it contains
+      // the word "reaction", so a naive aria-label match found the LIKE
+      // BUTTON, read its visible text ("Like"), found no digits, and
+      // returned 0 on every single post.
       const aria = n.getAttribute?.("aria-label") || "";
-      if (/button state|open reactions/i.test(aria)) return false;
-      return re.test((n.textContent || "").trim());
+      return !/button state|open reactions/i.test(aria);
     });
+
+  /**
+   * A numeric count like "29 reactions" / "3 comments" / "2 reposts".
+   *
+   * Matched on the leaf's whole text, so an ancestor whose combined text
+   * happens to contain it can't win — the full counts row reads
+   * "29 reactions29 3 comments3 comments", which would otherwise parse as
+   * 29 for everything.
+   */
+  function findCount(post, word) {
+    const re = new RegExp(`^[\\d.,]+\\s*[KM]?\\s*${word}s?$`, "i");
+    const hit = leavesOf(post).find((n) => re.test((n.textContent || "").trim()));
     return hit ? countOf(hit.textContent) : 0;
+  }
+
+  /**
+   * Reactions, which LinkedIn renders TWO completely different ways.
+   *
+   * When nobody you know reacted it's a number: "11 reactions". When people
+   * in your network did, that number is replaced entirely by social proof —
+   * "Akshay Rajan and 6 others reacted" — and there is no numeric element
+   * anywhere in the card. Only the first form was ever handled, so every
+   * post with a connection among its reactors saved as 0 reactions. On this
+   * account that's most of the feed, which is why it looked like the count
+   * was simply broken.
+   *
+   * Verified live that this line is the engagement summary and not a
+   * "you're seeing this because…" header: it sits after the post body and
+   * immediately above the Like/Comment/Repost/Send row, in the counts-row
+   * position. The LAST match is taken for the same reason — if a feed-reason
+   * header ever does appear above the actor block, the counts row is the one
+   * further down the card.
+   *
+   * "and 6 others" means 6 plus the person named, hence the +1.
+   */
+  function findReactions(post) {
+    const numeric = findCount(post, "reaction");
+    if (numeric) return numeric;
+    const proof = leavesOf(post)
+      .filter((n) => /\breacted\b/i.test(n.textContent || ""))
+      .pop();
+    if (!proof) return 0;
+    const text = (proof.textContent || "").trim();
+    const others = text.match(/\band\s+([\d,]+)\s+others?\b/i);
+    if (others) return countOf(others[1]) + 1;
+    // "Bob Smith reacted" — a single named reactor and no "others".
+    if (/\breacted\b/i.test(text)) return 1;
+    return 0;
   }
 
   function postStats(post) {
     return {
-      reactions: findCount(post, "reaction"),
+      reactions: findReactions(post),
       comments: findCount(post, "comment"),
+      reposts: findCount(post, "repost"),
     };
   }
 
@@ -1574,11 +1621,14 @@ if (!window.__edenLabsOverlayInjected) {
     // shown as zeros on a manual save — "0 reactions" and "not measured"
     // are different facts, and only one of them is worth acting on.
     const stats = swipe.stats || null;
-    if (stats && (stats.reactions || stats.comments)) {
+    if (stats && (stats.reactions || stats.comments || stats.reposts)) {
       const el = $("stats");
+      // Reposts only when there are any — a "0 reposts" chip on the many
+      // posts nobody reshared is noise sitting next to two real numbers.
       el.innerHTML =
         `<span class="stat"><b>${stats.reactions || 0}</b> reactions</span>` +
-        `<span class="stat"><b>${stats.comments || 0}</b> comments</span>`;
+        `<span class="stat"><b>${stats.comments || 0}</b> comments</span>` +
+        (stats.reposts ? `<span class="stat"><b>${stats.reposts}</b> reposts</span>` : "");
       el.style.display = "flex";
     }
 
@@ -1686,7 +1736,8 @@ if (!window.__edenLabsOverlayInjected) {
           // Engagement at save time — see the readPost() note. Only sent
           // when it was actually read off the post, so a manual save doesn't
           // record a fake zero that later reads as "this flopped".
-          stats: swipe.stats && (swipe.stats.reactions || swipe.stats.comments) ? swipe.stats : null,
+          stats: swipe.stats && (swipe.stats.reactions || swipe.stats.comments || swipe.stats.reposts)
+            ? swipe.stats : null,
           images,
           note: $("note").value.trim(),
         },

@@ -234,6 +234,7 @@ export function useAppData(token, onUnauthorized) {
     deleteOutgoing: (id) => update((d) => M.deleteOutgoing(d, id)),
     cancelOutgoing: (id) => update((d) => M.cancelOutgoing(d, id)),
     payOutgoing:    (id, opts) => update((d) => M.payOutgoing(d, id, opts)),
+    undoOutgoingPayment: (id) => update((d) => M.undoOutgoingPayment(d, id)),
 
     // ---- inbound enquiries ----
     addInbound:           (e) => update((d) => M.addInbound(d, e)),

@@ -3,7 +3,7 @@ import { FileText, X } from "lucide-react";
 import { useCurrency } from "../../hooks/useCurrency";
 import { formatAmount } from "../../lib/currency";
 import {
-  buildMonthReport, buildMonthReportDocument, isMonthEnd, reportMonthFor, monthLabel,
+  buildMonthReport, buildMonthReportDocument, isMonthEnd, reportMonthFor, monthLabel, buildTrend,
 } from "../../lib/monthReport";
 
 const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
@@ -25,6 +25,10 @@ export default function MonthReportButton({ data, className = "" }) {
   const { rate, currency } = useCurrency();
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState(() => reportMonthFor());
+  // The report's own currency, independent of the dashboard's display
+  // setting — you might work in USD day to day but need the month report in
+  // rupees for an accountant. Defaults to whatever the app is showing.
+  const [reportCurrency, setReportCurrency] = useState(currency || "INR");
 
   // Only in the wrap-up window. The rest of the month a report would be a
   // third of a month presented as a whole one.
@@ -34,11 +38,19 @@ export default function MonthReportButton({ data, className = "" }) {
   // working in public, and a document full of "••••••" is not a report. Same
   // reasoning as the invoice builder.
   const fmtMoney = (usd) =>
-    formatAmount(currency === "INR" ? usd * rate : usd, { currency });
+    formatAmount(reportCurrency === "INR" ? usd * rate : usd, {
+      currency: reportCurrency,
+      // Whole units. A month report is read at a glance and paise add
+      // nothing but width.
+      maximumFractionDigits: 0,
+    });
 
   const openReport = () => {
     const report = buildMonthReport(data, month);
-    const html = buildMonthReportDocument(report, fmtMoney);
+    // Six months so the charts have a shape and the comparison has a
+    // baseline. The report itself is still about `month`.
+    const trend = buildTrend(data, month, 6);
+    const html = buildMonthReportDocument(report, fmtMoney, trend);
     const win = window.open("", "_blank");
     if (!win) return;             // popup blocked — the caller sees nothing happen
     win.document.write(html);
@@ -98,6 +110,18 @@ export default function MonthReportButton({ data, className = "" }) {
               className="border border-line rounded-lg px-2.5 py-1.5 text-sm bg-white w-full focus:outline-none focus:ring-2 focus:ring-emerald-700/20"
             >
               {options.map((k) => <option key={k} value={k}>{monthLabel(k)}</option>)}
+            </select>
+
+            <label className="block text-[10px] font-semibold text-stone-400 uppercase tracking-wide mb-1 mt-3">
+              Currency
+            </label>
+            <select
+              value={reportCurrency}
+              onChange={(e) => setReportCurrency(e.target.value)}
+              className="border border-line rounded-lg px-2.5 py-1.5 text-sm bg-white w-full focus:outline-none focus:ring-2 focus:ring-emerald-700/20"
+            >
+              <option value="INR">₹ Rupees</option>
+              <option value="USD">$ Dollars</option>
             </select>
 
             <button

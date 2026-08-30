@@ -645,7 +645,61 @@ export function cancelOutgoing(d, id) {
 // way a charge gets recorded — nothing fires on its own (see lib/finance.js).
 // `advance` is passed in rather than imported so mutations.js stays free of
 // date-math imports; the caller supplies the next date it already computed.
-export function payOutgoing(d, id, { date, nextRenewal, amount } = {}) {
+/**
+ * Puts back a payment that shouldn't have happened.
+ *
+ * "Mark paid" sits one careless click away from moving real money, and until
+ * now there was no way back — an accidental tick on a card bill silently
+ * reduced a bank balance and a card debt with nothing to reverse it. Every
+ * money-moving action needs a way out, and reversal beats a confirmation
+ * dialog: confirmations get clicked through, and they punish the 99 correct
+ * presses to guard the one wrong one.
+ *
+ * Reverses from the RECORDED `lastPayment` rather than recomputing what it
+ * assumes happened. If the amount, account or card has been edited since,
+ * a recomputed reversal would move the wrong sum to the wrong place — the
+ * exact failure that makes an undo worse than no undo. Nothing to reverse
+ * means nothing happens, so a double-click can't refund twice.
+ */
+export function undoOutgoingPayment(d, id) {
+  const o = (d.outgoings || []).find((x) => x.id === id);
+  const p = o?.lastPayment;
+  if (!o || !p) return d;
+
+  // Put the money back where it came from.
+  const account = (d.accounts || []).find((a) => a.id === p.accountId);
+  if (account) {
+    // Falls back to p.amount for payments recorded before the converted
+    // figures were stored — imperfect for those, but better than nothing.
+    const back = Number(p.debitedFromAccount ?? p.amount) || 0;
+    account.balance = (Number(account.balance) || 0) + (account.type === "credit" ? -back : back);
+  }
+
+  // And restore the debt that was paid down.
+  const card = (d.accounts || []).find((a) => a.id === p.paysDownAccountId);
+  if (card) card.balance = (Number(card.balance) || 0) + (Number(p.creditedToCard ?? p.amount) || 0);
+
+  // Remove the expense this payment booked. Card payments never booked one
+  // (they are transfers), so expenseId is null there and nothing is removed.
+  if (p.expenseId) d.expenses = (d.expenses || []).filter((e) => e.id !== p.expenseId);
+
+  o.lastPaidDate = p.prevLastPaidDate || "";
+  o.lastPaidAmount = p.prevLastPaidAmount ?? null;
+  if (p.prevNextRenewal) o.nextRenewal = p.prevNextRenewal;
+  delete o.lastPayment;
+
+  return logFinance(d, {
+    type: "payment_undone",
+    title: o.name,
+    description: `Reversed — ${o.name}${account ? ` back into ${account.name}` : ""}`,
+    // Positive: money returning. The activity feed reads signs literally.
+    amount: Number(p.amount) || 0,
+    currency: o.currency,
+    meta: { outgoingId: o.id, accountId: p.accountId || null },
+  });
+}
+
+export function payOutgoing(d, id, { date, nextRenewal, amount, rate } = {}) {
   const o = (d.outgoings || []).find((x) => x.id === id);
   if (!o) return d;
   const paidOn = date || today();
@@ -666,12 +720,22 @@ export function payOutgoing(d, id, { date, nextRenewal, amount } = {}) {
   // about — bank down, card debt down — and books no expense at all.
   const isCardPayment = !!o.paysDownAccountId;
 
+  let bookedExpenseId = null;
   if (!isCardPayment) {
+    bookedExpenseId = uid();
     d.expenses.push({
-      id: uid(),
+      id: bookedExpenseId,
       category: o.category || "Software",
       vendor: o.name,
-      amount: paid,
+      // `amount` is the USD snapshot every aggregate sums — total costs, the
+      // cost chart, the dashboard, the month report. It was being set to the
+      // RAW figure in the subscription's own currency, so a ₹1,500 renewal
+      // wrote amount: 1500 and every one of those totals read it as $1,500 —
+      // then money() multiplied it back out for display, showing roughly ₹1.3
+      // lakh for a ₹1,500 charge. Exactly the bug already fixed for
+      // hand-entered expenses, never applied to this path.
+      amount: convertBetween(paid, o.currency || "INR", "USD", rate),
+      fxRate: (o.currency || "INR") === "USD" ? 1 : rate,
       nativeAmount: paid,
       currency: o.currency || "INR",
       date: paidOn,
@@ -684,20 +748,63 @@ export function payOutgoing(d, id, { date, nextRenewal, amount } = {}) {
     });
   }
 
-  o.lastPaidDate = paidOn;
-  o.lastPaidAmount = paid;
-  if (nextRenewal) o.nextRenewal = nextRenewal;
+  // Everything needed to put this back exactly as it was. Recorded rather
+  // than reconstructed: an undo that recomputes what it thinks happened
+  // will eventually disagree with what actually happened (a changed amount,
+  // a since-edited account), and a wrong reversal is worse than none.
+  // Captured BEFORE anything is overwritten, so undo can restore them.
+  const prevLastPaidDate = o.lastPaidDate || "";
+  const prevLastPaidAmount = o.lastPaidAmount ?? null;
+  const prevNextRenewal = o.nextRenewal || "";
 
-  // The funding account. Money leaving a debit account lowers the balance.
+  // The funding account.
+  //
+  // Converted into the ACCOUNT's currency — this was subtracting the raw
+  // figure, so a $20 subscription paid from a rupee account took ₹20 off
+  // instead of ~₹1,700, and a ₹1,500 one paid from a dollar account took
+  // $1,500. Every other money path in this file already converts; this one
+  // was missed.
+  //
+  // And the credit-card sign: on a card the stored balance IS the debt, so
+  // putting a subscription on a card must INCREASE it. A flat subtraction
+  // reduced the debt instead — the app crediting you for spending money.
   const account = (d.accounts || []).find((a) => a.id === o.accountId);
-  if (account) account.balance = (Number(account.balance) || 0) - paid;
+  let debited = 0;
+  if (account) {
+    debited = convertBetween(paid, o.currency || "INR", account.currency || "INR", rate);
+    account.balance = (Number(account.balance) || 0) + (account.type === "credit" ? debited : -debited);
+  }
 
   // The card being paid down. Its stored balance IS the debt, so paying it
   // SUBTRACTS — the opposite sign to a purchase on the same card.
   const card = isCardPayment
     ? (d.accounts || []).find((a) => a.id === o.paysDownAccountId)
     : null;
-  if (card) card.balance = Math.max(0, (Number(card.balance) || 0) - paid);
+  let creditedToCard = 0;
+  if (card) {
+    creditedToCard = convertBetween(paid, o.currency || "INR", card.currency || "INR", rate);
+    card.balance = Math.max(0, (Number(card.balance) || 0) - creditedToCard);
+  }
+
+  // Recorded here, after the balance work, because it stores the amounts
+  // ACTUALLY applied — which don't exist until the conversions above have
+  // run. Undo replays these rather than re-converting at a later rate, so a
+  // reversal nets to exactly zero instead of leaving drift behind.
+  o.lastPayment = {
+    date: paidOn,
+    amount: paid,
+    debitedFromAccount: debited,
+    creditedToCard,
+    accountId: o.accountId || null,
+    paysDownAccountId: o.paysDownAccountId || null,
+    expenseId: bookedExpenseId,
+    prevLastPaidDate,
+    prevLastPaidAmount,
+    prevNextRenewal,
+  };
+  o.lastPaidDate = paidOn;
+  o.lastPaidAmount = paid;
+  if (nextRenewal) o.nextRenewal = nextRenewal;
 
   return logFinance(d, {
     type: isCardPayment ? "card_payment" : "outgoing_paid",

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Pencil, Trash2, Check, RotateCcw, Ban } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, RotateCcw, Ban, Undo2 } from "lucide-react";
 import Card from "./Card";
 import Badge from "./Badge";
 import PillTabs from "./PillTabs";
@@ -23,8 +23,8 @@ const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
  * renewal date forward and adjusts the linked account. See lib/finance.js for
  * why that's deliberate rather than unfinished.
  */
-export default function Outgoings({ outgoings = [], accounts = [], categories = [], book = "all", onAddCategory, onAdd, onUpdate, onDelete, onCancel, onPay, token }) {
-  const { moneyFrom, convertFrom, currency } = useCurrency();
+export default function Outgoings({ outgoings = [], accounts = [], categories = [], book = "all", onAddCategory, onAdd, onUpdate, onDelete, onCancel, onPay, onUndoPay, token }) {
+  const { moneyFrom, convertFrom, currency, rate } = useCurrency();
   const [filter, setFilter] = useState("all");
   const [editing, setEditing] = useState(null);
 
@@ -169,6 +169,21 @@ export default function Outgoings({ outgoings = [], accounts = [], categories = 
               </div>
 
               <div className="flex items-center gap-0.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-150">
+                {/* Shown whenever a payment is reversible — not on a timer.
+                    An accidental tick is often noticed when the balance is
+                    next looked at, which can be days later, and an undo that
+                    expired before you spotted the mistake is no undo. */}
+                {o.lastPayment && (
+                  <button
+                    onClick={() => onUndoPay?.(o.id)}
+                    aria-label="Undo last payment"
+                    title={`Undo — puts back ${moneyFrom(o.lastPayment.amount, o.currency)}`}
+                    className={`p-1.5 rounded-lg text-amber-500 hover:text-amber-700 hover:bg-amber-50
+                      transition-transform duration-150 ${EASE} active:scale-[0.92]`}
+                  >
+                    <Undo2 size={13} />
+                  </button>
+                )}
                 {!cancelled && (
                   <button
                     onClick={() => {
@@ -188,6 +203,7 @@ export default function Outgoings({ outgoings = [], accounts = [], categories = 
                       onPay?.(o.id, {
                         date: today(),
                         amount,
+                        rate,
                         nextRenewal: o.nextRenewal ? advanceDate(o.nextRenewal, o.cadence) : "",
                       });
                     }}

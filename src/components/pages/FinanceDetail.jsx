@@ -56,7 +56,7 @@ export default function FinanceDetail({
   onAddAccount, onUpdateAccount, onDeleteAccount,
   onAddOutgoing, onUpdateOutgoing, onDeleteOutgoing, onCancelOutgoing, onPayOutgoing,
   onAddBudget, onUpdateBudget, onDeleteBudget, onAddExpenseCategory,
-  onAddLoan, onUpdateLoan, onDeleteLoan, onSettleLoan, token,
+  onAddLoan, onUpdateLoan, onDeleteLoan, onSettleLoan, onUndoPayOutgoing, token,
 }) {
   const [activeTab, setActiveTab] = useState("overview");
   // Which book the "My money" tab is showing. Defaults to everything —
@@ -837,6 +837,7 @@ export default function FinanceDetail({
               onDelete={onDeleteOutgoing}
               onCancel={onCancelOutgoing}
               onPay={onPayOutgoing}
+              onUndoPay={onUndoPayOutgoing}
               categories={data.expenseCategories}
               onAddCategory={onAddExpenseCategory}
               token={token}

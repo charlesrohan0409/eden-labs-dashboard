@@ -257,6 +257,7 @@ export default function App() {
             onDeleteOutgoing={actions.deleteOutgoing}
             onCancelOutgoing={actions.cancelOutgoing}
             onPayOutgoing={actions.payOutgoing}
+            onUndoPayOutgoing={actions.undoOutgoingPayment}
             onAddLoan={actions.addLoan}
             onUpdateLoan={actions.updateLoan}
             onDeleteLoan={actions.deleteLoan}

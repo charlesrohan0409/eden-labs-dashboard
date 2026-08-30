@@ -273,6 +273,32 @@ export function transfer({ date, memo, out, into, amountOut, amountIn, currencyO
   return entry({ date, memo, kind: "transfer", conduit, ref, legs });
 }
 
+/**
+ * A balance that must have existed before the records begin.
+ *
+ * Card payments span 17 months but the card statements only cover 5, so the
+ * payments exceed the purchases on file — the difference is debt that
+ * existed before the first statement. The same applies to family money and
+ * to transfers whose other half sits in an account not yet imported.
+ *
+ * These are recorded as PROVISIONAL openings, not squeezed into an expense
+ * bucket. Filing them as spending would inflate outgoings by money that was
+ * never spent; recording them as an opening position says the true thing —
+ * "this existed before the data starts" — keeps the ledger balanced, and
+ * leaves one obvious row to delete when the missing statements arrive.
+ */
+export function provisionalOpening({ date, account, amount, currency = "INR", note }) {
+  const m = toMinor(amount);
+  return entry({
+    date, kind: "opening", memo: note || "Opening balance — awaiting statements",
+    legs: [
+      { account, amount: m, currency, base: m },
+      { account: "equity:opening", amount: -m, currency, base: -m },
+    ],
+    ref: { provisional: true },
+  });
+}
+
 /** Opening position, so balances are absolute rather than relative. */
 export function opening({ date, account, amount, currency = "INR", memo = "Opening balance" }) {
   const m = toMinor(amount);

@@ -49,11 +49,13 @@ export const BANK_ACCOUNT = {
 export const CATEGORY_ACCOUNT = {
   "Income: client":                   { account: "income:client",                 },
   "Interest earned":                  { account: "income:interest"                },
-  "Loan received":                    { account: "liability:loan:idfc"            },
-  // Repaying your own loan reduces the liability — it is not an expense.
-  // Only the interest portion would be, and the statement does not split
-  // it out, so this is recorded as principal until it does.
-  "Loan repayment":                   { account: "liability:loan:idfc"            },
+  // The ₹2.36L IDFC loan was taken in his name FOR his dad, and his dad
+  // repaid it. So neither the disbursement nor the repayments are his: the
+  // money arrived, went to family, and came back out again. Treating it as
+  // his own borrowing would have put ₹1.64L of someone else's debt on his
+  // balance sheet and made him look far more leveraged than he is.
+  "Loan received":                    { account: "liability:family",   conduit: true },
+  "Loan repayment":                   { account: "liability:family",   conduit: true },
 
   "Family (not mine)":                { account: "liability:family",   conduit: true },
   "Cash: family (not mine)":          { account: "liability:family",   conduit: true },

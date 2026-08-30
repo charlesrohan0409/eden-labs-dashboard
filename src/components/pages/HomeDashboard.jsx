@@ -10,6 +10,7 @@ import Card, { CardTitle } from "../ui/Card";
 import Badge from "../ui/Badge";
 import IconStat from "../ui/IconStat";
 import Avatar from "../ui/Avatar";
+import MonthReportButton from "../ui/MonthReportButton";
 import TaskList from "../ui/TaskList";
 import MeetingRow from "../ui/MeetingRow";
 import TodayPanel from "../ui/TodayPanel";
@@ -111,6 +112,10 @@ export default function HomeDashboard({ data, setView, setSelectedClient, onAddT
           </h1>
           <p className="text-sm text-white/70 mt-0.5">Here's what needs you today.</p>
         </div>
+        {/* Month-end only — MonthReportButton returns null the rest of the
+            time, so this slot is simply absent for most of the month rather
+            than being a permanently-available thing you shouldn't click. */}
+        <MonthReportButton data={data} className="self-center" />
         <div className="flex items-center gap-2.5 bg-white border border-line rounded-full pl-3 pr-1.5 py-1.5">
           <div className="text-right hidden sm:block">
             <div className="text-xs font-semibold text-stone-800 leading-none">{data.profile?.name}</div>

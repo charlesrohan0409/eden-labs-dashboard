@@ -9,7 +9,7 @@ import CategorySelect from "./CategorySelect";
 import { useCurrency } from "../../hooks/useCurrency";
 import {
   OUTGOING_KIND_LIST, outgoingMeta, CADENCE_LIST, CADENCES,
-  advanceDate, renewalLabel, bookOf, bookMeta, inBook,
+  advanceDate, renewalLabel, bookOf, bookMeta, inBook, isCredit, outgoingFinished,
 } from "../../lib/finance";
 import { CURRENCIES } from "../../lib/currency";
 import { today } from "../../lib/utils";
@@ -32,11 +32,16 @@ export default function Outgoings({ outgoings = [], accounts = [], categories = 
   // from `active`, so filtering here is what makes "what do my personal
   // subscriptions cost me a month" a number this card can actually answer.
   const scoped = inBook(outgoings, book);
-  const active = scoped.filter((o) => o.status !== "cancelled");
+  // A finite bill that has run its course is no longer a commitment: it must
+  // drop out of the monthly run-rate and stop asking to be paid. Left in, an
+  // EMI that finished last year would keep inflating "what I owe each month"
+  // forever, which is the kind of quietly-wrong number that stops the whole
+  // card being trusted.
+  const active = scoped.filter((o) => o.status !== "cancelled" && !outgoingFinished(o));
   const visible = scoped
-    .filter((o) => (filter === "all" ? o.status !== "cancelled"
-                  : filter === "cancelled" ? o.status === "cancelled"
-                  : o.kind === filter && o.status !== "cancelled"))
+    .filter((o) => (filter === "all" ? o.status !== "cancelled" && !outgoingFinished(o)
+                  : filter === "cancelled" ? o.status === "cancelled" || outgoingFinished(o)
+                  : o.kind === filter && o.status !== "cancelled" && !outgoingFinished(o)))
     // Soonest first, and anything overdue floats to the top — the list is a
     // to-do, so what needs attention shouldn't sort below what doesn't.
     .sort((a, b) => (a.nextRenewal || "9999").localeCompare(b.nextRenewal || "9999"));
@@ -110,7 +115,9 @@ export default function Outgoings({ outgoings = [], accounts = [], categories = 
         {visible.map((o, i) => {
           const meta = outgoingMeta(o.kind);
           const due = renewalLabel(o.nextRenewal);
-          const cancelled = o.status === "cancelled";
+          // A finished bill reads the same as a cancelled one — done, kept
+          // for history, not asking for anything.
+          const cancelled = o.status === "cancelled" || outgoingFinished(o);
           return (
             <div
               key={o.id}
@@ -142,8 +149,14 @@ export default function Outgoings({ outgoings = [], accounts = [], categories = 
                 </div>
                 <div className="text-[11px] text-stone-400 truncate">
                   {CADENCES[o.cadence]?.label}
-                  {o.category && ` · ${o.category}`}
-                  {o.accountId && accountName(o.accountId) && ` · ${accountName(o.accountId)}`}
+                  {/* For a card bill the destination matters more than the
+                      category — it's a transfer, and seeing where it lands
+                      is what makes the two balance movements explainable. */}
+                  {o.paysDownAccountId
+                    ? ` · ${accountName(o.accountId) || "?"} → ${accountName(o.paysDownAccountId) || "card"}`
+                    : (o.category ? ` · ${o.category}` : "")}
+                  {!o.paysDownAccountId && o.accountId && accountName(o.accountId) && ` · ${accountName(o.accountId)}`}
+                  {o.endsOn && ` · ends ${o.endsOn}`}
                 </div>
               </div>
 
@@ -158,12 +171,30 @@ export default function Outgoings({ outgoings = [], accounts = [], categories = 
               <div className="flex items-center gap-0.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-150">
                 {!cancelled && (
                   <button
-                    onClick={() => onPay?.(o.id, {
-                      date: today(),
-                      nextRenewal: o.nextRenewal ? advanceDate(o.nextRenewal, o.cadence) : "",
-                    })}
+                    onClick={() => {
+                      // A card statement differs every month, so it is asked
+                      // for rather than assumed. Everything else is a fixed
+                      // recurring figure and is paid without a prompt.
+                      let amount;
+                      if (o.paysDownAccountId) {
+                        const typed = window.prompt(
+                          `How much are you paying off ${accountName(o.paysDownAccountId) || "the card"}?`,
+                          String(o.amount ?? "")
+                        );
+                        if (typed === null) return;
+                        amount = Number(typed);
+                        if (!Number.isFinite(amount) || amount <= 0) return;
+                      }
+                      onPay?.(o.id, {
+                        date: today(),
+                        amount,
+                        nextRenewal: o.nextRenewal ? advanceDate(o.nextRenewal, o.cadence) : "",
+                      });
+                    }}
                     aria-label="Mark paid"
-                    title="Mark paid — logs the expense and moves the date forward"
+                    title={o.paysDownAccountId
+                      ? "Mark paid — moves money from the bank and reduces the card debt"
+                      : "Mark paid — logs the expense and moves the date forward"}
                     className={`p-1.5 rounded-lg text-stone-300 hover:text-emerald-700 hover:bg-emerald-50
                       transition-transform duration-150 ${EASE} active:scale-[0.92]`}
                   >
@@ -235,6 +266,12 @@ function OutgoingForm({ outgoing, accounts, categories, onAddCategory, onSave, o
     nextRenewal: outgoing?.nextRenewal || "",
     category: outgoing?.category || "Software",
     accountId: outgoing?.accountId || "",
+    // The card this bill pays DOWN. Set only for a card bill; its presence
+    // is what tells payOutgoing to treat the payment as a transfer rather
+    // than booking a duplicate expense.
+    paysDownAccountId: outgoing?.paysDownAccountId || "",
+    // Optional last date for a finite bill — an EMI, a fixed-term plan.
+    endsOn: outgoing?.endsOn || "",
     website: outgoing?.website || "",
     logoUrl: outgoing?.logoUrl || "",
   });
@@ -299,12 +336,37 @@ function OutgoingForm({ outgoing, accounts, categories, onAddCategory, onSave, o
           <label className={label}>Next renewal</label>
           <input className={input} type="date" value={form.nextRenewal} onChange={set("nextRenewal")} />
         </div>
-        <div className="col-span-2">
+        <div className={form.kind === "card" ? "" : "col-span-2"}>
           <label className={label}>Paid from</label>
           <select className={input} value={form.accountId} onChange={set("accountId")}>
             <option value="">Not linked to an account</option>
-            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            {/* A card can't fund its own bill. Excluding cards here is what
+                stops the nonsense case of paying a card off with itself,
+                which would move the debt in a circle. */}
+            {accounts.filter((a) => !isCredit(a)).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
+        </div>
+
+        {/* Only for a card bill. Setting this is what makes the payment a
+            TRANSFER — bank down, card debt down, and no expense booked,
+            because the purchases behind the balance were already expensed
+            when they happened. Without it the same spending is counted
+            twice: once as the purchase, again as the statement. */}
+        {form.kind === "card" && (
+          <div>
+            <label className={label}>Pays down</label>
+            <select className={input} value={form.paysDownAccountId} onChange={set("paysDownAccountId")}>
+              <option value="">Pick the card</option>
+              {accounts.filter(isCredit).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </div>
+        )}
+
+        <div className="col-span-2">
+          <label className={label}>Runs until (optional)</label>
+          {/* For a finite commitment — an EMI, a fixed-term plan. Left blank
+              it recurs indefinitely, which is right for a subscription. */}
+          <input className={input} type="date" value={form.endsOn} onChange={set("endsOn")} min={form.nextRenewal} />
         </div>
       </div>
       <div className="mt-3">

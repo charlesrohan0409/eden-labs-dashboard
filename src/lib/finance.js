@@ -34,6 +34,12 @@ export const isCredit = (account) => accountMeta(account?.type).kind === "credit
 export const OUTGOING_KINDS = {
   subscription: { label: "Subscription", plural: "Subscriptions", chip: "bg-violet-50 text-violet-700", dot: "bg-violet-500" },
   fixed:        { label: "Fixed bill",   plural: "Fixed bills",   chip: "bg-amber-50 text-amber-700",   dot: "bg-amber-500" },
+  // A card statement. Kept as a KIND rather than a separate collection so it
+  // inherits the whole renewal/mark-paid machinery, but it behaves
+  // differently in one crucial way — see payOutgoing: paying it is a
+  // TRANSFER between two accounts, never an expense, because the purchases
+  // that created the balance were already expensed when they happened.
+  card:         { label: "Card bill",    plural: "Card bills",    chip: "bg-rose-50 text-rose-700",     dot: "bg-rose-500" },
 };
 export const OUTGOING_KIND_LIST = Object.entries(OUTGOING_KINDS).map(([id, m]) => ({ id, ...m }));
 export const outgoingMeta = (id) => OUTGOING_KINDS[id] || OUTGOING_KINDS.subscription;
@@ -71,6 +77,18 @@ export function daysUntil(dateStr) {
   const today = new Date();
   today.setHours(12, 0, 0, 0);
   return Math.round((target - today) / 86400000);
+}
+
+/**
+ * Has a finite recurring bill run its course?
+ *
+ * An EMI or a fixed-term plan stops after N payments. Without this it would
+ * keep asking to be paid forever, and a bill that nags after it is settled
+ * is how the whole list stops being trusted.
+ */
+export function outgoingFinished(o, todayKey = today()) {
+  if (!o?.endsOn) return false;
+  return o.endsOn < todayKey;
 }
 
 export function renewalLabel(dateStr) {
@@ -142,6 +160,25 @@ export function periodKey(dateStr, period) {
  * to have run for the number to be right. A custom budget's window is
  * whatever was typed.
  */
+/** "YYYY-MM" for a date — the key a monthly budget is addressed by. */
+export const monthKey = (d = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+
+/**
+ * A monthly/yearly budget that hasn't started yet.
+ *
+ * Setting next month's budget while this month is still running is the
+ * normal case — you plan September in late August. Without a start month
+ * the only way to express that was a custom Sept 1–30 range, which then got
+ * filed under one-off event budgets and never recurred. Now it's a monthly
+ * budget that simply isn't live yet.
+ */
+export function budgetNotStarted(budget, now = new Date()) {
+  const start = budget?.startMonth;
+  if (!start || budget?.period === "custom") return false;
+  return monthKey(now) < start;
+}
+
 export function budgetWindow(budget, now = new Date()) {
   if (budget?.period === "custom") {
     // Both ends required. A custom budget missing a date used to produce an
@@ -197,6 +234,13 @@ export function isBudgetExpired(budget, todayKey = today()) {
  */
 export function budgetPeriodLabel(budget, todayKey = today()) {
   if (budget?.period !== "custom") {
+    if (budgetNotStarted(budget)) {
+      const d = new Date(`${budget.startMonth}-01T12:00:00`);
+      const when = budget.period === "yearly"
+        ? d.getFullYear()
+        : d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+      return `Starts ${when}`;
+    }
     const { from, to } = budgetWindow(budget);
     const d = new Date(`${to}T12:00:00`);
     // Names the actual period rather than saying "This month". Which month a
@@ -231,6 +275,9 @@ export function spentOn(budget, expenses, convert, now = new Date()) {
   const win = budgetWindow(budget, now);
   // An unusable range measures nothing — see budgetWindow.
   if (win.invalid) return 0;
+  // Nor does a budget whose first month hasn't arrived: September's limit
+  // must not start absorbing August's spending just because it exists.
+  if (budgetNotStarted(budget, now)) return 0;
   const { from: winFrom, to: winTo } = win;
   // A budget only ever measures its OWN book. Without this, a personal
   // "Software" budget would count the agency's Figma seat against it — same

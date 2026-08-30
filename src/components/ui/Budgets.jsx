@@ -4,7 +4,7 @@ import Card from "./Card";
 import { useCurrency } from "../../hooks/useCurrency";
 import {
   BUDGET_PERIOD_LIST, spentOn, budgetStatus, bookOf, bookMeta,
-  budgetPeriodLabel, isBudgetExpired, budgetWindow,
+  budgetPeriodLabel, isBudgetExpired, budgetWindow, budgetNotStarted, monthKey,
 } from "../../lib/finance";
 import { CURRENCIES, convertBetween } from "../../lib/currency";
 import CategorySelect from "./CategorySelect";
@@ -48,7 +48,10 @@ export default function Budgets({
    * the same rate keeps the ratio honest even if the rate has moved.
    */
   const totalsFor = (list) =>
-    list.reduce(
+    // Upcoming budgets are excluded. The header states what you're spending
+    // against RIGHT NOW, and folding September's limit into August's total
+    // would make this month look far more headroom-rich than it is.
+    list.filter((b) => !budgetNotStarted(b)).reduce(
       (acc, b) => {
         const spentNative = spentOn(b, expenses, convertAmount);
         acc.spent += convertAmount(spentNative, b.currency, currency);
@@ -163,6 +166,10 @@ function BudgetRow({ b, i, expenses, convertAmount, moneyFrom, onEdit, onDelete,
   const status = budgetStatus(spentNative, Number(b.limit) || 0);
   const remaining = (Number(b.limit) || 0) - spentNative;
   const expired = isBudgetExpired(b);
+  const upcoming = budgetNotStarted(b);
+  // Both states mean "not measuring anything today", so they read the same:
+  // present, dimmed, clearly not part of the live numbers.
+  const inactive = expired || upcoming;
 
   return (
             <div
@@ -171,7 +178,7 @@ function BudgetRow({ b, i, expenses, convertAmount, moneyFrom, onEdit, onDelete,
               className={`group rounded-xl border p-3
                 motion-safe:animate-fade-up motion-safe:[animation-fill-mode:both]
                 transition-colors duration-200 ${EASE}
-                ${expired ? "border-dashed border-stone-200 bg-stone-50/60" : "border-line hover:border-stone-300"}`}
+                ${inactive ? "border-dashed border-stone-200 bg-stone-50/60" : "border-line hover:border-stone-300"}`}
             >
               <div className="flex items-center justify-between gap-2 mb-2">
                 <div className="min-w-0">
@@ -187,7 +194,7 @@ function BudgetRow({ b, i, expenses, convertAmount, moneyFrom, onEdit, onDelete,
                       </span>
                     )}
                   </div>
-                  <div className={`text-[11px] ${expired ? "text-stone-300" : "text-stone-400"}`}>
+                  <div className={`text-[11px] ${inactive ? "text-stone-300" : "text-stone-400"}`}>
                     {budgetPeriodLabel(b)}
                   </div>
                 </div>
@@ -299,6 +306,9 @@ function BudgetForm({ budget, categories, onAddCategory, onSave, onCancel, defau
     limit: budget?.limit ?? "",
     currency: budget?.currency || "INR",
     period: budget?.period || "monthly",
+    // Which month this first applies to. Defaults to the current one, so
+    // nothing changes unless you deliberately plan ahead.
+    startMonth: budget?.startMonth || monthKey(),
     // Inherits whichever book the page is filtered to, so adding a budget
     // while looking at Personal doesn't silently file it under Business.
     book: budget ? bookOf(budget) : defaultBook,
@@ -344,9 +354,20 @@ function BudgetForm({ budget, categories, onAddCategory, onSave, onCancel, defau
         </div>
       </div>
 
-      {/* Dates only exist for a custom window — a monthly budget's window is
-          derived from the calendar, and offering editable dates for it would
-          imply they change something. */}
+      {/* Monthly and yearly budgets pick a STARTING month rather than dates.
+          Setting September's budget in late August is the normal case, and
+          the only way to say that before was a custom 1–30 range — which
+          then filed a perfectly ordinary monthly budget under one-off event
+          budgets and stopped it recurring. */}
+      {form.period !== "custom" && (
+        <div className="grid grid-cols-2 gap-2.5 mt-2.5 motion-safe:animate-fade-up">
+          <div>
+            <label className={label}>Applies from</label>
+            <input className={input} type="month" value={form.startMonth} onChange={set("startMonth")} />
+          </div>
+        </div>
+      )}
+
       {form.period === "custom" && (
         <div className="grid grid-cols-2 gap-2.5 mt-2.5 motion-safe:animate-fade-up">
           <div>

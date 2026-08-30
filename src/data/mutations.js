@@ -645,37 +645,68 @@ export function cancelOutgoing(d, id) {
 // way a charge gets recorded — nothing fires on its own (see lib/finance.js).
 // `advance` is passed in rather than imported so mutations.js stays free of
 // date-math imports; the caller supplies the next date it already computed.
-export function payOutgoing(d, id, { date, nextRenewal }) {
+export function payOutgoing(d, id, { date, nextRenewal, amount } = {}) {
   const o = (d.outgoings || []).find((x) => x.id === id);
   if (!o) return d;
   const paidOn = date || today();
-  d.expenses.push({
-    id: uid(),
-    category: o.category || "Software",
-    vendor: o.name,
-    amount: Number(o.amount) || 0,
-    nativeAmount: Number(o.amount) || 0,
-    currency: o.currency || "INR",
-    date: paidOn,
-    // Inherited, not defaulted. A personal subscription's charge is a
-    // personal expense — without this the business book would silently
-    // absorb every personal renewal the moment it was marked paid, which
-    // is exactly the blending the two books exist to prevent.
-    book: o.book === "personal" ? "personal" : "business",
-    outgoingId: o.id,
-  });
+  // A card statement is never the same twice, so the amount paid can differ
+  // from the recurring figure. Falls back to the stored amount for ordinary
+  // subscriptions, where it genuinely is fixed.
+  const paid = Number(amount ?? o.amount) || 0;
+
+  // A CREDIT-CARD PAYMENT IS A TRANSFER, NOT AN EXPENSE.
+  //
+  // This is the trap. The purchases that built the card balance were
+  // already recorded as expenses when they happened — that is what put the
+  // debt on the card. Recording the statement payment as a second expense
+  // would count the same spending twice: once as "dinner", again as "credit
+  // card bill", inflating total costs, every category budget and the P&L.
+  //
+  // So a card payment moves money between two accounts it already knows
+  // about — bank down, card debt down — and books no expense at all.
+  const isCardPayment = !!o.paysDownAccountId;
+
+  if (!isCardPayment) {
+    d.expenses.push({
+      id: uid(),
+      category: o.category || "Software",
+      vendor: o.name,
+      amount: paid,
+      nativeAmount: paid,
+      currency: o.currency || "INR",
+      date: paidOn,
+      // Inherited, not defaulted. A personal subscription's charge is a
+      // personal expense — without this the business book would silently
+      // absorb every personal renewal the moment it was marked paid, which
+      // is exactly the blending the two books exist to prevent.
+      book: o.book === "personal" ? "personal" : "business",
+      outgoingId: o.id,
+    });
+  }
+
   o.lastPaidDate = paidOn;
+  o.lastPaidAmount = paid;
   if (nextRenewal) o.nextRenewal = nextRenewal;
-  // Money leaving a debit account lowers the balance; on a credit card it
-  // raises what's owed, which is the same subtraction either way once the
-  // card's balance is read as debt.
+
+  // The funding account. Money leaving a debit account lowers the balance.
   const account = (d.accounts || []).find((a) => a.id === o.accountId);
-  if (account) account.balance = (Number(account.balance) || 0) - (Number(o.amount) || 0);
+  if (account) account.balance = (Number(account.balance) || 0) - paid;
+
+  // The card being paid down. Its stored balance IS the debt, so paying it
+  // SUBTRACTS — the opposite sign to a purchase on the same card.
+  const card = isCardPayment
+    ? (d.accounts || []).find((a) => a.id === o.paysDownAccountId)
+    : null;
+  if (card) card.balance = Math.max(0, (Number(card.balance) || 0) - paid);
+
   return logFinance(d, {
-    type: "outgoing_paid", title: o.name,
-    description: `${o.name} paid${account ? ` from ${account.name}` : ""}`,
-    amount: -(Number(o.amount) || 0), currency: o.currency,
-    meta: { category: o.category, accountId: o.accountId || null },
+    type: isCardPayment ? "card_payment" : "outgoing_paid",
+    title: o.name,
+    description: isCardPayment
+      ? `${o.name} — ${account ? `${account.name} → ` : ""}${card ? card.name : "card"} (transfer, not an expense)`
+      : `${o.name} paid${account ? ` from ${account.name}` : ""}`,
+    amount: -paid, currency: o.currency,
+    meta: { category: o.category, accountId: o.accountId || null, paysDownAccountId: o.paysDownAccountId || null },
   });
 }
 

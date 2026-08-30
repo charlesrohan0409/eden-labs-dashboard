@@ -81,7 +81,12 @@ export const CATEGORY_ACCOUNT = {
   "Bank charges & fees":              { account: "expense:bank-charges"           },
   "BNPL repayment":                   { account: "expense:bnpl"                   },
   "Cash: personal":                   { account: "expense:cash"                   },
-  "Partner":                          { account: "expense:partner"                },
+  // A two-way running account, not spending. Money moves both directions
+  // with his partner — she sends more than he spends — so an expense
+  // account would show NEGATIVE spending, which is meaningless. A liability
+  // says the true thing: at any moment one of them is holding the other's
+  // money. Same reasoning as family, for the same reason.
+  "Partner":                          { account: "liability:partner"              },
   "Education (refunded)":             { account: "expense:education"              },
 };
 

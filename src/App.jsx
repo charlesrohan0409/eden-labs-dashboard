@@ -27,6 +27,7 @@ const ContentPage    = lazy(() => import("./components/pages/ContentPage"));
 const ClientPortal = lazy(() => import("./components/portal/ClientPortal"));
 const OwnerPortalPreview = lazy(() => import("./components/portal/OwnerPortalPreview"));
 const PerformancePage = lazy(() => import("./components/pages/PerformancePage"));
+const AnalysisPage   = lazy(() => import("./components/pages/AnalysisPage"));
 const CalendarPage   = lazy(() => import("./components/pages/CalendarPage"));
 const IntegrationsPage = lazy(() => import("./components/pages/IntegrationsPage"));
 
@@ -359,6 +360,7 @@ export default function App() {
         )}
 
         {view === "performance" && <PerformancePage data={data} />}
+        {view === "analysis" && <AnalysisPage token={ownerAuth.token} setView={setView} />}
 
         {view === "calendar" && <CalendarPage />}
 

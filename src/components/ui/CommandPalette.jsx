@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, ArrowRight, LayoutGrid, Users, DollarSign, Target,
-  FileText, BarChart3, Calendar, Plug, CornerDownLeft,
+  FileText, BarChart3, Calendar, Plug, CornerDownLeft, PieChart,
 } from "lucide-react";
 import Avatar from "./Avatar";
 
@@ -9,6 +9,7 @@ const PAGES = [
   { id: "home",         label: "Dashboard",    icon: LayoutGrid,  keywords: "home overview today" },
   { id: "clients",      label: "Clients",      icon: Users,       keywords: "customers accounts" },
   { id: "finance",      label: "Finance",      icon: DollarSign,  keywords: "money invoices expenses budget revenue" },
+  { id: "analysis",     label: "Analysis",     icon: PieChart,    keywords: "ledger spending ratios balance sheet cash flow statements" },
   { id: "crm",          label: "CRM",          icon: Target,      keywords: "leads pipeline deals contacts" },
   { id: "content",      label: "Content",      icon: FileText,    keywords: "posts board write compose analytics" },
   { id: "growth",       label: "Performance",  icon: BarChart3,   keywords: "growth outreach metrics" },

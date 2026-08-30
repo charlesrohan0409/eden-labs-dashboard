@@ -1,10 +1,11 @@
-import { LayoutDashboard, Users, Contact, FileText, Plug, Link2, HelpCircle, BarChart3, DollarSign, CalendarDays, LogOut } from "lucide-react";
+import { LayoutDashboard, Users, Contact, FileText, Plug, Link2, HelpCircle, BarChart3, DollarSign, CalendarDays, LogOut, PieChart } from "lucide-react";
 import Logo from "./Logo";
 
 export const NAV_ITEMS = [
   { id: "home", label: "Dashboard", icon: LayoutDashboard },
   { id: "clients", label: "Clients", icon: Users },
   { id: "finance-detail", label: "Finance", icon: DollarSign },
+  { id: "analysis", label: "Analysis", icon: PieChart },
   { id: "crm", label: "CRM", icon: Contact },
   { id: "content", label: "Content", icon: FileText },
   { id: "performance", label: "Performance", icon: BarChart3 },

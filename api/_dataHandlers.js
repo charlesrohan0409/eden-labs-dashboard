@@ -5,7 +5,7 @@
 import { migrateData } from "../src/data/migrate.js";
 import { seedData } from "../src/data/seed.js";
 import * as M from "../src/data/mutations.js";
-import { getOwnerAuth, getAllClientCredentials, setClientCredential, deleteClientCredential, getAppData, upsertAppData, updateAppDataIfUnchanged, uploadToStorage } from "./_supabaseAdmin.js";
+import { getOwnerAuth, getAllClientCredentials, setClientCredential, deleteClientCredential, getAppData, upsertAppData, updateAppDataIfUnchanged, getLedger, upsertLedger, updateLedgerIfUnchanged, uploadToStorage } from "./_supabaseAdmin.js";
 import { verifyPin, hashPin, genSalt, signToken, verifyToken, bearerFrom } from "./_crypto.js";
 import { applyRecurringResets } from "../src/lib/recurrence.js";
 
@@ -689,6 +689,49 @@ export async function handleExtension(headers, body) {
   return { status: 200, body: { ok: true, ...extra } };
 }
 
+// ------------------------------------------------------------------ ledger ---
+//
+// Owner-only, and separate from /api/data on purpose — see app_ledger in
+// _supabaseAdmin.js. The Analysis page reads this once; nothing else in the
+// app touches it, so it never rides along on a normal save.
+export async function handleLedgerGet(headers) {
+  if (!requireOwner(headers)) return { status: 401, body: { error: "Not authorised." } };
+  const row = await getLedger();
+  if (!row) {
+    // The migration seeds an empty row, but a fresh database might not have
+    // run it yet. Creating it here beats a 500 the owner can do nothing with.
+    const version = await upsertLedger([]);
+    return { status: 200, body: { entries: [], version } };
+  }
+  return { status: 200, body: { entries: row.entries || [], version: row.updated_at } };
+}
+
+export async function handleLedgerPut(headers, body) {
+  if (!requireOwner(headers)) return { status: 401, body: { error: "Not authorised." } };
+  const entries = body?.entries;
+  if (!Array.isArray(entries)) {
+    return { status: 400, body: { error: "entries must be an array." } };
+  }
+  // Refuse an unbalanced ledger at the door. The whole point of double entry
+  // is that a broken entry never reaches storage, and a client that has been
+  // edited or half-migrated is exactly where one would come from.
+  const bad = entries.filter((tx) => !Array.isArray(tx?.legs) || tx.legs.reduce((a, l) => a + (Number(l?.base) || 0), 0) !== 0);
+  if (bad.length) {
+    return { status: 400, body: { error: `${bad.length} transaction(s) do not balance — refusing to store.`, ids: bad.slice(0, 5).map((t) => t.id || t.date) } };
+  }
+  const version = body?.version;
+  if (!version) {
+    const v = await upsertLedger(entries);
+    return { status: 200, body: { ok: true, version: v } };
+  }
+  const res = await updateLedgerIfUnchanged(entries, version);
+  if (!res.ok) {
+    const fresh = await getLedger();
+    return { status: 409, body: { error: "The ledger changed since you loaded it.", entries: fresh?.entries || [], version: fresh?.updated_at } };
+  }
+  return { status: 200, body: { ok: true, version: res.version } };
+}
+
 // Routes that need the HTTP method and headers, not just a POST body — kept
 // separate from _handlers.js's ROUTES (which are all fire-and-forget POST
 // proxies) so that dev server plumbing stays simple for both.
@@ -701,6 +744,13 @@ export const DATA_ROUTES = {
     handler: ({ method, headers, body }) => {
       if (method === "GET") return handleDataGet(headers);
       if (method === "PUT") return handleDataPut(headers, body);
+      return { status: 405, body: { error: "GET or PUT only" } };
+    },
+  },
+  "/api/ledger": {
+    handler: ({ method, headers, body }) => {
+      if (method === "GET") return handleLedgerGet(headers);
+      if (method === "PUT") return handleLedgerPut(headers, body);
       return { status: 405, body: { error: "GET or PUT only" } };
     },
   },

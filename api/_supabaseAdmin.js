@@ -96,6 +96,45 @@ export async function updateAppDataIfUnchanged(data, expectedVersion) {
   return { ok: true, version: rows[0].updated_at || now };
 }
 
+// ---------------------------------------------------------------- app_ledger ---
+//
+// Deliberately NOT part of the app_data blob. That blob is rewritten in full
+// on every mutation, and the ledger is ~2,500 entries of historical bank
+// data — folding it in would make marking a task done upload a megabyte, on
+// every save, forever. Different write pattern, different row.
+//
+// Same single-row / compare-and-swap shape as app_data, for the same reason:
+// a browser tab open for an hour must not flatten an import that happened
+// while it sat there.
+export async function getLedger() {
+  const rows = await rest("/app_ledger?id=eq.1&select=entries,updated_at");
+  return rows?.[0] || null;
+}
+
+export async function upsertLedger(entries) {
+  const now = new Date().toISOString();
+  await rest("/app_ledger?on_conflict=id", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates" },
+    body: [{ id: 1, entries, updated_at: now }],
+  });
+  return now;
+}
+
+export async function updateLedgerIfUnchanged(entries, expectedVersion) {
+  const now = new Date().toISOString();
+  const rows = await rest(
+    `/app_ledger?id=eq.1&updated_at=eq.${encodeURIComponent(expectedVersion)}`,
+    {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: { entries, updated_at: now },
+    }
+  );
+  if (!Array.isArray(rows) || rows.length === 0) return { ok: false };
+  return { ok: true, version: rows[0].updated_at || now };
+}
+
 // -------------------------------------------------------------- owner_auth ---
 export async function getOwnerAuth() {
   const rows = await rest("/owner_auth?id=eq.1&select=pin_hash,pin_salt");

@@ -15,9 +15,9 @@ import { trialBalance } from "../../lib/ledger";
 import { useLedger } from "../../hooks/useLedger";
 import {
   monthlySeries, spendingByGroup, spendingBreakdown, incomeBreakdown,
-  ratios, netWorthSeries, balanceSheet, cashFlow, incomeStatement, monthName,
+  ratios, netWorthSeries, balanceSheet, cashFlow, incomeStatement, monthName, groupLabel,
 } from "../../lib/ledgerAnalysis";
-import { topPayees, recurring, monthOnMonth, observations, largest } from "../../lib/ledgerInsights";
+import { topPayees, recurring, monthOnMonth, observations, largest, categoryStats } from "../../lib/ledgerInsights";
 
 const inr = (n) => "₹" + Math.round(Math.abs(n)).toLocaleString("en-IN");
 const signed = (n) => (n < 0 ? "−" : "") + inr(n);
@@ -81,6 +81,8 @@ export default function AnalysisPage({ token, setView }) {
   const ledger = entries || EMPTY;
   const [range, setRange] = useState("all");
   const [view, setView2] = useState("overview");
+  // Which spending category is open, if any. Null = the category list.
+  const [focus, setFocus] = useState(null);
 
   // The ledger's own span, so "All" can name real dates instead of the word.
   const span = useMemo(() => {
@@ -113,6 +115,8 @@ export default function AnalysisPage({ token, setView }) {
   const mom = useMemo(() => monthOnMonth(ledger), [ledger]);
   const notes = useMemo(() => observations(ledger), [ledger]);
   const big = useMemo(() => largest(ledger, { ...window, limit: 6 }), [ledger, window]);
+  const focusStats = useMemo(() => (focus ? categoryStats(ledger, focus) : null), [ledger, focus]);
+  const focusPayees = useMemo(() => (focus ? topPayees(ledger, { group: focus, limit: 10 }) : []), [ledger, focus]);
 
   const conduit = months.reduce((s, m) => s + m.conduit, 0);
   // From the ledger's real span, not the chart's row count — the chart caps
@@ -233,7 +237,7 @@ export default function AnalysisPage({ token, setView }) {
       </div>
 
       <PillTabs
-        size="md" value={view} onChange={setView2}
+        size="md" value={view} onChange={(v) => { setView2(v); setFocus(null); }}
         options={[
           { value: "overview", label: "Overview" },
           { value: "spending", label: "Where it goes" },
@@ -405,7 +409,84 @@ export default function AnalysisPage({ token, setView }) {
         </>
       )}
 
-      {view === "spending" && (
+      {view === "spending" && focus && focusStats && (
+        <>
+          <button onClick={() => setFocus(null)} className="text-sm text-stone-500 flex items-center gap-1 hover:text-stone-800">
+            <ArrowLeft size={14} /> All categories
+          </button>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <Stat label={groupLabel(focus)} value={inr(focusStats.total)}
+              note={`across ${focusStats.months} months`} period={periodLabel(span.first, span.last)} />
+            <Stat label="Typical month" value={inr(focusStats.average)}
+              note={`last 3 months: ${inr(focusStats.recentAverage)}`} />
+            <Stat label="Biggest month" value={inr(focusStats.peak.amount)} note={focusStats.peak.label} />
+            {/* Compares the last three months against everything before them.
+                Null when there is no "before" — a flat 0% would claim a
+                stability the data hasn't earned. */}
+            <Stat label="Trend" value={focusStats.trend === null ? "—" : `${focusStats.trend > 0 ? "+" : ""}${(focusStats.trend * 100).toFixed(0)}%`}
+              tone={focusStats.trend === null ? "default" : focusStats.trend > 0.05 ? "bad" : focusStats.trend < -0.05 ? "good" : "default"}
+              note={focusStats.trend === null ? "not enough history" : "last 3 months vs before"} />
+          </div>
+
+          <Card className="p-5">
+            <CardTitle sub={`Every month, including the ones you spent nothing · ${periodLabel(span.first, span.last)}`}>
+              {groupLabel(focus)} over time
+            </CardTitle>
+            <ResponsiveContainer width="100%" height={240}>
+              <AreaChart data={focusStats.series} margin={{ left: -14, right: 8 }}>
+                <defs>
+                  <linearGradient id="gCat" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={colorFor(focus)} stopOpacity={0.24} />
+                    <stop offset="100%" stopColor={colorFor(focus)} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke={COLORS.gridline} vertical={false} />
+                <XAxis dataKey="label" tick={axisTick} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={axisTick} axisLine={false} tickLine={false}
+                  tickFormatter={(v) => (Math.abs(v) >= 1000 ? `₹${Math.round(v / 1000)}k` : `₹${v}`)} />
+                <Tooltip {...chartTooltipStyle} formatter={(v) => [inr(v), groupLabel(focus)]} />
+                <ReferenceLine y={focusStats.average} stroke={COLORS.muted} strokeDasharray="3 3"
+                  label={{ value: "average", position: "insideTopRight", fontSize: 10, fill: COLORS.muted }} />
+                <Area type="monotone" dataKey="amount" stroke={colorFor(focus)} strokeWidth={2.5} fill="url(#gCat)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </Card>
+
+          <Card className="p-5">
+            <CardTitle sub="Net of refunds, biggest first">Where the {groupLabel(focus).toLowerCase()} money went</CardTitle>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-[10.5px] uppercase tracking-wide text-stone-400 border-b border-line">
+                    <th className="text-left font-semibold py-2">Place</th>
+                    <th className="text-right font-semibold py-2 w-20">Visits</th>
+                    <th className="text-right font-semibold py-2 w-28">Total</th>
+                    <th className="text-right font-semibold py-2 w-24">Each time</th>
+                    <th className="text-right font-semibold py-2 w-20">Share</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {focusPayees.map((p) => (
+                    <tr key={p.name} className="border-b border-stone-100 last:border-0">
+                      <td className="py-2 capitalize">{p.name.toLowerCase()}</td>
+                      <td className="py-2 text-right tnum text-stone-500">{p.count}</td>
+                      <td className="py-2 text-right tnum font-medium">{inr(p.amount)}</td>
+                      <td className="py-2 text-right tnum text-stone-500">{inr(p.amount / p.count)}</td>
+                      <td className="py-2 text-right tnum text-stone-400">{pct(p.share)}</td>
+                    </tr>
+                  ))}
+                  {!focusPayees.length && (
+                    <tr><td colSpan={5} className="py-6 text-center text-stone-400">No payees in this category.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </>
+      )}
+
+      {view === "spending" && !focus && (
         <>
           <Card className="p-5">
             <CardTitle sub={`${inr(detail.total)} across ${detail.rows.length} categories · ${label}`}>
@@ -423,7 +504,8 @@ export default function AnalysisPage({ token, setView }) {
                   tickFormatter={(v) => (Math.abs(v) >= 1000 ? `₹${Math.round(v / 1000)}k` : `₹${v}`)} />
                 <YAxis type="category" dataKey="label" tick={axisTick} axisLine={false} tickLine={false} width={104} />
                 <Tooltip {...chartTooltipStyle} formatter={(v, _n, p) => [`${inr(v)} · ${pct(p.payload.share)}`, "Spent"]} />
-                <Bar dataKey="amount" radius={[0, 3, 3, 0]} barSize={16}>
+                <Bar dataKey="amount" radius={[0, 3, 3, 0]} barSize={16} cursor="pointer"
+                  onClick={(d) => d?.payload?.group && setFocus(d.payload.group)}>
                   {groups.map((g) => <Cell key={g.group} fill={colorFor(g.group)} />)}
                 </Bar>
               </BarChart>
@@ -477,7 +559,8 @@ export default function AnalysisPage({ token, setView }) {
                 </thead>
                 <tbody>
                   {detail.rows.map((r) => (
-                    <tr key={r.account} className="border-b border-stone-100 last:border-0">
+                    <tr key={r.account} onClick={() => setFocus(r.group)}
+                      className="border-b border-stone-100 last:border-0 cursor-pointer hover:bg-stone-50">
                       <td className="py-2">
                         <span className="inline-flex items-center gap-2">
                           <i className="w-2 h-2 rounded-sm" style={{ background: colorFor(r.group) }} />

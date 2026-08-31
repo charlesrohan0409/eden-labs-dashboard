@@ -76,7 +76,7 @@ const payeeKey = (memo) =>
  * Categories tell you it was food. This tells you it was Ayyappan Idli, 46
  * times. Only the second one changes behaviour.
  */
-export function topPayees(ledger, { from, to, kind = "expense", limit = 12 } = {}) {
+export function topPayees(ledger, { from, to, kind = "expense", limit = 12, group = null } = {}) {
   const acc = new Map();
   for (const tx of ledger || []) {
     if (tx.conduit || tx.kind === "opening") continue;
@@ -84,6 +84,7 @@ export function topPayees(ledger, { from, to, kind = "expense", limit = 12 } = {
     if (to && tx.date > to) continue;
     for (const l of tx.legs) {
       if (kindOf(l.account) !== kind) continue;
+      if (group && groupOf(l.account) !== group) continue;
       // Signed, NOT filtered to positives. A refund is part of what a payee
       // cost you: the ₹66,794 course that was refunded ₹70,845 six months
       // later cost nothing, and listing it as the second-largest payee of
@@ -271,3 +272,55 @@ export function observations(ledger) {
 
 const inr = (n) => "₹" + Math.round(Math.abs(n)).toLocaleString("en-IN");
 const cap = (s) => String(s).replace(/-/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+
+/**
+ * One category's month-by-month history.
+ *
+ * A total says food cost ₹2 lakh. This says whether that is ₹11,000 every
+ * month or ₹4,000 rising to ₹19,000 — which is the only version you can
+ * actually act on. Months with no spend are emitted as zero rather than
+ * skipped, so a gap reads as a gap instead of the line hopping over it.
+ */
+export function categorySeries(ledger, group, { months = 24 } = {}) {
+  const acc = new Map();
+  let first = null, last = null;
+  for (const tx of ledger || []) {
+    if (tx.conduit || tx.kind === "opening") continue;
+    for (const l of tx.legs) {
+      if (kindOf(l.account) !== "expense" || groupOf(l.account) !== group) continue;
+      const k = monthOf(tx.date);
+      acc.set(k, (acc.get(k) || 0) + l.base);
+      if (!first || k < first) first = k;
+      if (!last || k > last) last = k;
+    }
+  }
+  if (!first) return [];
+  const out = [];
+  const [fy, fm] = first.split("-").map(Number);
+  const [ly, lm] = last.split("-").map(Number);
+  for (let y = fy, m = fm; y < ly || (y === ly && m <= lm); m === 12 ? (m = 1, y++) : m++) {
+    const k = `${y}-${String(m).padStart(2, "0")}`;
+    out.push({ key: k, label: monthName(k), amount: fromMinor(acc.get(k) || 0) });
+  }
+  return out.slice(-months);
+}
+
+/** Headline numbers for one category. */
+export function categoryStats(ledger, group) {
+  const series = categorySeries(ledger, group);
+  if (!series.length) return null;
+  const total = series.reduce((s, r) => s + r.amount, 0);
+  const peak = series.reduce((a, b) => (b.amount > a.amount ? b : a), series[0]);
+  const recent = series.slice(-3).reduce((s, r) => s + r.amount, 0) / Math.min(3, series.length);
+  const earlier = series.slice(0, -3);
+  const before = earlier.length ? earlier.reduce((s, r) => s + r.amount, 0) / earlier.length : null;
+  return {
+    series, total, peak,
+    months: series.length,
+    average: total / series.length,
+    recentAverage: recent,
+    // Null when there is no earlier period to compare against — "no trend
+    // yet" and "flat" are different answers.
+    trend: before === null || before === 0 ? null : (recent - before) / before,
+  };
+}

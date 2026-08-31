@@ -888,7 +888,16 @@ export default function FinanceDetail({
         />
       )}
 
-      {activeTab === "alerts" && <GmailAlerts token={token} />}
+      {activeTab === "alerts" && (
+          <GmailAlerts
+            token={token}
+            accounts={data.accounts}
+            categories={data.expenseCategories}
+            expenses={data.expenses}
+            rate={rate}
+            onAddExpense={onAddExpense}
+          />
+        )}
 
       {activeTab === "unit-economics" && (
         <div className="grid lg:grid-cols-3 gap-4">

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
-import { Mail, RefreshCw, Check, AlertTriangle, Unplug, ArrowDownLeft, ArrowUpRight } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Mail, RefreshCw, Check, AlertTriangle, Unplug, ArrowDownLeft, ArrowUpRight, Plus } from "lucide-react";
 import Card, { CardTitle } from "../ui/Card";
+import { suggestCategory, matchAccount, toExpense } from "../../lib/alertToExpense";
 
 // Bank alert emails, read and proposed — never recorded on their own.
 //
@@ -23,12 +24,16 @@ async function api(token, method, body) {
   return json;
 }
 
-export default function GmailAlerts({ token }) {
+export default function GmailAlerts({ token, accounts = [], categories = [], expenses = [], rate = 1, onAddExpense }) {
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
   const [days, setDays] = useState(30);
+  // Category per pending row, keyed by message id. Seeded from the guess but
+  // freely overridable — the guess is a starting point, not an answer.
+  const [picked, setPicked] = useState({});
+  const [logged, setLogged] = useState(() => new Set());
 
   const load = useCallback(async () => {
     try { setStatus(await api(token, "GET")); }
@@ -59,6 +64,22 @@ export default function GmailAlerts({ token }) {
     try { await api(token, "DELETE"); setResult(null); await load(); }
     catch (e) { setError(e.message); }
     finally { setBusy(false); }
+  }
+
+  // An alert already logged as an expense must not be offered again. The id
+  // is stored on the expense, so this survives a reload and a re-sync — the
+  // component's own state would not.
+  const alreadyLogged = useMemo(
+    () => new Set((expenses || []).map((e) => e.gmailMessageId).filter(Boolean)),
+    [expenses]
+  );
+
+  function logOne(p) {
+    const cat = picked[p.messageId] ?? suggestCategory(p, categories) ?? "Other";
+    const record = toExpense(p, { accounts, category: cat, rate });
+    if (!record) return;
+    onAddExpense?.(record);
+    setLogged((s) => new Set(s).add(p.messageId));
   }
 
   if (!status) return <Card className="p-6 text-sm text-stone-400">Checking Gmail…</Card>;
@@ -145,6 +166,20 @@ export default function GmailAlerts({ token }) {
               : "Nothing new. Every alert in this window is already in your ledger."}>
               {result.pending.length} new since your last statement
             </CardTitle>
+            {result.pending.some((p) => p.dir === "DR" && !logged.has(p.messageId) && !alreadyLogged.has(p.messageId) && (picked[p.messageId] ?? suggestCategory(p, categories))) && (
+              <div className="mb-3">
+                <button
+                  onClick={() => result.pending
+                    .filter((p) => p.dir === "DR" && !logged.has(p.messageId) && !alreadyLogged.has(p.messageId)
+                      && (picked[p.messageId] ?? suggestCategory(p, categories)))
+                    .forEach(logOne)}
+                  className="bg-night text-white text-[12.5px] font-medium px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5 transition-transform active:scale-[0.97]"
+                >
+                  <Plus size={12} /> Log everything with a category
+                </button>
+                <span className="text-[11.5px] text-stone-400 ml-2">Rows without one stay untouched.</span>
+              </div>
+            )}
             {result.pending.length > 0 && (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -152,28 +187,61 @@ export default function GmailAlerts({ token }) {
                     <tr className="text-[10.5px] uppercase tracking-wide text-stone-400 border-b border-line">
                       <th className="text-left font-semibold py-2 w-24">Date</th>
                       <th className="text-left font-semibold py-2">Who</th>
-                      <th className="text-left font-semibold py-2 w-24">Account</th>
-                      <th className="text-right font-semibold py-2 w-28">Amount</th>
+                      <th className="text-right font-semibold py-2 w-28 pr-5">Amount</th>
+                      <th className="text-left font-semibold py-2 w-64">Log as an expense</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {result.pending.map((p) => (
-                      <tr key={p.messageId} className="border-b border-stone-100 last:border-0">
-                        <td className="py-2 tnum text-stone-500">{p.date}</td>
-                        <td className="py-2">
-                          <span className="inline-flex items-center gap-1.5">
-                            {p.dir === "DR"
-                              ? <ArrowUpRight size={13} className="text-rose-500 shrink-0" />
-                              : <ArrowDownLeft size={13} className="text-emerald-600 shrink-0" />}
-                            <span className="truncate" title={p.text}>{p.payee || p.subject}</span>
-                          </span>
-                        </td>
-                        <td className="py-2 text-stone-400 tnum">{p.accountTail ? `••${p.accountTail}` : "—"}</td>
-                        <td className={`py-2 text-right tnum font-medium ${p.dir === "DR" ? "text-rose-600" : "text-emerald-700"}`}>
-                          {p.dir === "DR" ? "−" : "+"}{inr(p.amount)}
-                        </td>
-                      </tr>
-                    ))}
+                    {result.pending.map((p) => {
+                      const done = logged.has(p.messageId) || alreadyLogged.has(p.messageId);
+                      const guess = suggestCategory(p, categories);
+                      const cat = picked[p.messageId] ?? guess ?? "";
+                      const acct = matchAccount(p, accounts);
+                      return (
+                        <tr key={p.messageId} className="border-b border-stone-100 last:border-0">
+                          <td className="py-2 tnum text-stone-500 align-top">{p.date}</td>
+                          <td className="py-2 align-top">
+                            <span className="inline-flex items-center gap-1.5">
+                              {p.dir === "DR"
+                                ? <ArrowUpRight size={13} className="text-rose-500 shrink-0" />
+                                : <ArrowDownLeft size={13} className="text-emerald-600 shrink-0" />}
+                              <span className="truncate" title={p.text}>{p.payee || p.subject}</span>
+                            </span>
+                            <div className="text-[11px] text-stone-400 mt-0.5">
+                              {acct ? acct.name : p.accountTail ? `account ••${p.accountTail}` : "account unknown"}
+                            </div>
+                          </td>
+                          <td className={`py-2 pr-5 text-right tnum font-medium align-top ${p.dir === "DR" ? "text-rose-600" : "text-emerald-700"}`}>
+                            {p.dir === "DR" ? "−" : "+"}{inr(p.amount)}
+                          </td>
+                          <td className="py-2 align-top">
+                            {p.dir !== "DR" ? (
+                              <span className="text-[11.5px] text-stone-400">money in — not an expense</span>
+                            ) : done ? (
+                              <span className="text-[12px] text-emerald-700 inline-flex items-center gap-1"><Check size={12} /> logged</span>
+                            ) : (
+                              <div className="flex items-center gap-1.5">
+                                <select
+                                  value={cat}
+                                  onChange={(e) => setPicked((s) => ({ ...s, [p.messageId]: e.target.value }))}
+                                  className={`text-[12px] px-2 py-1 rounded-lg border bg-white flex-1 min-w-0 ${guess && !picked[p.messageId] ? "border-emerald-200 text-emerald-800" : "border-line"}`}
+                                >
+                                  <option value="">Pick a category…</option>
+                                  {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                                </select>
+                                <button
+                                  onClick={() => logOne(p)}
+                                  disabled={!cat}
+                                  className="text-[12px] border border-line rounded-lg px-2 py-1 inline-flex items-center gap-1 hover:border-stone-300 disabled:opacity-40 transition-colors shrink-0"
+                                >
+                                  <Plus size={11} /> Log
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

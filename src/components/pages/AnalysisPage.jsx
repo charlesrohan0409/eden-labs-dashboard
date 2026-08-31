@@ -1,20 +1,24 @@
 import { useMemo, useState } from "react";
 import {
-  AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip,
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, PieChart, Pie,
+  RadialBarChart, RadialBar, PolarAngleAxis,
   ResponsiveContainer, CartesianGrid, Cell, ReferenceLine,
 } from "recharts";
-import { ArrowLeft, TrendingUp, TrendingDown, Wallet, ArrowLeftRight, Info } from "lucide-react";
+import {
+  ArrowLeft, TrendingUp, TrendingDown, Wallet, ArrowLeftRight, Info,
+  Repeat, Users, Lightbulb, AlertTriangle, Check,
+} from "lucide-react";
 import Card, { CardTitle } from "../ui/Card";
 import PillTabs from "../ui/PillTabs";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { trialBalance } from "../../lib/ledger";
 import { useLedger } from "../../hooks/useLedger";
 import {
-  monthlySeries, spendingByGroup, spendingBreakdown,
-  ratios, netWorthSeries, balanceSheet, cashFlow, incomeStatement,
+  monthlySeries, spendingByGroup, spendingBreakdown, incomeBreakdown,
+  ratios, netWorthSeries, balanceSheet, cashFlow, incomeStatement, monthName,
 } from "../../lib/ledgerAnalysis";
+import { topPayees, recurring, monthOnMonth, observations, largest } from "../../lib/ledgerInsights";
 
-const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
 const inr = (n) => "₹" + Math.round(Math.abs(n)).toLocaleString("en-IN");
 const signed = (n) => (n < 0 ? "−" : "") + inr(n);
 const pct = (v) => (v === null || v === undefined ? "—" : `${(v * 100).toFixed(1)}%`);
@@ -27,6 +31,7 @@ const GROUP_COLOR = {
   cash: COLORS.amber, "bank-charges": COLORS.rose, giving: COLORS.teal,
   subscriptions: COLORS.accentSoft, health: "#BE185D", utilities: "#0891B2",
   "personal-care": "#9333EA", travel: "#CA8A04", uncategorised: COLORS.muted,
+  taxes: "#78716C", interest: "#EA580C", bnpl: "#64748B", education: "#0E7490",
 };
 const colorFor = (g) => GROUP_COLOR[g] || COLORS.muted;
 
@@ -35,7 +40,16 @@ const colorFor = (g) => GROUP_COLOR[g] || COLORS.muted;
 // of them while the fetch is still in flight.
 const EMPTY = [];
 
-function Stat({ label, value, note, tone = "default", icon: Icon }) {
+/** "Apr 2025 – Aug 2026". Every figure on this page is scoped to one. */
+function periodLabel(from, to) {
+  const f = from ? monthName(from.slice(0, 7)) : null;
+  const t = to ? monthName(to.slice(0, 7)) : null;
+  if (!f && !t) return "all time";
+  if (f && t) return f === t ? f : `${f} – ${t}`;
+  return f ? `since ${f}` : `up to ${t}`;
+}
+
+function Stat({ label, value, note, tone = "default", icon: Icon, period }) {
   const toneCls = tone === "good" ? "text-emerald-700" : tone === "bad" ? "text-rose-600" : "text-stone-900";
   return (
     <Card className="p-4">
@@ -44,6 +58,10 @@ function Stat({ label, value, note, tone = "default", icon: Icon }) {
       </div>
       <div className={`text-[26px] leading-tight font-bold tracking-tight tnum mt-1 ${toneCls}`}>{value}</div>
       {note && <div className="text-[11px] text-stone-400 mt-0.5">{note}</div>}
+      {/* Every figure states its own window. Without it a number on this page
+          is unreadable: ₹7.3L of spending is alarming over three months and
+          unremarkable over seventeen. */}
+      {period && <div className="text-[10px] text-stone-300 mt-1.5 uppercase tracking-wide">{period}</div>}
     </Card>
   );
 }
@@ -64,6 +82,13 @@ export default function AnalysisPage({ token, setView }) {
   const [range, setRange] = useState("all");
   const [view, setView2] = useState("overview");
 
+  // The ledger's own span, so "All" can name real dates instead of the word.
+  const span = useMemo(() => {
+    if (!ledger.length) return { first: null, last: null };
+    const dates = ledger.filter((t) => t.kind !== "opening").map((t) => t.date).sort();
+    return { first: dates[0], last: dates[dates.length - 1] };
+  }, [ledger]);
+
   const window = useMemo(() => {
     if (range === "all") return {};
     const d = new Date();
@@ -71,15 +96,26 @@ export default function AnalysisPage({ token, setView }) {
     return { from: d.toISOString().slice(0, 10) };
   }, [range]);
 
+  const label = periodLabel(window.from || span.first, window.to || span.last);
+
   const R = useMemo(() => ratios(ledger, window), [ledger, window]);
   const months = useMemo(() => monthlySeries(ledger), [ledger]);
   const groups = useMemo(() => spendingByGroup(ledger, window), [ledger, window]);
   const detail = useMemo(() => spendingBreakdown(ledger, window), [ledger, window]);
+  const income = useMemo(() => incomeBreakdown(ledger, window), [ledger, window]);
   const worth = useMemo(() => netWorthSeries(ledger), [ledger]);
   const sheet = useMemo(() => balanceSheet(ledger), [ledger]);
   const flow = useMemo(() => cashFlow(ledger, window), [ledger, window]);
   const pnl = useMemo(() => incomeStatement(ledger, window), [ledger, window]);
   const tb = useMemo(() => trialBalance(ledger), [ledger]);
+  const payees = useMemo(() => topPayees(ledger, { ...window, limit: 12 }), [ledger, window]);
+  const repeats = useMemo(() => recurring(ledger), [ledger]);
+  const mom = useMemo(() => monthOnMonth(ledger), [ledger]);
+  const notes = useMemo(() => observations(ledger), [ledger]);
+  const big = useMemo(() => largest(ledger, { ...window, limit: 6 }), [ledger, window]);
+
+  const conduit = months.reduce((s, m) => s + m.conduit, 0);
+  const monthCount = months.length || 1;
 
   if (loading || ledgerError) {
     return (
@@ -128,7 +164,8 @@ export default function AnalysisPage({ token, setView }) {
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-stone-900">Analysis</h1>
           <p className="text-sm text-stone-500 mt-1">
-            Every figure derived from the ledger — {ledger.length.toLocaleString("en-IN")} entries.
+            <span className="font-medium text-stone-700">{label}</span>
+            {" · "}{ledger.length.toLocaleString("en-IN")} entries from your statements
           </p>
         </div>
         <PillTabs
@@ -140,31 +177,51 @@ export default function AnalysisPage({ token, setView }) {
         />
       </div>
 
-      {/* The self-check, stated rather than assumed. If the ledger ever stops
-          balancing, that is the first thing worth knowing — before reading a
-          single number below it. */}
-      <div className={`flex items-center gap-2 text-[12.5px] rounded-xl px-3.5 py-2.5 border
-        ${tb.ok ? "bg-emerald-50 border-emerald-200/70 text-emerald-800"
-                : "bg-rose-50 border-rose-200 text-rose-800"}`}>
-        <span className={`w-1.5 h-1.5 rounded-full ${tb.ok ? "bg-emerald-600" : "bg-rose-600"}`} />
+      <div className={`flex items-center gap-2 text-xs rounded-xl px-3 py-2 border ${tb.ok ? "bg-emerald-50/60 border-emerald-100 text-emerald-800" : "bg-rose-50 border-rose-200 text-rose-700"}`}>
+        <Info size={13} />
         {tb.ok
           ? "Ledger balances — every transaction sums to zero."
-          : `${tb.unbalanced.length} unbalanced transaction${tb.unbalanced.length > 1 ? "s" : ""} — figures below are unreliable.`}
+          : `${tb.unbalanced.length} transaction(s) don't balance. Figures below may be wrong.`}
       </div>
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <Stat icon={TrendingUp} label="Income" value={inr(R.income)} note="client work" />
-        <Stat icon={TrendingDown} label="Spending" value={inr(R.expense)}
-          note={`${inr(R.business)} business · ${inr(R.personal)} personal`} />
-        <Stat icon={Wallet} label="Net" value={signed(R.net)} tone={R.net >= 0 ? "good" : "bad"}
-          note={R.savingsRate === null ? "no income in range" : `${pct(R.savingsRate)} of income kept`} />
-        {/* Gross, not net: the total that LEFT the accounts on someone else's
-            behalf. The cash-flow statement reports the net of the same
-            activity, which is a different (smaller) number — hence the
-            different label there. */}
-        <Stat icon={ArrowLeftRight} label="Passed through"
-          value={inr(months.reduce((s, m) => s + m.conduit, 0))}
-          note="family money moved out — never yours" />
+      {/* The headline gets the dark card, the way the reference dashboards do:
+          one number that reads first, everything else supporting it. */}
+      <div className="grid lg:grid-cols-[1.15fr_2fr] gap-3">
+        <Card dark className="p-5 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-1.5 text-[10.5px] font-semibold text-white/45 uppercase tracking-wide">
+              <Wallet size={12} /> Kept from what you earned
+            </div>
+            <div className={`text-[34px] leading-tight font-bold tracking-tight tnum mt-1.5 ${R.net >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+              {signed(R.net)}
+            </div>
+            <div className="text-xs text-white/50 mt-1">
+              {inr(R.income)} earned · {inr(R.expense)} spent
+            </div>
+          </div>
+          <div className="mt-4 pt-4 border-t border-white/10 grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-white/40">Per month</div>
+              <div className="text-sm font-semibold tnum text-white mt-0.5">{signed(R.net / monthCount)}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-white/40">Over</div>
+              <div className="text-sm font-semibold text-white mt-0.5">{monthCount} months</div>
+            </div>
+          </div>
+        </Card>
+
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Stat icon={TrendingUp} label="Income" value={inr(R.income)}
+            note={`${inr(R.income / monthCount)} a month on average`} period={label} />
+          <Stat icon={TrendingDown} label="Spending" value={inr(R.expense)}
+            note={`${inr(R.business)} business · ${inr(R.personal)} personal`} period={label} />
+          <Stat icon={Wallet} label="Savings rate" value={R.savingsRate === null ? "—" : pct(R.savingsRate)}
+            tone={R.net >= 0 ? "good" : "bad"}
+            note={R.savingsRate === null ? "no income in range" : "of every rupee earned"} period={label} />
+          <Stat icon={ArrowLeftRight} label="Passed through" value={inr(conduit)}
+            note="family money moved out — never yours" period={periodLabel(span.first, span.last)} />
+        </div>
       </div>
 
       <PillTabs
@@ -172,82 +229,168 @@ export default function AnalysisPage({ token, setView }) {
         options={[
           { value: "overview", label: "Overview" },
           { value: "spending", label: "Where it goes" },
+          { value: "repeats", label: "What repeats" },
           { value: "statements", label: "Statements" },
         ]}
       />
 
       {view === "overview" && (
         <>
+          <div className="grid lg:grid-cols-2 gap-3">
+            {/* The donut answers "what is the shape of my spending" at a
+                glance; the legend beside it answers "how much exactly". One
+                without the other is either vague or unreadable. */}
+            <Card className="p-5">
+              <CardTitle sub={`${inr(detail.total)} · ${label}`}>Spending by category</CardTitle>
+              <div className="flex items-center gap-4 flex-wrap sm:flex-nowrap">
+                <div className="relative shrink-0" style={{ width: 190, height: 190 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={groups.filter((g) => g.amount > 0)} dataKey="amount" nameKey="label"
+                        innerRadius={62} outerRadius={92} paddingAngle={2} stroke="none">
+                        {groups.filter((g) => g.amount > 0).map((g) => <Cell key={g.group} fill={colorFor(g.group)} />)}
+                      </Pie>
+                      <Tooltip {...chartTooltipStyle} formatter={(v, n) => [`${inr(v)}`, n]} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  {/* Centre label: the one thing worth reading without
+                      hovering anything. */}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <div className="text-[9.5px] uppercase tracking-wide text-stone-400">Biggest</div>
+                    <div className="text-[13px] font-semibold text-stone-900 leading-tight text-center px-6">
+                      {groups[0]?.label || "—"}
+                    </div>
+                    <div className="text-[11px] text-stone-400 tnum mt-0.5">
+                      {groups[0] ? pct(groups[0].share) : ""}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  {groups.slice(0, 7).map((g) => (
+                    <div key={g.group} className="flex items-center gap-2 text-[12.5px]">
+                      <i className="w-2 h-2 rounded-full shrink-0" style={{ background: colorFor(g.group) }} />
+                      <span className="text-stone-600 truncate">{g.label}</span>
+                      <span className="ml-auto tnum font-medium text-stone-900">{inr(g.amount)}</span>
+                      <span className="tnum text-stone-400 w-11 text-right">{pct(g.share)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Card>
+
+            {/* Income is two or three sources, not twelve, so a radial reads
+                better than a pie: the arc length carries the comparison and
+                the empty track shows the share of the whole. */}
+            <Card className="p-5">
+              <CardTitle sub={`${inr(income.total)} · ${label}`}>Where income comes from</CardTitle>
+              <div className="flex items-center gap-4 flex-wrap sm:flex-nowrap">
+                <div className="shrink-0" style={{ width: 190, height: 190 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RadialBarChart
+                      data={income.rows.slice(0, 5).map((r, i) => ({ ...r, fill: [COLORS.accent, COLORS.teal, COLORS.sky, COLORS.violet, COLORS.amber][i] }))}
+                      innerRadius="38%" outerRadius="100%" startAngle={90} endAngle={-270} barSize={13}
+                    >
+                      <PolarAngleAxis type="number" domain={[0, 1]} dataKey="share" tick={false} />
+                      <RadialBar dataKey="share" background={{ fill: COLORS.gridline }} cornerRadius={7} />
+                      <Tooltip {...chartTooltipStyle} formatter={(v, _n, p) => [`${inr(p.payload.amount)} · ${pct(v)}`, p.payload.label]} />
+                    </RadialBarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  {income.rows.slice(0, 5).map((r, i) => (
+                    <div key={r.account} className="flex items-center gap-2 text-[12.5px]">
+                      <i className="w-2 h-2 rounded-full shrink-0" style={{ background: [COLORS.accent, COLORS.teal, COLORS.sky, COLORS.violet, COLORS.amber][i] }} />
+                      <span className="text-stone-600 truncate">{r.label}</span>
+                      <span className="ml-auto tnum font-medium text-stone-900">{inr(r.amount)}</span>
+                      <span className="tnum text-stone-400 w-11 text-right">{pct(r.share)}</span>
+                    </div>
+                  ))}
+                  {income.rows.length === 0 && <div className="text-sm text-stone-400">No income in this period.</div>}
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          {notes.length > 0 && (
+            <Card className="p-5">
+              <CardTitle sub="Read from the ledger, ranked by how much money each is about">What stands out</CardTitle>
+              <div className="grid md:grid-cols-2 gap-2.5">
+                {notes.slice(0, 4).map((o, i) => {
+                  const Icon = o.tone === "warn" ? AlertTriangle : o.tone === "good" ? Check : Lightbulb;
+                  const tint = o.tone === "warn" ? "text-amber-600 bg-amber-50" : o.tone === "good" ? "text-emerald-700 bg-emerald-50" : "text-stone-500 bg-stone-100";
+                  return (
+                    <div key={i} className="flex gap-3 rounded-xl border border-line p-3.5">
+                      <div className={`w-7 h-7 rounded-lg grid place-items-center shrink-0 ${tint}`}>
+                        <Icon size={14} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[13px] font-semibold text-stone-900 leading-snug">{o.title}</div>
+                        <div className="text-[12px] text-stone-500 mt-0.5 leading-snug">{o.body}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
+
           <Card className="p-5">
-            <CardTitle sub="Your money only — family money passing through is excluded">
-              Income vs spending
+            <CardTitle sub={`Your money only — family money passing through is excluded · ${periodLabel(span.first, span.last)}`}>
+              Income vs spending, month by month
             </CardTitle>
             <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={months} barGap={2}>
+              <BarChart data={months} margin={{ left: -14, right: 8 }} barGap={2}>
                 <CartesianGrid stroke={COLORS.gridline} vertical={false} />
-                <XAxis dataKey="label" tick={axisTick} axisLine={false} tickLine={false} />
-                <YAxis tick={axisTick} axisLine={false} tickLine={false} width={62}
+                <XAxis dataKey="label" tick={axisTick} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={axisTick} axisLine={false} tickLine={false}
                   tickFormatter={(v) => (Math.abs(v) >= 1000 ? `₹${Math.round(v / 1000)}k` : `₹${v}`)} />
                 <Tooltip {...chartTooltipStyle} formatter={(v, n) => [inr(v), n === "income" ? "Income" : "Spending"]} />
                 <ReferenceLine y={0} stroke={COLORS.line} />
-                <Bar dataKey="income" fill={COLORS.accent} radius={[3, 3, 0, 0]} barSize={11} />
-                <Bar dataKey="expense" fill={COLORS.muted} radius={[3, 3, 0, 0]} barSize={11} />
+                <Bar dataKey="income" fill={COLORS.accent} radius={[3, 3, 0, 0]} barSize={11} name="income" />
+                <Bar dataKey="expense" fill={COLORS.muted} radius={[3, 3, 0, 0]} barSize={11} name="expense" />
               </BarChart>
             </ResponsiveContainer>
-            <div className="flex gap-4 text-[11.5px] text-stone-500 mt-2">
-              <span className="flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: COLORS.accent }} />Income</span>
-              <span className="flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: COLORS.muted }} />Spending</span>
-            </div>
           </Card>
 
-          <div className="grid lg:grid-cols-2 gap-4 items-start">
+          <div className="grid lg:grid-cols-2 gap-3">
             <Card className="p-5">
               <CardTitle sub="Assets minus what you owe, at each month end">Net worth</CardTitle>
               <ResponsiveContainer width="100%" height={200}>
-                <AreaChart data={worth}>
+                <AreaChart data={worth} margin={{ left: -14, right: 8 }}>
                   <defs>
-                    <linearGradient id="gWorth" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id="gNetWorth" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={COLORS.accent} stopOpacity={0.22} />
                       <stop offset="100%" stopColor={COLORS.accent} stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid stroke={COLORS.gridline} vertical={false} />
-                  <XAxis dataKey="label" tick={axisTick} axisLine={false} tickLine={false} />
-                  <YAxis tick={axisTick} axisLine={false} tickLine={false} width={62}
+                  <XAxis dataKey="label" tick={axisTick} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis tick={axisTick} axisLine={false} tickLine={false}
                     tickFormatter={(v) => (Math.abs(v) >= 1000 ? `₹${Math.round(v / 1000)}k` : `₹${v}`)} />
-                  <Tooltip {...chartTooltipStyle} formatter={(v) => [signed(v), "Net worth"]} />
-                  <Area type="monotone" dataKey="netWorth" stroke={COLORS.accent} strokeWidth={2.5} fill="url(#gWorth)" />
+                  <Tooltip {...chartTooltipStyle} formatter={(v) => [inr(v), "Net worth"]} />
+                  <Area type="monotone" dataKey="netWorth" stroke={COLORS.accent} strokeWidth={2.5} fill="url(#gNetWorth)" />
                 </AreaChart>
               </ResponsiveContainer>
             </Card>
 
             <Card className="p-5">
-              <CardTitle sub="How much of every ₹100 earned you keep">Key ratios</CardTitle>
-              <div className="space-y-3">
-                {[
-                  ["Savings rate", R.savingsRate, "what's left after everything"],
-                  ["Business margin", R.businessMargin, "income after business costs only"],
-                  ["Spending vs income", R.expenseRatio, "over 100% means dipping into reserves"],
-                ].map(([label, value, note]) => (
-                  <div key={label}>
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span className="text-[13px] font-medium text-stone-700">{label}</span>
-                      <span className={`text-[15px] font-bold tnum ${
-                        value === null ? "text-stone-300"
-                        : label === "Spending vs income"
-                          ? (value > 1 ? "text-rose-600" : "text-emerald-700")
-                          : (value >= 0 ? "text-emerald-700" : "text-rose-600")}`}>
-                        {pct(value)}
-                      </span>
-                    </div>
-                    <div className="h-1.5 rounded-full bg-stone-100 overflow-hidden mt-1.5">
-                      <div className={`h-full rounded-full origin-left transition-transform duration-300 ${EASE}
-                        ${value !== null && value < 0 ? "bg-rose-500" : "bg-emerald-600"}`}
-                        style={{ transform: `scaleX(${Math.min(1, Math.abs(value || 0))})` }} />
-                    </div>
-                    <div className="text-[11px] text-stone-400 mt-1">{note}</div>
+              <CardTitle sub={mom.previousLabel ? `${mom.currentLabel} against ${mom.previousLabel}` : "Not enough history yet"}>
+                What changed last month
+              </CardTitle>
+              <div className="space-y-1.5">
+                {mom.rows.slice(0, 8).map((r) => (
+                  <div key={r.group} className="flex items-center gap-2 text-[12.5px]">
+                    <i className="w-2 h-2 rounded-full shrink-0" style={{ background: colorFor(r.group) }} />
+                    <span className="text-stone-600 truncate capitalize">{r.group.replace(/-/g, " ")}</span>
+                    <span className="ml-auto tnum text-stone-400">{inr(r.was)}</span>
+                    <span className="text-stone-300">→</span>
+                    <span className="tnum font-medium text-stone-900 w-20 text-right">{inr(r.now)}</span>
+                    <span className={`tnum w-20 text-right ${r.delta > 0 ? "text-rose-600" : r.delta < 0 ? "text-emerald-700" : "text-stone-300"}`}>
+                      {r.delta === 0 ? "—" : (r.delta > 0 ? "+" : "−") + inr(r.delta)}
+                    </span>
                   </div>
                 ))}
+                {!mom.rows.length && <div className="text-sm text-stone-400">Nothing to compare yet.</div>}
               </div>
             </Card>
           </div>
@@ -257,7 +400,7 @@ export default function AnalysisPage({ token, setView }) {
       {view === "spending" && (
         <>
           <Card className="p-5">
-            <CardTitle sub={`${inr(detail.total)} across ${detail.rows.length} categories`}>
+            <CardTitle sub={`${inr(detail.total)} across ${detail.rows.length} categories · ${label}`}>
               Where it goes
             </CardTitle>
             <ResponsiveContainer width="100%" height={Math.max(220, groups.length * 34)}>
@@ -279,8 +422,42 @@ export default function AnalysisPage({ token, setView }) {
             </ResponsiveContainer>
           </Card>
 
+          <div className="grid lg:grid-cols-2 gap-3">
+            {/* Categories tell you it was food. This tells you it was Ayyappan
+                Idli, forty-six times. Only the second one changes anything. */}
+            <Card className="p-5">
+              <CardTitle sub={`Net of refunds · ${label}`} action={<Users size={15} className="text-stone-300" />}>
+                Who you paid most
+              </CardTitle>
+              <div className="space-y-1.5">
+                {payees.map((p) => (
+                  <div key={p.name} className="flex items-center gap-2 text-[12.5px]">
+                    <i className="w-2 h-2 rounded-full shrink-0" style={{ background: colorFor(p.group) }} />
+                    <span className="text-stone-700 truncate capitalize">{p.name.toLowerCase()}</span>
+                    <span className="text-stone-300 tnum text-[11px] shrink-0">×{p.count}</span>
+                    <span className="ml-auto tnum font-medium text-stone-900">{inr(p.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            <Card className="p-5">
+              <CardTitle sub={`Single transactions worth remembering · ${label}`}>Biggest one-offs</CardTitle>
+              <div className="space-y-1.5">
+                {big.map((b, i) => (
+                  <div key={i} className="flex items-center gap-2 text-[12.5px]">
+                    <i className="w-2 h-2 rounded-full shrink-0" style={{ background: colorFor(b.group) }} />
+                    <span className="text-stone-700 truncate capitalize">{b.name.toLowerCase()}</span>
+                    <span className="text-stone-300 text-[11px] shrink-0">{b.date.slice(0, 7)}</span>
+                    <span className="ml-auto tnum font-medium text-stone-900">{inr(b.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </div>
+
           <Card className="p-5">
-            <CardTitle sub="Every category, largest first">Detail</CardTitle>
+            <CardTitle sub={`Every category, largest first · ${label}`}>Detail</CardTitle>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -299,92 +476,152 @@ export default function AnalysisPage({ token, setView }) {
                           {r.label}
                         </span>
                       </td>
-                      <td className={`text-right tnum py-2 ${r.amount < 0 ? "text-emerald-700" : "text-stone-800"}`}>
-                        {signed(r.amount)}
-                      </td>
+                      <td className="text-right tnum py-2">{signed(r.amount)}</td>
                       <td className="text-right tnum py-2 text-stone-400">{pct(r.share)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            {detail.rows.some((r) => r.amount < 0) && (
-              <p className="text-[11.5px] text-stone-400 mt-3 flex items-start gap-1.5">
-                <Info size={13} className="shrink-0 mt-px" />
-                A negative category means refunds exceeded spending in this window — the
-                course refund landed months after the purchase.
-              </p>
-            )}
+          </Card>
+        </>
+      )}
+
+      {view === "repeats" && (
+        <>
+          <div className="grid sm:grid-cols-3 gap-3">
+            <Stat icon={Repeat} label="Committed monthly"
+              value={inr(repeats.filter((r) => r.confident && !r.conduit).reduce((s, r) => s + r.amount, 0))}
+              note="charges that land on the same day every month" />
+            <Stat icon={Repeat} label="A year of that"
+              value={inr(repeats.filter((r) => r.confident && !r.conduit).reduce((s, r) => s + r.annualised, 0))}
+              note="before you decide anything else" />
+            <Stat icon={ArrowLeftRight} label="Paid for others"
+              value={inr(repeats.filter((r) => r.confident && r.conduit).reduce((s, r) => s + r.amount, 0))}
+              note="recurring, on family's behalf — not your spending" />
+          </div>
+
+          <Card className="p-5">
+            <CardTitle sub="Matched on payee and exact amount, across three or more months">
+              What repeats every month
+            </CardTitle>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-[10.5px] uppercase tracking-wide text-stone-400 border-b border-line">
+                    <th className="text-left font-semibold py-2">Payee</th>
+                    <th className="text-left font-semibold py-2 w-32">Category</th>
+                    <th className="text-right font-semibold py-2 w-16">Day</th>
+                    <th className="text-right font-semibold py-2 w-20">Months</th>
+                    <th className="text-right font-semibold py-2 w-24">Each</th>
+                    <th className="text-right font-semibold py-2 w-24">A year</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {repeats.map((r, i) => (
+                    <tr key={i} className="border-b border-stone-100 last:border-0">
+                      <td className="py-2">
+                        <span className="inline-flex items-center gap-2">
+                          <i className="w-2 h-2 rounded-sm shrink-0" style={{ background: r.conduit ? COLORS.muted : colorFor(r.account.split(":")[1]) }} />
+                          <span className="capitalize">{r.name.toLowerCase()}</span>
+                          {/* Money he moves for family repeats just like a
+                              subscription does, and looks identical in a list
+                              of charges — so it says so, rather than quietly
+                              inflating a "your commitments" total. */}
+                          {r.conduit && <span className="text-[10px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-500">not yours</span>}
+                        </span>
+                      </td>
+                      <td className="py-2 text-stone-500">{r.label}</td>
+                      <td className="py-2 text-right tnum text-stone-400">{r.confident ? r.dayOfMonth : "—"}</td>
+                      <td className="py-2 text-right tnum text-stone-500">{r.months}</td>
+                      <td className="py-2 text-right tnum font-medium">{inr(r.amount)}</td>
+                      <td className="py-2 text-right tnum text-stone-400">{inr(r.annualised)}</td>
+                    </tr>
+                  ))}
+                  {!repeats.length && (
+                    <tr><td colSpan={6} className="py-6 text-center text-stone-400">Nothing repeats often enough yet.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </Card>
         </>
       )}
 
       {view === "statements" && (
-        <div className="grid lg:grid-cols-2 gap-4 items-start">
+        <>
           <Card className="p-5">
-            <CardTitle sub="Business separated from personal — a blended one answers nothing">
+            <CardTitle sub={`Business separated from personal — a blended one answers nothing · ${label}`}>
               Income statement
             </CardTitle>
             <table className="w-full text-sm">
               <tbody>
                 {pnl.income.map((r) => (
-                  <tr key={r.account}><td className="py-1.5 text-stone-600">{r.label}</td>
-                    <td className="text-right tnum py-1.5">{inr(r.amount)}</td></tr>
+                  <tr key={r.account} className="border-b border-stone-100">
+                    <td className="py-2 text-stone-600">{r.label}</td>
+                    <td className="text-right tnum py-2">{inr(r.amount)}</td>
+                  </tr>
                 ))}
-                <tr className="border-t border-line font-semibold">
+                <tr className="border-b border-line font-semibold">
                   <td className="py-2">Total income</td>
                   <td className="text-right tnum py-2">{inr(pnl.totalIncome)}</td>
                 </tr>
                 {pnl.businessCosts.map((r) => (
-                  <tr key={r.account}><td className="py-1.5 text-stone-600">{r.label}</td>
-                    <td className="text-right tnum py-1.5">−{inr(r.amount)}</td></tr>
+                  <tr key={r.account} className="border-b border-stone-100">
+                    <td className="py-2 text-stone-600">{r.label}</td>
+                    <td className="text-right tnum py-2 text-rose-600">−{inr(r.amount)}</td>
+                  </tr>
                 ))}
-                <tr className="border-t border-line font-semibold">
+                <tr className="border-b border-line font-semibold">
                   <td className="py-2">Business profit</td>
-                  <td className="text-right tnum py-2 text-emerald-700">{inr(pnl.businessProfit)}</td>
+                  <td className="text-right tnum py-2">{signed(pnl.businessProfit)}</td>
                 </tr>
-                <tr><td className="py-1.5 text-stone-600">Personal spending</td>
-                  <td className="text-right tnum py-1.5">−{inr(pnl.totalPersonalCosts)}</td></tr>
-                <tr className="border-t-2 border-stone-800 font-bold">
-                  <td className="py-2">Net</td>
-                  <td className={`text-right tnum py-2 ${pnl.net >= 0 ? "text-emerald-700" : "text-rose-600"}`}>
-                    {signed(pnl.net)}
-                  </td>
+                <tr className="border-b border-stone-100">
+                  <td className="py-2 text-stone-600">Personal spending</td>
+                  <td className="text-right tnum py-2 text-rose-600">−{inr(pnl.totalPersonalCosts)}</td>
+                </tr>
+                <tr className="font-bold">
+                  <td className="py-2.5">Net</td>
+                  <td className={`text-right tnum py-2.5 ${pnl.net >= 0 ? "text-emerald-700" : "text-rose-600"}`}>{signed(pnl.net)}</td>
                 </tr>
               </tbody>
             </table>
           </Card>
 
-          <div className="space-y-4">
+          <div className="grid lg:grid-cols-2 gap-3">
             <Card className="p-5">
-              <CardTitle sub={sheet.asOf ? `as at ${sheet.asOf}` : "as at today"}>Balance sheet</CardTitle>
+              <CardTitle sub="as at today">Balance sheet</CardTitle>
               <table className="w-full text-sm">
                 <tbody>
-                  <tr><td colSpan={2} className="text-[10.5px] uppercase tracking-wide text-stone-400 pt-1 pb-1.5">Assets</td></tr>
-                  {sheet.assets.map((a) => (
-                    <tr key={a.account}><td className="py-1.5 text-stone-600">{a.label}</td>
-                      <td className="text-right tnum py-1.5">{inr(a.amount)}</td></tr>
+                  <tr><td className="pt-1 pb-2 text-[10.5px] uppercase tracking-wide text-stone-400" colSpan={2}>Assets</td></tr>
+                  {sheet.assets.map((r) => (
+                    <tr key={r.account} className="border-b border-stone-100">
+                      <td className="py-2 text-stone-600">{r.label}</td>
+                      <td className="text-right tnum py-2">{signed(r.amount)}</td>
+                    </tr>
                   ))}
-                  <tr className="border-t border-line font-semibold">
-                    <td className="py-2">Total assets</td><td className="text-right tnum py-2">{inr(sheet.totalAssets)}</td>
+                  <tr className="border-b border-line font-semibold">
+                    <td className="py-2">Total assets</td>
+                    <td className="text-right tnum py-2">{inr(sheet.totalAssets)}</td>
                   </tr>
-                  <tr><td colSpan={2} className="text-[10.5px] uppercase tracking-wide text-stone-400 pt-3 pb-1.5">Liabilities</td></tr>
-                  {sheet.liabilities.length ? sheet.liabilities.map((l) => (
-                    <tr key={l.account}><td className="py-1.5 text-stone-600">{l.label}</td>
-                      <td className="text-right tnum py-1.5">{inr(l.amount)}</td></tr>
-                  )) : <tr><td className="py-1.5 text-stone-300" colSpan={2}>None</td></tr>}
-                  <tr className="border-t border-line font-semibold">
-                    <td className="py-2">Total liabilities</td><td className="text-right tnum py-2">{inr(sheet.totalLiabilities)}</td>
+                  <tr><td className="pt-3 pb-2 text-[10.5px] uppercase tracking-wide text-stone-400" colSpan={2}>Liabilities</td></tr>
+                  {sheet.liabilities.map((r) => (
+                    <tr key={r.account} className="border-b border-stone-100">
+                      <td className="py-2 text-stone-600">{r.label}</td>
+                      <td className="text-right tnum py-2">{signed(r.amount)}</td>
+                    </tr>
+                  ))}
+                  <tr className="border-b border-line font-semibold">
+                    <td className="py-2">Total liabilities</td>
+                    <td className="text-right tnum py-2">{signed(sheet.totalLiabilities)}</td>
                   </tr>
-                  <tr className="border-t-2 border-stone-800 font-bold">
-                    <td className="py-2">Net worth</td>
-                    <td className={`text-right tnum py-2 ${sheet.netWorth >= 0 ? "text-emerald-700" : "text-rose-600"}`}>
-                      {signed(sheet.netWorth)}
-                    </td>
+                  <tr className="font-bold">
+                    <td className="py-2.5">Net worth</td>
+                    <td className="text-right tnum py-2.5">{signed(sheet.netWorth)}</td>
                   </tr>
                 </tbody>
               </table>
-              <p className="text-[11px] text-stone-400 mt-3">
+              <p className="text-[11px] text-stone-400 mt-3 leading-snug">
                 Equity is the residual — assets minus liabilities — rather than whatever
                 sits in the equity accounts, which for one person are only opening
                 balances and accumulated result.
@@ -392,7 +629,7 @@ export default function AnalysisPage({ token, setView }) {
             </Card>
 
             <Card className="p-5">
-              <CardTitle sub="Where the cash actually moved">Cash flow</CardTitle>
+              <CardTitle sub={`Where the cash actually moved · ${label}`}>Cash flow</CardTitle>
               <table className="w-full text-sm">
                 <tbody>
                   {[["Operating", flow.operating, "income less spending"],
@@ -414,7 +651,7 @@ export default function AnalysisPage({ token, setView }) {
               </table>
             </Card>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

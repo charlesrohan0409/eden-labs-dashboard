@@ -37,3 +37,19 @@ export const chartTooltipStyle = {
 };
 
 export const axisTick = { fontSize: 11, fill: COLORS.muted };
+
+// Motion. Built-in CSS easings are too weak to read as intentional, so UI
+// transitions use a strong ease-out — fast at the start, where the eye is
+// actually looking. Charts are seen occasionally rather than hundreds of
+// times a day, so they keep an entrance; anything on a keyboard path does not.
+export const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
+
+// recharts only accepts its own easing names, and "ease-out" is the one that
+// starts moving immediately. Series stagger by index so a grouped chart
+// resolves as a sweep rather than everything arriving flat together.
+export const chartMotion = (i = 0) => ({
+  isAnimationActive: true,
+  animationEasing: "ease-out",
+  animationDuration: 620,
+  animationBegin: i * 90,
+});

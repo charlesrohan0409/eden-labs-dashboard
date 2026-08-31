@@ -6,18 +6,18 @@ import {
 } from "recharts";
 import {
   ArrowLeft, TrendingUp, TrendingDown, Wallet, ArrowLeftRight, Info,
-  Repeat, Users, Lightbulb, AlertTriangle, Check,
+  Repeat, Users, Lightbulb, AlertTriangle, Check, ChevronRight,
 } from "lucide-react";
 import Card, { CardTitle } from "../ui/Card";
 import PillTabs from "../ui/PillTabs";
-import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
+import { COLORS, chartTooltipStyle, axisTick, chartMotion, EASE_OUT } from "../../lib/theme";
 import { trialBalance } from "../../lib/ledger";
 import { useLedger } from "../../hooks/useLedger";
 import {
   monthlySeries, spendingByGroup, spendingBreakdown, incomeBreakdown,
   ratios, netWorthSeries, balanceSheet, cashFlow, incomeStatement, monthName, groupLabel,
 } from "../../lib/ledgerAnalysis";
-import { topPayees, recurring, monthOnMonth, observations, largest, categoryStats } from "../../lib/ledgerInsights";
+import { topPayees, recurring, monthOnMonth, observations, largest, categoryStats, categoryPayees } from "../../lib/ledgerInsights";
 
 const inr = (n) => "₹" + Math.round(Math.abs(n)).toLocaleString("en-IN");
 const signed = (n) => (n < 0 ? "−" : "") + inr(n);
@@ -83,6 +83,9 @@ export default function AnalysisPage({ token, setView }) {
   const [view, setView2] = useState("overview");
   // Which spending category is open, if any. Null = the category list.
   const [focus, setFocus] = useState(null);
+  // Payees expanded on the category page, and its own search box.
+  const [openPayees, setOpenPayees] = useState(() => new Set());
+  const [payeeQuery, setPayeeQuery] = useState("");
 
   // The ledger's own span, so "All" can name real dates instead of the word.
   const span = useMemo(() => {
@@ -116,7 +119,12 @@ export default function AnalysisPage({ token, setView }) {
   const notes = useMemo(() => observations(ledger), [ledger]);
   const big = useMemo(() => largest(ledger, { ...window, limit: 6 }), [ledger, window]);
   const focusStats = useMemo(() => (focus ? categoryStats(ledger, focus) : null), [ledger, focus]);
-  const focusPayees = useMemo(() => (focus ? topPayees(ledger, { group: focus, limit: 10 }) : []), [ledger, focus]);
+  const focusPayees = useMemo(() => (focus ? categoryPayees(ledger, focus) : []), [ledger, focus]);
+  const focusShown = useMemo(() => {
+    const q = payeeQuery.trim().toLowerCase();
+    if (!q) return focusPayees;
+    return focusPayees.filter((p) => p.name.toLowerCase().includes(q) || p.tx.some((t) => t.memo.toLowerCase().includes(q)));
+  }, [focusPayees, payeeQuery]);
 
   const conduit = months.reduce((s, m) => s + m.conduit, 0);
   // From the ledger's real span, not the chart's row count — the chart caps
@@ -259,7 +267,7 @@ export default function AnalysisPage({ token, setView }) {
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie data={groups.filter((g) => g.amount > 0)} dataKey="amount" nameKey="label"
-                        innerRadius={62} outerRadius={92} paddingAngle={2} stroke="none">
+                        innerRadius={62} outerRadius={92} paddingAngle={2} stroke="none" {...chartMotion(0)}>
                         {groups.filter((g) => g.amount > 0).map((g) => <Cell key={g.group} fill={colorFor(g.group)} />)}
                       </Pie>
                       <Tooltip {...chartTooltipStyle} formatter={(v, n) => [`${inr(v)}`, n]} />
@@ -303,7 +311,7 @@ export default function AnalysisPage({ token, setView }) {
                       innerRadius="38%" outerRadius="100%" startAngle={90} endAngle={-270} barSize={13}
                     >
                       <PolarAngleAxis type="number" domain={[0, 1]} dataKey="share" tick={false} />
-                      <RadialBar dataKey="share" background={{ fill: COLORS.gridline }} cornerRadius={7} />
+                      <RadialBar dataKey="share" background={{ fill: COLORS.gridline }} cornerRadius={7} {...chartMotion(0)} />
                       <Tooltip {...chartTooltipStyle} formatter={(v, _n, p) => [`${inr(p.payload.amount)} · ${pct(v)}`, p.payload.label]} />
                     </RadialBarChart>
                   </ResponsiveContainer>
@@ -358,8 +366,8 @@ export default function AnalysisPage({ token, setView }) {
                   tickFormatter={(v) => (Math.abs(v) >= 1000 ? `₹${Math.round(v / 1000)}k` : `₹${v}`)} />
                 <Tooltip {...chartTooltipStyle} formatter={(v, n) => [inr(v), n === "income" ? "Income" : "Spending"]} />
                 <ReferenceLine y={0} stroke={COLORS.line} />
-                <Bar dataKey="income" fill={COLORS.accent} radius={[3, 3, 0, 0]} barSize={11} name="income" />
-                <Bar dataKey="expense" fill={COLORS.muted} radius={[3, 3, 0, 0]} barSize={11} name="expense" />
+                <Bar dataKey="income" fill={COLORS.accent} radius={[3, 3, 0, 0]} barSize={11} name="income" {...chartMotion(0)} />
+                <Bar dataKey="expense" fill={COLORS.muted} radius={[3, 3, 0, 0]} barSize={11} name="expense" {...chartMotion(1)} />
               </BarChart>
             </ResponsiveContainer>
           </Card>
@@ -380,7 +388,7 @@ export default function AnalysisPage({ token, setView }) {
                   <YAxis tick={axisTick} axisLine={false} tickLine={false}
                     tickFormatter={(v) => (Math.abs(v) >= 1000 ? `₹${Math.round(v / 1000)}k` : `₹${v}`)} />
                   <Tooltip {...chartTooltipStyle} formatter={(v) => [inr(v), "Net worth"]} />
-                  <Area type="monotone" dataKey="netWorth" stroke={COLORS.accent} strokeWidth={2.5} fill="url(#gNetWorth)" />
+                  <Area type="monotone" dataKey="netWorth" stroke={COLORS.accent} strokeWidth={2.5} fill="url(#gNetWorth)" {...chartMotion(0)} />
                 </AreaChart>
               </ResponsiveContainer>
             </Card>
@@ -448,39 +456,77 @@ export default function AnalysisPage({ token, setView }) {
                 <Tooltip {...chartTooltipStyle} formatter={(v) => [inr(v), groupLabel(focus)]} />
                 <ReferenceLine y={focusStats.average} stroke={COLORS.muted} strokeDasharray="3 3"
                   label={{ value: "average", position: "insideTopRight", fontSize: 10, fill: COLORS.muted }} />
-                <Area type="monotone" dataKey="amount" stroke={colorFor(focus)} strokeWidth={2.5} fill="url(#gCat)" />
+                <Area type="monotone" dataKey="amount" stroke={colorFor(focus)} strokeWidth={2.5} fill="url(#gCat)" {...chartMotion(0)} />
               </AreaChart>
             </ResponsiveContainer>
           </Card>
 
           <Card className="p-5">
-            <CardTitle sub="Net of refunds, biggest first">Where the {groupLabel(focus).toLowerCase()} money went</CardTitle>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-[10.5px] uppercase tracking-wide text-stone-400 border-b border-line">
-                    <th className="text-left font-semibold py-2">Place</th>
-                    <th className="text-right font-semibold py-2 w-20">Visits</th>
-                    <th className="text-right font-semibold py-2 w-28">Total</th>
-                    <th className="text-right font-semibold py-2 w-24">Each time</th>
-                    <th className="text-right font-semibold py-2 w-20">Share</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {focusPayees.map((p) => (
-                    <tr key={p.name} className="border-b border-stone-100 last:border-0">
-                      <td className="py-2 capitalize">{p.name.toLowerCase()}</td>
-                      <td className="py-2 text-right tnum text-stone-500">{p.count}</td>
-                      <td className="py-2 text-right tnum font-medium">{inr(p.amount)}</td>
-                      <td className="py-2 text-right tnum text-stone-500">{inr(p.amount / p.count)}</td>
-                      <td className="py-2 text-right tnum text-stone-400">{pct(p.share)}</td>
-                    </tr>
-                  ))}
-                  {!focusPayees.length && (
-                    <tr><td colSpan={5} className="py-6 text-center text-stone-400">No payees in this category.</td></tr>
-                  )}
-                </tbody>
-              </table>
+            <CardTitle sub={`${focusPayees.length.toLocaleString("en-IN")} places · ${focusPayees.reduce((a, p) => a + p.count, 0).toLocaleString("en-IN")} transactions · net of refunds`}
+              action={
+                <input
+                  value={payeeQuery}
+                  onChange={(e) => setPayeeQuery(e.target.value)}
+                  placeholder="Find a place…"
+                  className="text-[12.5px] px-2.5 py-1.5 rounded-lg border border-line bg-white w-44 focus:outline-none focus:ring-2 focus:ring-emerald-600/30"
+                />
+              }>
+              Every place your {groupLabel(focus).toLowerCase()} money went
+            </CardTitle>
+
+            <div className="text-[10.5px] uppercase tracking-wide text-stone-400 grid grid-cols-[1fr_58px_92px_64px] gap-3 pb-2 border-b border-line">
+              <span>Place</span><span className="text-right">Times</span><span className="text-right">Total</span><span className="text-right">Share</span>
+            </div>
+
+            {/* Capped at 60 rows: 527 payees is a scroll, not a list, and the
+                tail is individually worth a rupee or two. The search box is
+                how you reach anything past the cap. */}
+            <div className="max-h-[520px] overflow-y-auto -mx-1 px-1">
+              {focusShown.slice(0, 60).map((p) => {
+                const isOpen = openPayees.has(p.name);
+                return (
+                  <div key={p.name}>
+                    <button
+                      onClick={() => setOpenPayees((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(p.name)) next.delete(p.name); else next.add(p.name);
+                        return next;
+                      })}
+                      aria-expanded={isOpen}
+                      className={`w-full text-left grid grid-cols-[1fr_58px_92px_64px] gap-3 items-center py-2 border-b border-stone-100 text-[13px] transition-colors hover:bg-stone-50 ${isOpen ? "bg-stone-50" : ""}`}
+                    >
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <ChevronRight size={13}
+                          className="text-stone-300 shrink-0 transition-transform duration-200"
+                          style={{ transform: isOpen ? "rotate(90deg)" : "none", transitionTimingFunction: EASE_OUT }} />
+                        <span className="truncate capitalize">{p.name.toLowerCase()}</span>
+                      </span>
+                      <span className="text-right tnum text-stone-400">{p.count}</span>
+                      <span className="text-right tnum font-medium">{signed(p.amount)}</span>
+                      <span className="text-right tnum text-stone-400">{pct(p.share)}</span>
+                    </button>
+                    {isOpen && (
+                      <div className="pl-6 pr-1 py-1.5 bg-stone-50/60 border-b border-stone-100">
+                        {p.tx.map((t, i) => (
+                          <div key={i} className="grid grid-cols-[80px_1fr_88px] gap-3 py-1 text-[12px] text-stone-500">
+                            <span className="tnum">{t.date}</span>
+                            <span className="truncate" title={t.memo}>{t.memo}</span>
+                            <span className="text-right tnum text-stone-800">{signed(t.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {!focusShown.length && (
+                <div className="py-8 text-center text-sm text-stone-400">Nothing matches "{payeeQuery}".</div>
+              )}
+              {focusShown.length > 60 && (
+                <div className="py-3 text-center text-[12px] text-stone-400">
+                  {(focusShown.length - 60).toLocaleString("en-IN")} smaller places not shown — search to find one.
+                </div>
+              )}
             </div>
           </Card>
         </>
@@ -504,8 +550,8 @@ export default function AnalysisPage({ token, setView }) {
                   tickFormatter={(v) => (Math.abs(v) >= 1000 ? `₹${Math.round(v / 1000)}k` : `₹${v}`)} />
                 <YAxis type="category" dataKey="label" tick={axisTick} axisLine={false} tickLine={false} width={104} />
                 <Tooltip {...chartTooltipStyle} formatter={(v, _n, p) => [`${inr(v)} · ${pct(p.payload.share)}`, "Spent"]} />
-                <Bar dataKey="amount" radius={[0, 3, 3, 0]} barSize={16} cursor="pointer"
-                  onClick={(d) => d?.payload?.group && setFocus(d.payload.group)}>
+                <Bar dataKey="amount" radius={[0, 3, 3, 0]} barSize={16} cursor="pointer" {...chartMotion(0)}
+                  onClick={(d) => { if (d?.payload?.group) { setFocus(d.payload.group); setOpenPayees(new Set()); setPayeeQuery(""); } }}>
                   {groups.map((g) => <Cell key={g.group} fill={colorFor(g.group)} />)}
                 </Bar>
               </BarChart>
@@ -559,7 +605,7 @@ export default function AnalysisPage({ token, setView }) {
                 </thead>
                 <tbody>
                   {detail.rows.map((r) => (
-                    <tr key={r.account} onClick={() => setFocus(r.group)}
+                    <tr key={r.account} onClick={() => { setFocus(r.group); setOpenPayees(new Set()); setPayeeQuery(""); }}
                       className="border-b border-stone-100 last:border-0 cursor-pointer hover:bg-stone-50">
                       <td className="py-2">
                         <span className="inline-flex items-center gap-2">

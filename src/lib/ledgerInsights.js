@@ -332,3 +332,37 @@ export function categoryStats(ledger, group) {
     trend: before === null || before === 0 ? null : (recent - before) / before,
   };
 }
+
+/**
+ * Every payee in one category, each carrying its own transactions.
+ *
+ * The category page needs both levels at once — the ten places that took the
+ * most, and, when you don't recognise one, the actual dates and amounts
+ * behind it. Returning them together avoids a second pass over 3,000 entries
+ * every time a row is expanded.
+ */
+export function categoryPayees(ledger, group, { from, to } = {}) {
+  const acc = new Map();
+  for (const tx of ledger || []) {
+    if (tx.conduit || tx.kind === "opening") continue;
+    if (from && tx.date < from) continue;
+    if (to && tx.date > to) continue;
+    for (const l of tx.legs) {
+      if (kindOf(l.account) !== "expense" || groupOf(l.account) !== group) continue;
+      const k = (l.account === "expense:cash" ? "CASHWITHDRAWAL" : payeeKey(tx.memo)) || "OTHER";
+      if (!acc.has(k)) acc.set(k, { name: nameFor(tx.memo, l.account), minor: 0, tx: [] });
+      const r = acc.get(k);
+      r.minor += l.base;
+      r.tx.push({ date: tx.date, amount: fromMinor(l.base), memo: tx.memo, account: l.account });
+    }
+  }
+  const rows = [...acc.values()].filter((r) => r.minor !== 0);
+  const total = rows.reduce((s, r) => s + Math.abs(r.minor), 0);
+  return rows
+    .map((r) => ({
+      name: r.name, amount: fromMinor(r.minor), count: r.tx.length,
+      share: total > 0 ? Math.abs(r.minor) / total : 0,
+      tx: r.tx.sort((a, b) => b.date.localeCompare(a.date)),
+    }))
+    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+}

@@ -5,9 +5,10 @@
 import { migrateData } from "../src/data/migrate.js";
 import { seedData } from "../src/data/seed.js";
 import * as M from "../src/data/mutations.js";
-import { getOwnerAuth, getAllClientCredentials, setClientCredential, deleteClientCredential, getAppData, upsertAppData, updateAppDataIfUnchanged, getLedger, upsertLedger, updateLedgerIfUnchanged, uploadToStorage } from "./_supabaseAdmin.js";
+import { getOwnerAuth, getAllClientCredentials, setClientCredential, deleteClientCredential, getAppData, upsertAppData, updateAppDataIfUnchanged, getLedger, upsertLedger, updateLedgerIfUnchanged, getIntegration, setIntegration, deleteIntegration, uploadToStorage } from "./_supabaseAdmin.js";
 import { verifyPin, hashPin, genSalt, signToken, verifyToken, bearerFrom } from "./_crypto.js";
 import { applyRecurringResets } from "../src/lib/recurrence.js";
+import * as G from "./_gmail.js";
 
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days — "log in once, use from anywhere"
 
@@ -732,6 +733,127 @@ export async function handleLedgerPut(headers, body) {
   return { status: 200, body: { ok: true, version: res.version } };
 }
 
+
+// ------------------------------------------------------------------ gmail ---
+
+/**
+ * Step one: hand back a consent URL.
+ *
+ * The browser then leaves for Google and comes back to /api/gmail-callback,
+ * which carries no Authorization header — Google controls that redirect. So
+ * the proof that an owner started this is carried in `state`, signed with the
+ * same secret as a session and good for ten minutes. Without it, anyone who
+ * knew the callback URL could bind their own mailbox to this dashboard.
+ */
+export async function handleGmailAuth(headers, origin) {
+  if (!requireOwner(headers)) return { status: 401, body: { error: "Not authorised." } };
+  if (!G.clientId()) return { status: 501, body: { error: "GOOGLE_CLIENT_ID isn't set on the server." } };
+  const state = signToken({ role: "owner", purpose: "gmail" }, secret(), 600);
+  return { status: 200, body: { url: G.consentUrl({ origin, state }) } };
+}
+
+const page = (title, message, tone) => `<!doctype html><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title>
+<style>body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;background:#F4F3F0;color:#1C1917;
+display:grid;place-items:center;min-height:100vh;margin:0;padding:24px}
+.c{background:#fff;border:1px solid #E7E4DE;border-radius:16px;padding:28px 32px;max-width:420px;text-align:center;
+box-shadow:0 8px 24px rgba(0,0,0,.05)}h1{font-size:17px;margin:0 0 6px}p{font-size:14px;color:#57534E;margin:0 0 18px;line-height:1.5}
+a{display:inline-block;background:#141413;color:#fff;text-decoration:none;font-size:13px;font-weight:500;padding:9px 16px;border-radius:9px}
+.d{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;margin:0 auto 14px;font-size:17px;
+background:${tone === "ok" ? "#ECFDF5" : "#FEF2F2"}}</style>
+<div class="c"><div class="d">${tone === "ok" ? "✓" : "!"}</div><h1>${title}</h1><p>${message}</p>
+<a href="/">Back to the dashboard</a></div>`;
+
+export async function handleGmailCallback({ code, state, error, origin }) {
+  if (error) return { html: page("Gmail wasn't connected", `Google returned "${error}". Nothing was changed.`, "bad") };
+  if (!code || !state) return { html: page("Gmail wasn't connected", "That link was missing its authorisation code.", "bad") };
+  const payload = verifyToken(state, secret());
+  if (payload?.role !== "owner" || payload?.purpose !== "gmail") {
+    return { html: page("Gmail wasn't connected", "That link has expired or wasn't started from your dashboard. Try Connect again.", "bad") };
+  }
+  try {
+    const tok = await exchangeAndStore(code, origin);
+    return { html: page("Gmail connected", `Reading bank alerts from ${tok.email || "your inbox"}. Open Finance and press Sync to pull them in.`, "ok") };
+  } catch (e) {
+    return { html: page("Gmail wasn't connected", e.message, "bad") };
+  }
+}
+
+async function exchangeAndStore(code, origin) {
+  const tok = await G.exchangeCode({ code, origin });
+  if (!tok.refresh_token) {
+    throw new Error("Google didn't return a refresh token. Remove this app at myaccount.google.com/permissions and connect again.");
+  }
+  let email = null;
+  try {
+    const me = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
+      headers: { Authorization: `Bearer ${tok.access_token}` },
+    }).then((r) => r.json());
+    email = me.emailAddress || null;
+  } catch { /* the address is a nicety, not worth failing the connect over */ }
+  await setIntegration("gmail", { refresh_token: tok.refresh_token, email, connectedAt: new Date().toISOString() });
+  return { email };
+}
+
+export async function handleGmailStatus(headers) {
+  if (!requireOwner(headers)) return { status: 401, body: { error: "Not authorised." } };
+  const row = await getIntegration("gmail");
+  // The token itself is never returned — only whether one exists.
+  return { status: 200, body: { connected: !!row?.refresh_token, email: row?.email || null, connectedAt: row?.connectedAt || null } };
+}
+
+export async function handleGmailDisconnect(headers) {
+  if (!requireOwner(headers)) return { status: 401, body: { error: "Not authorised." } };
+  await deleteIntegration("gmail");
+  return { status: 200, body: { ok: true } };
+}
+
+/**
+ * Reads recent bank alerts and returns the ones the ledger hasn't got.
+ *
+ * Writes nothing. The response is a proposal; recording is a separate,
+ * deliberate act — see the note at the top of _gmail.js.
+ */
+export async function handleGmailSync(headers, body) {
+  if (!requireOwner(headers)) return { status: 401, body: { error: "Not authorised." } };
+  const row = await getIntegration("gmail");
+  if (!row?.refresh_token) return { status: 400, body: { error: "Gmail isn't connected yet." } };
+
+  const days = Math.min(Math.max(Number(body?.days) || 30, 1), 365);
+  let access;
+  try {
+    access = (await G.refreshAccessToken(row.refresh_token)).access_token;
+  } catch (e) {
+    return { status: 502, body: { error: `Google refused the saved token: ${e.message}. Disconnect and connect again.` } };
+  }
+
+  const ids = await G.listMessages(access, { days, max: Number(body?.max) || 120 });
+  const msgs = [];
+  for (const { id } of ids) {
+    try { msgs.push(await G.getMessage(access, id)); } catch { /* one unreadable mail shouldn't sink the batch */ }
+  }
+  const parsed = [], unparsed = [];
+  for (const m of msgs) {
+    const p = G.parseAlert(m);
+    if (p) parsed.push(p);
+    else unparsed.push({ id: m.id, date: m.date, subject: m.subject, preview: m.text.slice(0, 160) });
+  }
+  const { entries: ledger } = (await handleLedgerGet(headers)).body;
+  const fresh = G.findNew(parsed, ledger);
+
+  return {
+    status: 200,
+    body: {
+      scanned: msgs.length, parsed: parsed.length, alreadyInLedger: parsed.length - fresh.length,
+      pending: fresh.sort((a, b) => b.date.localeCompare(a.date)),
+      // Returned so the parser can be calibrated against real mail rather
+      // than guessed at — bank alert wording varies and mine are patterns.
+      unrecognised: unparsed.slice(0, 20),
+    },
+  };
+}
+
 // Routes that need the HTTP method and headers, not just a POST body — kept
 // separate from _handlers.js's ROUTES (which are all fire-and-forget POST
 // proxies) so that dev server plumbing stays simple for both.
@@ -752,6 +874,15 @@ export const DATA_ROUTES = {
       if (method === "GET") return handleLedgerGet(headers);
       if (method === "PUT") return handleLedgerPut(headers, body);
       return { status: 405, body: { error: "GET or PUT only" } };
+    },
+  },
+  "/api/gmail-auth": { method: "GET", handler: ({ headers, origin }) => handleGmailAuth(headers, origin) },
+  "/api/gmail-sync": {
+    handler: ({ method, headers, body }) => {
+      if (method === "GET") return handleGmailStatus(headers);
+      if (method === "DELETE") return handleGmailDisconnect(headers);
+      if (method === "POST") return handleGmailSync(headers, body);
+      return { status: 405, body: { error: "GET, POST or DELETE only" } };
     },
   },
   "/api/portal-data": { method: "GET", handler: ({ headers }) => handlePortalDataGet(headers) },

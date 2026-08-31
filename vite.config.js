@@ -1,7 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { ROUTES } from './api/_handlers.js'
-import { DATA_ROUTES } from './api/_dataHandlers.js'
+import { DATA_ROUTES, handleGmailCallback } from './api/_dataHandlers.js'
 
 // Mounts the same handlers Vercel serves from /api/*, so `npm run dev` behaves
 // like production without needing `vercel dev`.
@@ -57,7 +57,7 @@ function apiDevServer(mode) {
           // headers on auth-client/crm-lead/extension), and without this the
           // extension is only ever testable against production, never dev.
           res.setHeader('Access-Control-Allow-Origin', '*')
-          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS')
+          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
           res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
           if (req.method === 'OPTIONS') { res.statusCode = 204; res.end(); return }
           if (method && req.method !== method) {
@@ -78,7 +78,10 @@ function apiDevServer(mode) {
             }
           }
           try {
-            const { status, body: out } = await handler({ method: req.method, headers: req.headers, body })
+            // Gmail's consent URL has to name the exact origin Google was
+            // given, and in dev that is localhost, not the deployed domain.
+            const origin = `http://${req.headers.host}`
+            const { status, body: out } = await handler({ method: req.method, headers: req.headers, body, origin })
             res.statusCode = status
             res.end(JSON.stringify(out))
           } catch (e) {
@@ -86,6 +89,23 @@ function apiDevServer(mode) {
             res.end(JSON.stringify({ error: e.message }))
           }
         })
+      })
+
+      // Google redirects the BROWSER back here after consent, so this one
+      // answers with a page rather than JSON. It sits outside DATA_ROUTES
+      // for that reason — there is no fetch on the other end.
+      server.middlewares.use('/api/gmail-callback', async (req, res) => {
+        const origin = `http://${req.headers.host}`
+        const url = new URL(req.url, origin)
+        const { html } = await handleGmailCallback({
+          code: url.searchParams.get('code'),
+          state: url.searchParams.get('state'),
+          error: url.searchParams.get('error'),
+          origin,
+        })
+        res.setHeader('Content-Type', 'text/html; charset=utf-8')
+        res.statusCode = 200
+        res.end(html)
       })
     },
   }

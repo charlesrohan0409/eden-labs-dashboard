@@ -13,6 +13,7 @@ import Card, { CardTitle } from "../ui/Card";
 import Badge from "../ui/Badge";
 import Avatar from "../ui/Avatar";
 import PillTabs from "../ui/PillTabs";
+import GmailAlerts from "./GmailAlerts";
 import PrimaryButton from "../ui/PrimaryButton";
 import InvoiceModal from "../ui/InvoiceModal";
 import PrivacyToggle from "../ui/PrivacyToggle";
@@ -252,6 +253,7 @@ export default function FinanceDetail({
             { value: "expenses", label: "Expenses" },
             { value: "money", label: "My money" },
             { value: "unit-economics", label: "Unit economics" },
+            { value: "alerts", label: "Bank alerts" },
           ]}
         />
         {genStatus && <Badge tone="emerald" dot>{genStatus}</Badge>}
@@ -875,6 +877,8 @@ export default function FinanceDetail({
       )}
 
       {/* ══ Unit economics ══ */}
+      {activeTab === "alerts" && <GmailAlerts token={token} />}
+
       {activeTab === "unit-economics" && (
         <div className="grid lg:grid-cols-3 gap-4">
           <Card className="p-5 lg:col-span-2">

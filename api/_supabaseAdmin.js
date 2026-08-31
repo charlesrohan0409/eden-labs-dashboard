@@ -135,6 +135,28 @@ export async function updateLedgerIfUnchanged(entries, expectedVersion) {
   return { ok: true, version: rows[0].updated_at || now };
 }
 
+// ------------------------------------------------------- app_integrations ---
+//
+// Third-party credentials. NEVER returned by a client-facing endpoint —
+// /api/data hands the whole app_data blob to the browser, so a refresh token
+// living there would be readable by anyone who opens the dashboard.
+export async function getIntegration(provider) {
+  const rows = await rest(`/app_integrations?provider=eq.${encodeURIComponent(provider)}&select=data,updated_at`);
+  return rows?.[0]?.data || null;
+}
+
+export async function setIntegration(provider, data) {
+  await rest("/app_integrations?on_conflict=provider", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates" },
+    body: [{ provider, data, updated_at: new Date().toISOString() }],
+  });
+}
+
+export async function deleteIntegration(provider) {
+  await rest(`/app_integrations?provider=eq.${encodeURIComponent(provider)}`, { method: "DELETE" });
+}
+
 // -------------------------------------------------------------- owner_auth ---
 export async function getOwnerAuth() {
   const rows = await rest("/owner_auth?id=eq.1&select=pin_hash,pin_salt");

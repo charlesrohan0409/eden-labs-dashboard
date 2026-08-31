@@ -151,6 +151,11 @@ const PATTERNS = [
   { dir: "DR", re: new RegExp(`${AMOUNT}\\s*(?:has been|is|was)?\\s*debited`, "i") },
   // Verb after the amount: "Rs 320.00 spent on your HDFC Bank Debit Card".
   { dir: "DR", re: new RegExp(`${AMOUNT}\\s+(?:spent|paid|withdrawn|sent|used)`, "i") },
+  // Same shape, incoming: "₹250.00 received in your Kotak A/c".
+  { dir: "CR", re: new RegExp(`${AMOUNT}\\s+(?:received|credited|deposited)`, "i") },
+  // "Payment of INR 100000.00 successful" — no verb either side of the amount,
+  // the word "Payment" carries it.
+  { dir: "DR", re: new RegExp(String.raw`payment\s+of\s+${AMOUNT}`, "i") },
   { dir: "CR", re: new RegExp(String.raw`(?:received|credited(?:\s+by)?|deposited)\s*(?:of\s*)?${AMOUNT}`, "i") },
   { dir: "CR", re: new RegExp(`${AMOUNT}\\s*(?:has been|is|was)?\\s*credited`, "i") },
   // Card alerts announce a purchase without ever using the word "debited":
@@ -181,10 +186,18 @@ const ACCOUNT_TAIL = /(?:a\/?c|account|card)\s*(?:no\.?|ending|xx+|\*+)?\s*[xX*]
  * to dismiss and trains you to approve without reading.
  */
 export function parseAlert(msg) {
-  const t = msg.text || "";
+  // Subject FIRST, then body. Real alerts turned out to carry the whole
+  // transaction in the subject — "UPI Credit Alert: ₹250.00 received in your
+  // Kotak A/c" — while the body is an HTML wrapper that strips to noise.
+  // Reading only the body parsed nothing at all out of 27 real emails.
+  const t = `${msg.subject || ""}. ${msg.text || ""}`;
   // OTPs and balance summaries quote amounts but move no money.
   if (/\bOTP\b|one[- ]time password|do not share|available balance is|statement is ready/i.test(t) &&
       !/debited|credited|spent|sent|received/i.test(t)) return null;
+  // "New Electricity bill generated!" is a demand, not a payment. Nothing has
+  // moved, and recording it would invent an expense on the day it was billed.
+  if (/bill (?:generated|is due|reminder)|due date|e-?statement|statement for/i.test(t) &&
+      !/debited|credited|received|spent|successful/i.test(t)) return null;
 
   let hit = null;
   for (const p of PATTERNS) { const m = t.match(p.re); if (m) { hit = { dir: p.dir, amount: Number(m[1].replace(/,/g, "")) }; break; } }
@@ -192,7 +205,15 @@ export function parseAlert(msg) {
 
   let payee = null;
   for (const re of PAYEE) { const m = t.match(re); if (m) { payee = m[1].trim().replace(/\s+/g, " "); break; } }
-  const acct = t.match(ACCOUNT_TAIL)?.[1] || null;
+  let acct = t.match(ACCOUNT_TAIL)?.[1] || null;
+  // Kotak's subject line names the bank but not the number — "received in
+  // your Kotak A/c". Without a tail the alert can't be matched against the
+  // ledger at all, so the bank name is the next best key.
+  let bank = null;
+  if (!acct) {
+    if (/\bkotak\b/i.test(t)) bank = "asset:bank:kotak";
+    else if (/\bhdfc\b/i.test(t)) bank = /credit card/i.test(t) ? "liability:card:hdfc" : "asset:bank:hdfc";
+  }
 
   return {
     source: "gmail",
@@ -202,6 +223,7 @@ export function parseAlert(msg) {
     dir: hit.dir,
     payee: payee || null,
     accountTail: acct,
+    bank,
     subject: msg.subject,
     text: t.slice(0, 300),
   };
@@ -234,9 +256,19 @@ export function findNew(candidates, ledger) {
     }
     return false;
   };
+  // Every account the ledger tracks, for the case where the alert names no
+  // account at all.
+  const allAccounts = [...new Set([...seen].map((k) => k.split("|")[0]))];
+
   return candidates.filter((c) => {
-    const acct = ACCOUNT_FOR_TAIL[c.accountTail];
-    if (!acct) return true;                       // unknown account — show it, let him decide
-    return !near(acct, Math.round(c.amount * 100), c.date);
+    const minor = Math.round(c.amount * 100);
+    const acct = ACCOUNT_FOR_TAIL[c.accountTail] || c.bank;
+    if (acct) return !near(acct, minor, c.date);
+    // No account named. Previously these bypassed the check entirely and
+    // every one showed as new — which buried the genuinely new rows under a
+    // month of transactions already on file. Matching the amount and date
+    // against ANY tracked account is far better: the same rupee figure on
+    // the same day in a bank we already reconciled is that transaction.
+    return !allAccounts.some((a) => near(a, minor, c.date));
   });
 }

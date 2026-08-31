@@ -718,7 +718,7 @@ export default function AnalysisPage({ token, setView }) {
                   </tr>
                 ))}
                 <tr className="border-b border-line font-semibold">
-                  <td className="py-2">Total income</td>
+                  <td className="py-2">Total earned</td>
                   <td className="text-right tnum py-2">{inr(pnl.totalIncome)}</td>
                 </tr>
                 {pnl.businessCosts.map((r) => (
@@ -735,6 +735,26 @@ export default function AnalysisPage({ token, setView }) {
                   <td className="py-2 text-stone-600">Personal spending</td>
                   <td className="text-right tnum py-2 text-rose-600">−{inr(pnl.totalPersonalCosts)}</td>
                 </tr>
+                {/* Below the profit line deliberately. A holding worth more
+                    than you paid is real money, but it isn't revenue — and it
+                    lands entirely in the month the revaluation was booked, so
+                    folding it into profit would report a year of market
+                    movement as one month's earnings. */}
+                {pnl.gains.length > 0 && (
+                  <>
+                    <tr>
+                      <td className="pt-3 pb-1 text-[10.5px] uppercase tracking-wide text-stone-400" colSpan={2}>
+                        Value changes, not earnings
+                      </td>
+                    </tr>
+                    {pnl.gains.map((r) => (
+                      <tr key={r.account} className="border-b border-stone-100">
+                        <td className="py-2 text-stone-600">{r.label}</td>
+                        <td className="text-right tnum py-2">{inr(r.amount)}</td>
+                      </tr>
+                    ))}
+                  </>
+                )}
                 <tr className="font-bold">
                   <td className="py-2.5">Net</td>
                   <td className={`text-right tnum py-2.5 ${pnl.net >= 0 ? "text-emerald-700" : "text-rose-600"}`}>{signed(pnl.net)}</td>

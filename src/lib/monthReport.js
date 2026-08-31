@@ -249,7 +249,7 @@ export function funnelBars(stages) {
  * tables: this gets looked at once a month to answer "how did that month
  * go", and a report you have to study is a report you stop opening.
  */
-export function buildMonthReportDocument(report, fmtMoney = (n) => String(n), trend = []) {
+export function buildMonthReportDocument(report, fmtMoney = (n) => String(n), trend = [], ledgerHtml = "", ledgerCss = "") {
   const r = report;
   const cmp = trend.length > 1 ? compareTo(trend) : null;
   // "+12%" / "−4%" / "—". An explicit sign because a bare number next to
@@ -337,6 +337,7 @@ export function buildMonthReportDocument(report, fmtMoney = (n) => String(n), tr
   .funnel-fill { background: #14532d; height: 100%; border-radius: 4px; }
   .funnel-value { font-size: 12px; font-weight: 650; text-align: right;
                   font-variant-numeric: tabular-nums; }
+${ledgerCss}
 </style></head>
 <body>
   <div class="head">
@@ -350,8 +351,8 @@ export function buildMonthReportDocument(report, fmtMoney = (n) => String(n), tr
   </div>
 
   <div class="hero">
-    ${stat("Revenue", fmtMoney(r.revenue), `${r.paidCount} of ${r.invoiceCount} invoices paid`)}
-    ${stat("Costs", fmtMoney(r.costs), "Eden Labs book only")}
+    ${stat("Revenue", fmtMoney(r.revenue), r.revenueNote || `${r.paidCount} of ${r.invoiceCount} invoices paid`)}
+    ${stat("Costs", fmtMoney(r.costs), r.costsNote || "Eden Labs book only")}
     ${stat("Profit", fmtMoney(r.profit), `${r.margin}% margin`)}
   </div>
 
@@ -473,5 +474,6 @@ export function buildMonthReportDocument(report, fmtMoney = (n) => String(n), tr
     Figures cover ${escapeHtml(r.label)} only. Costs exclude personal spending.
     Credit-card statement payments are transfers and are not counted as costs.
   </div>
+${ledgerHtml}
 </body></html>`;
 }

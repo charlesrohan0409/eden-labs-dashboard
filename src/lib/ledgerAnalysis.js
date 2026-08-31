@@ -295,21 +295,36 @@ export function cashFlow(ledger, opts = {}) {
  * statement mixing client revenue with groceries answers no question anyone
  * has. The business section is the one that means anything to a reader.
  */
+// Value changes, not money earned. A holding worth more than you paid is a
+// real gain and belongs in net worth, but it is not revenue and must not sit
+// inside "business profit" — and it lands entirely in whichever month the
+// revaluation was booked, so a single month's P&L would otherwise report a
+// year of market movement as that month's earnings.
+const GAIN_ACCOUNTS = new Set(["income:investment-gain", "income:fx-gain"]);
+
 export function incomeStatement(ledger, opts = {}) {
   const inc = incomeBreakdown(ledger, opts);
   const spend = spendingBreakdown(ledger, opts);
+  const earned = inc.rows.filter((r) => !GAIN_ACCOUNTS.has(r.account));
+  const gains = inc.rows.filter((r) => GAIN_ACCOUNTS.has(r.account));
+  const eTotal = earned.reduce((s, r) => s + r.amount, 0);
+  const gTotal = gains.reduce((s, r) => s + r.amount, 0);
   const business = spend.rows.filter((r) => r.group === "business");
   const personal = spend.rows.filter((r) => r.group !== "business");
   const bTotal = business.reduce((s, r) => s + r.amount, 0);
   const pTotal = personal.reduce((s, r) => s + r.amount, 0);
   return {
-    income: inc.rows,
-    totalIncome: inc.total,
+    income: earned,
+    totalIncome: eTotal,
+    gains,
+    totalGains: gTotal,
     businessCosts: business,
     totalBusinessCosts: bTotal,
-    businessProfit: inc.total - bTotal,
+    businessProfit: eTotal - bTotal,
     personalCosts: personal.sort((a, b) => b.amount - a.amount),
     totalPersonalCosts: pTotal,
-    net: inc.total - bTotal - pTotal,
+    // Gains still count towards what you ended up with — they just aren't
+    // what the business earned.
+    net: eTotal + gTotal - bTotal - pTotal,
   };
 }

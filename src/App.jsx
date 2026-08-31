@@ -210,6 +210,7 @@ export default function App() {
         {view === "home" && (
           <HomeDashboard
             data={data}
+            token={ownerAuth.token}
             setView={setView}
             setSelectedClient={setSelectedClient}
             onAddTask={actions.addTask}

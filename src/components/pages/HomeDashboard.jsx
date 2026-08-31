@@ -27,7 +27,7 @@ function greetingFor(hour) {
   return "Good evening";
 }
 
-export default function HomeDashboard({ data, setView, setSelectedClient, onAddTask, onToggleTask, onDeleteTask, onUpdateTask, onReorderTasks }) {
+export default function HomeDashboard({ data, token, setView, setSelectedClient, onAddTask, onToggleTask, onDeleteTask, onUpdateTask, onReorderTasks }) {
   const { money } = useCurrency();
   const finSeries = useMemo(() => {
     const b = monthBuckets(() => ({ revenue: 0, cost: 0 }));
@@ -115,7 +115,7 @@ export default function HomeDashboard({ data, setView, setSelectedClient, onAddT
         {/* Month-end only — MonthReportButton returns null the rest of the
             time, so this slot is simply absent for most of the month rather
             than being a permanently-available thing you shouldn't click. */}
-        <MonthReportButton data={data} className="self-center" />
+        <MonthReportButton data={data} token={token} className="self-center" />
         <div className="flex items-center gap-2.5 bg-white border border-line rounded-full pl-3 pr-1.5 py-1.5">
           <div className="text-right hidden sm:block">
             <div className="text-xs font-semibold text-stone-800 leading-none">{data.profile?.name}</div>

@@ -5,6 +5,8 @@ import { formatAmount } from "../../lib/currency";
 import {
   buildMonthReport, buildMonthReportDocument, isMonthEnd, reportMonthFor, monthLabel, buildTrend,
 } from "../../lib/monthReport";
+import { buildLedgerSections, LEDGER_REPORT_CSS, withLedgerHeadline, ledgerTrend } from "../../lib/ledgerReport";
+import { useLedger } from "../../hooks/useLedger";
 
 const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
 
@@ -21,8 +23,11 @@ const EASE = "ease-[cubic-bezier(0.23,1,0.32,1)]";
  * preview is the artefact, so there is no gap between what you check and
  * what you send.
  */
-export default function MonthReportButton({ data, className = "" }) {
+export default function MonthReportButton({ data, token, className = "" }) {
   const { rate, currency } = useCurrency();
+  // The accounting pages come from the ledger, not the dashboard arrays, so a
+  // figure printed here cannot disagree with one on the Analysis page.
+  const { entries: ledger } = useLedger(token);
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState(() => reportMonthFor());
   // The report's own currency, independent of the dashboard's display
@@ -46,11 +51,19 @@ export default function MonthReportButton({ data, className = "" }) {
     });
 
   const openReport = () => {
-    const report = buildMonthReport(data, month);
+    // The headline comes from the ledger when there is one, so page 1 and the
+    // accounting pages cannot disagree about the same month.
+    const report = withLedgerHeadline(buildMonthReport(data, month), ledger, month);
     // Six months so the charts have a shape and the comparison has a
     // baseline. The report itself is still about `month`.
-    const trend = buildTrend(data, month, 6);
-    const html = buildMonthReportDocument(report, fmtMoney, trend);
+    // Ledger trend when there is one, so the comparison chart sits on the same
+    // scale as the headline above it.
+    const fromLedger = ledgerTrend(ledger, month, 6);
+    const trend = fromLedger.length ? fromLedger : buildTrend(data, month, 6);
+    const html = buildMonthReportDocument(
+      report, fmtMoney, trend,
+      buildLedgerSections(ledger, month), LEDGER_REPORT_CSS,
+    );
     const win = window.open("", "_blank");
     if (!win) return;             // popup blocked — the caller sees nothing happen
     win.document.write(html);

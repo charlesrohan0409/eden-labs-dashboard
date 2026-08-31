@@ -47,6 +47,11 @@ export const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
 // recharts only accepts its own easing names, and "ease-out" is the one that
 // starts moving immediately. Series stagger by index so a grouped chart
 // resolves as a sweep rather than everything arriving flat together.
+//
+// CARTESIAN SERIES ONLY — Bar and Area. Pie and RadialBar sectors animate
+// from a zero-width arc and, in this build, never finish: they freeze a few
+// pixels in and stay there. A permanently half-drawn donut is far worse than
+// a donut that simply appears, so the radial charts render immediately.
 export const chartMotion = (i = 0) => ({
   isAnimationActive: true,
   animationEasing: "ease-out",

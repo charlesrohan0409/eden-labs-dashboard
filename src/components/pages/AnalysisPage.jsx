@@ -94,8 +94,21 @@ export default function AnalysisPage({ token, setView }) {
     return { first: dates[0], last: dates[dates.length - 1] };
   }, [ledger]);
 
+  // Calendar years the ledger actually covers, newest first. Rolling windows
+  // answer "how am I doing lately"; a calendar year answers "how did 2026 go",
+  // and for anything you file or compare year on year that is the only one
+  // that lines up with everyone else's idea of a year.
+  const years = useMemo(() => {
+    const set = new Set(ledger.filter((t) => t.kind !== "opening").map((t) => t.date.slice(0, 4)));
+    return [...set].sort().reverse();
+  }, [ledger]);
+
   const window = useMemo(() => {
     if (range === "all") return {};
+    if (range.startsWith("y")) {
+      const y = range.slice(1);
+      return { from: `${y}-01-01`, to: `${y}-12-31` };
+    }
     const d = new Date();
     d.setMonth(d.getMonth() - (range === "3m" ? 3 : range === "6m" ? 6 : 12));
     return { from: d.toISOString().slice(0, 10) };
@@ -104,7 +117,7 @@ export default function AnalysisPage({ token, setView }) {
   const label = periodLabel(window.from || span.first, window.to || span.last);
 
   const R = useMemo(() => ratios(ledger, window), [ledger, window]);
-  const months = useMemo(() => monthlySeries(ledger), [ledger]);
+  const months = useMemo(() => monthlySeries(ledger, window), [ledger, window]);
   const groups = useMemo(() => spendingByGroup(ledger, window), [ledger, window]);
   const detail = useMemo(() => spendingBreakdown(ledger, window), [ledger, window]);
   const income = useMemo(() => incomeBreakdown(ledger, window), [ledger, window]);
@@ -114,12 +127,12 @@ export default function AnalysisPage({ token, setView }) {
   const pnl = useMemo(() => incomeStatement(ledger, window), [ledger, window]);
   const tb = useMemo(() => trialBalance(ledger), [ledger]);
   const payees = useMemo(() => topPayees(ledger, { ...window, limit: 12 }), [ledger, window]);
-  const repeats = useMemo(() => recurring(ledger), [ledger]);
+  const repeats = useMemo(() => recurring(ledger, window), [ledger, window]);
   const mom = useMemo(() => monthOnMonth(ledger), [ledger]);
   const notes = useMemo(() => observations(ledger), [ledger]);
   const big = useMemo(() => largest(ledger, { ...window, limit: 6 }), [ledger, window]);
-  const focusStats = useMemo(() => (focus ? categoryStats(ledger, focus) : null), [ledger, focus]);
-  const focusPayees = useMemo(() => (focus ? categoryPayees(ledger, focus) : []), [ledger, focus]);
+  const focusStats = useMemo(() => (focus ? categoryStats(ledger, focus, window) : null), [ledger, focus, window]);
+  const focusPayees = useMemo(() => (focus ? categoryPayees(ledger, focus, window) : []), [ledger, focus, window]);
   const focusShown = useMemo(() => {
     const q = payeeQuery.trim().toLowerCase();
     if (!q) return focusPayees;
@@ -131,7 +144,11 @@ export default function AnalysisPage({ token, setView }) {
   // how many bars it draws, and reading the month count off it silently
   // divided by the wrong number.
   const monthCount = useMemo(() => {
-    const from = window.from || span.first, to = window.to || span.last;
+    const from = window.from || span.first;
+    // Clamped: "2026" runs to December, but the statements stop in August, and
+    // dividing by the four months that haven't happened understates every
+    // monthly average on the page.
+    const to = [window.to, span.last].filter(Boolean).sort()[0] || span.last;
     if (!from || !to) return months.length || 1;
     const a = new Date(from), b = new Date(to);
     return Math.max(1, (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth()) + 1);
@@ -192,7 +209,8 @@ export default function AnalysisPage({ token, setView }) {
           size="sm" value={range} onChange={setRange}
           options={[
             { value: "3m", label: "3 months" }, { value: "6m", label: "6 months" },
-            { value: "12m", label: "12 months" }, { value: "all", label: "All" },
+            ...years.map((y) => ({ value: `y${y}`, label: y })),
+            { value: "all", label: "All" },
           ]}
         />
       </div>
@@ -267,7 +285,7 @@ export default function AnalysisPage({ token, setView }) {
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie data={groups.filter((g) => g.amount > 0)} dataKey="amount" nameKey="label"
-                        innerRadius={62} outerRadius={92} paddingAngle={2} stroke="none" {...chartMotion(0)}>
+                        innerRadius={62} outerRadius={92} paddingAngle={2} stroke="none" isAnimationActive={false}>
                         {groups.filter((g) => g.amount > 0).map((g) => <Cell key={g.group} fill={colorFor(g.group)} />)}
                       </Pie>
                       <Tooltip {...chartTooltipStyle} formatter={(v, n) => [`${inr(v)}`, n]} />
@@ -311,7 +329,7 @@ export default function AnalysisPage({ token, setView }) {
                       innerRadius="38%" outerRadius="100%" startAngle={90} endAngle={-270} barSize={13}
                     >
                       <PolarAngleAxis type="number" domain={[0, 1]} dataKey="share" tick={false} />
-                      <RadialBar dataKey="share" background={{ fill: COLORS.gridline }} cornerRadius={7} {...chartMotion(0)} />
+                      <RadialBar dataKey="share" background={{ fill: COLORS.gridline }} cornerRadius={7} isAnimationActive={false} />
                       <Tooltip {...chartTooltipStyle} formatter={(v, _n, p) => [`${inr(p.payload.amount)} · ${pct(v)}`, p.payload.label]} />
                     </RadialBarChart>
                   </ResponsiveContainer>

@@ -28,10 +28,12 @@ export const monthName = (key) => {
  * large family sums passed through don't look like months of huge earnings
  * and huge spending.
  */
-export function monthlySeries(ledger, { months = 36 } = {}) {
+export function monthlySeries(ledger, { months = 36, from, to } = {}) {
   const acc = new Map();
   for (const tx of ledger || []) {
     if (tx.kind === "opening") continue;      // not activity, just a starting position
+    if (from && tx.date < from) continue;
+    if (to && tx.date > to) continue;
     const k = monthOf(tx.date);
     if (!acc.has(k)) acc.set(k, { key: k, income: 0, expense: 0, conduit: 0 });
     const row = acc.get(k);

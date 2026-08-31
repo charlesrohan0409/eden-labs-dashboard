@@ -122,10 +122,12 @@ export function topPayees(ledger, { from, to, kind = "expense", limit = 12, grou
  * ₹140 at the same shop every month is lunch. Three occurrences across three
  * distinct months is the bar: two could be coincidence.
  */
-export function recurring(ledger, { minOccurrences = 3, limit = 20 } = {}) {
+export function recurring(ledger, { minOccurrences = 3, limit = 20, from, to } = {}) {
   const acc = new Map();
   for (const tx of ledger || []) {
     if (tx.kind === "opening") continue;
+    if (from && tx.date < from) continue;
+    if (to && tx.date > to) continue;
     for (const l of tx.legs) {
       if (kindOf(l.account) !== "expense" && l.account !== "liability:family") continue;
       const amount = l.base;
@@ -289,11 +291,13 @@ const cap = (s) => String(s).replace(/-/g, " ").replace(/^\w/, (c) => c.toUpperC
  * actually act on. Months with no spend are emitted as zero rather than
  * skipped, so a gap reads as a gap instead of the line hopping over it.
  */
-export function categorySeries(ledger, group, { months = 24 } = {}) {
+export function categorySeries(ledger, group, { months = 24, from, to } = {}) {
   const acc = new Map();
   let first = null, last = null;
   for (const tx of ledger || []) {
     if (tx.conduit || tx.kind === "opening") continue;
+    if (from && tx.date < from) continue;
+    if (to && tx.date > to) continue;
     for (const l of tx.legs) {
       if (kindOf(l.account) !== "expense" || groupOf(l.account) !== group) continue;
       const k = monthOf(tx.date);
@@ -314,8 +318,8 @@ export function categorySeries(ledger, group, { months = 24 } = {}) {
 }
 
 /** Headline numbers for one category. */
-export function categoryStats(ledger, group) {
-  const series = categorySeries(ledger, group);
+export function categoryStats(ledger, group, opts = {}) {
+  const series = categorySeries(ledger, group, opts);
   if (!series.length) return null;
   const total = series.reduce((s, r) => s + r.amount, 0);
   const peak = series.reduce((a, b) => (b.amount > a.amount ? b : a), series[0]);

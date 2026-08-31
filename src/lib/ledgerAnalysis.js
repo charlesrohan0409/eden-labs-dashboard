@@ -226,7 +226,15 @@ export function balanceSheet(ledger, { asOf } = {}) {
     const amount = fromMinor(asNormal(account, v));
     if (!amount) continue;
     if (kindOf(account) === "asset") { assets.push({ account, label: accountLabel(account), amount }); ta += amount; }
-    if (kindOf(account) === "liability") { liabilities.push({ account, label: accountLabel(account), amount }); tl += amount; }
+    if (kindOf(account) === "liability") {
+      // A running account can swing either way. When it does, it stops being
+      // a liability in any sense a reader would recognise: "Family money
+      // held −₹72,046" listed under what you OWE is the opposite of the
+      // truth. A liability with a debit balance is a receivable, so it is
+      // presented as one.
+      if (amount < 0) { assets.push({ account, label: `${accountLabel(account)} — owed to you`, amount: -amount, receivable: true }); ta += -amount; }
+      else { liabilities.push({ account, label: accountLabel(account), amount }); tl += amount; }
+    }
   }
   return {
     assets, liabilities,

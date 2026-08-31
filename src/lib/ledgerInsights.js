@@ -52,7 +52,15 @@ export function payeeOf(memo) {
     return letters + (/\s/.test(p) ? 12 : 0) - (/@/.test(p) ? 8 : 0) - (p.replace(/[^0-9]/g, "").length * 2);
   };
   const best = parts.map((p) => [p, score(p)]).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])[0];
-  if (!best) return s.replace(/\s+/g, " ").trim().slice(0, 28) || "Unknown";
+  if (!best) {
+    // Some UPI payees have no name at all — the handle is a phone number, so
+    // the narration carries a 10-digit string and nothing else. Falling back
+    // to the raw narration prints "-9869656971ptyes-9869656971@", which reads
+    // as corruption. The number is the only real information there, so say so.
+    const phone = s.match(/\b([6-9]\d{9})\b/);
+    if (phone) return `UPI to ${phone[1]}`;
+    return s.replace(/\s+/g, " ").trim().slice(0, 28) || "Unknown";
+  }
   // A VPA carries the merchant in front of the @; the handle after it is the
   // payment provider and says nothing about who was paid.
   let name = trimCity(best[0]).split("@")[0].replace(/\.(cf|ifsc|ptm|okhdfcbank|oksbi|okaxis|ybl|paytm)$/i, "");

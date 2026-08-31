@@ -28,7 +28,7 @@ export const monthName = (key) => {
  * large family sums passed through don't look like months of huge earnings
  * and huge spending.
  */
-export function monthlySeries(ledger, { months = 18 } = {}) {
+export function monthlySeries(ledger, { months = 36 } = {}) {
   const acc = new Map();
   for (const tx of ledger || []) {
     if (tx.kind === "opening") continue;      // not activity, just a starting position
@@ -80,6 +80,13 @@ const LABEL_OVERRIDES = {
   "liability:family": "Family money held",
   "liability:partner": "Partner running account",
   "expense:bnpl": "BNPL repayments",
+  "asset:other-accounts": "Other bank accounts",
+  "liability:card:yesbank": "Yes Bank Pop Card",
+  "liability:card:amazonpay": "Amazon Pay Later",
+  "liability:card:emi": "Card EMI outstanding",
+  "income:investment-gain": "Investment gain (unrealised)",
+  "income:fx-gain": "Currency gain",
+  "income:cashback": "Cashback and rewards",
 };
 
 /** A readable name for an account id — "expense:food:eating-out" → "Eating out". */

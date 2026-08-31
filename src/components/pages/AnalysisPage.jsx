@@ -115,7 +115,15 @@ export default function AnalysisPage({ token, setView }) {
   const big = useMemo(() => largest(ledger, { ...window, limit: 6 }), [ledger, window]);
 
   const conduit = months.reduce((s, m) => s + m.conduit, 0);
-  const monthCount = months.length || 1;
+  // From the ledger's real span, not the chart's row count — the chart caps
+  // how many bars it draws, and reading the month count off it silently
+  // divided by the wrong number.
+  const monthCount = useMemo(() => {
+    const from = window.from || span.first, to = window.to || span.last;
+    if (!from || !to) return months.length || 1;
+    const a = new Date(from), b = new Date(to);
+    return Math.max(1, (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth()) + 1);
+  }, [window, span, months.length]);
 
   if (loading || ledgerError) {
     return (

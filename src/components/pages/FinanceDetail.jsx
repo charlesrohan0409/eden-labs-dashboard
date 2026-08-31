@@ -14,6 +14,7 @@ import Badge from "../ui/Badge";
 import Avatar from "../ui/Avatar";
 import PillTabs from "../ui/PillTabs";
 import GmailAlerts from "./GmailAlerts";
+import LedgerReconcile from "./LedgerReconcile";
 import PrimaryButton from "../ui/PrimaryButton";
 import InvoiceModal from "../ui/InvoiceModal";
 import PrivacyToggle from "../ui/PrivacyToggle";
@@ -254,6 +255,7 @@ export default function FinanceDetail({
             { value: "money", label: "My money" },
             { value: "unit-economics", label: "Unit economics" },
             { value: "alerts", label: "Bank alerts" },
+            { value: "reconcile", label: "Reconcile" },
           ]}
         />
         {genStatus && <Badge tone="emerald" dot>{genStatus}</Badge>}
@@ -877,6 +879,15 @@ export default function FinanceDetail({
       )}
 
       {/* ══ Unit economics ══ */}
+      {activeTab === "reconcile" && (
+        <LedgerReconcile
+          token={token}
+          accounts={data.accounts}
+          loans={data.loans}
+          onUpdateAccount={onUpdateAccount}
+        />
+      )}
+
       {activeTab === "alerts" && <GmailAlerts token={token} />}
 
       {activeTab === "unit-economics" && (

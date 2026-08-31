@@ -707,6 +707,38 @@ export async function handleLedgerGet(headers) {
   return { status: 200, body: { entries: row.entries || [], version: row.updated_at } };
 }
 
+/**
+ * Appends entries to the ledger without the caller holding the whole thing.
+ *
+ * A dashboard action knows about one transaction, not three thousand. Making
+ * it read the entire ledger, splice, and write it back would mean every
+ * logged expense round-trips a megabyte and races every other tab. Reading
+ * and appending server-side keeps the client's job to "here is what happened".
+ */
+export async function handleLedgerAppend(headers, body) {
+  if (!requireOwner(headers)) return { status: 401, body: { error: "Not authorised." } };
+  const add = body?.append;
+  if (!Array.isArray(add) || !add.length) return { status: 400, body: { error: "append must be a non-empty array." } };
+
+  const bad = add.filter((tx) => !Array.isArray(tx?.legs) || tx.legs.reduce((a, l) => a + (Number(l?.base) || 0), 0) !== 0);
+  if (bad.length) return { status: 400, body: { error: `${bad.length} transaction(s) do not balance — refusing to store.` } };
+
+  const row = await getLedger();
+  const entries = row?.entries || [];
+  // Idempotent on ref.origin: a retried save, or the same action fired twice
+  // by a double-click, must not book the expense twice.
+  const seen = new Set(entries.map((t) => t.ref?.origin).filter(Boolean));
+  const fresh = add.filter((t) => !t.ref?.origin || !seen.has(t.ref.origin));
+  if (!fresh.length) return { status: 200, body: { ok: true, added: 0, skipped: add.length, total: entries.length } };
+
+  const next = [...entries, ...fresh].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const res = row?.updated_at
+    ? await updateLedgerIfUnchanged(next, row.updated_at)
+    : { ok: true, version: await upsertLedger(next) };
+  if (!res.ok) return { status: 409, body: { error: "The ledger changed while saving. Try again." } };
+  return { status: 200, body: { ok: true, added: fresh.length, skipped: add.length - fresh.length, total: next.length, version: res.version } };
+}
+
 export async function handleLedgerPut(headers, body) {
   if (!requireOwner(headers)) return { status: 401, body: { error: "Not authorised." } };
   const entries = body?.entries;
@@ -888,7 +920,8 @@ export const DATA_ROUTES = {
     handler: ({ method, headers, body }) => {
       if (method === "GET") return handleLedgerGet(headers);
       if (method === "PUT") return handleLedgerPut(headers, body);
-      return { status: 405, body: { error: "GET or PUT only" } };
+      if (method === "POST") return handleLedgerAppend(headers, body);
+      return { status: 405, body: { error: "GET, POST or PUT only" } };
     },
   },
   "/api/gmail-auth": { method: "GET", handler: ({ headers, origin }) => handleGmailAuth(headers, origin) },

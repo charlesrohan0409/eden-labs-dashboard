@@ -74,16 +74,29 @@ export const refreshAccessToken = (refresh_token) =>
 
 // ---- reading mail ---------------------------------------------------------
 
-// Senders worth reading. Kept as a list rather than a broad "anything
-// mentioning Rs." search: a wide net pulls in shopping receipts and OTP
-// mails, and every false positive is something Charles has to reject by hand.
-export const BANK_SENDERS = [
-  "alerts@hdfcbank.net", "alerts@hdfcbank.com", "emailstatements.hdfcbank@hdfcbank.net",
-  "creditcards@hdfcbank.net", "noreply@kotak.com", "alerts@kotak.com",
-  "creditcardalerts@kotak.com", "no-reply@kotak.com",
+// DOMAINS, not addresses.
+//
+// This started as a list of exact senders I guessed at — alerts@hdfcbank.net
+// and friends. Every one of them was wrong: HDFC actually sends from
+// alerts@hdfcbank.bank.in, so six real transaction alerts sat unread in the
+// inbox while the sync reported nothing new. Banks change the local part
+// freely (alerts@, no-reply@, creditcards@) and rename it without telling
+// anyone; the domain is the part that holds still.
+//
+// Still a list rather than a broad "anything mentioning Rs." search: a wide
+// net pulls in shopping receipts, bill reminders and OTPs, and every false
+// positive is something Charles has to reject by hand.
+export const BANK_DOMAINS = [
+  "hdfcbank.bank.in", "hdfcbank.net", "hdfcbank.com",
+  "kotak.com", "kotakbank.com",
+  "yes.bank.in", "yesbank.in",
+  "icicibank.com", "axisbank.com", "sbi.co.in",
 ];
 
-export const searchQuery = ({ days = 30, senders = BANK_SENDERS } = {}) =>
+// Kept for anything that still imports the old name.
+export const BANK_SENDERS = BANK_DOMAINS;
+
+export const searchQuery = ({ days = 30, senders = BANK_DOMAINS } = {}) =>
   `newer_than:${days}d {${senders.map((s) => `from:${s}`).join(" ")}}`;
 
 async function gapi(path, accessToken) {
@@ -167,7 +180,11 @@ const PATTERNS = [
 
 // The counterparty, wherever the bank chose to put it this time.
 const PAYEE = [
-  /\b(?:to|towards)\s+VPA\s+([^\s]+?)(?:\s+on|\s+ref|\.|,|$)/i,
+  // HDFC writes "towards VPA paytmqr6wfrr7@ptys (AYYAPPAN IDLI)" — the handle
+  // is machine noise and the name in brackets is the actual shop. Taking the
+  // handle left every one of these payees as an unreadable string, or null.
+  /\bVPA\s+\S+\s*\(([^)]{2,40})\)/i,
+  /\b(?:to|towards)\s+VPA\s+([^\s]+?)(?:\s+on|\s+ref|\s*\(|\.|,|$)/i,
   // A bare VPA with no "VPA" label — Kotak writes "To snitch@icici".
   /\b(?:to|from)\s+([a-z0-9][a-z0-9._-]*@[a-z][a-z0-9]*)\b/i,
   /\b(?:at|to)\s+([A-Z0-9][A-Za-z0-9 &.'*_-]{2,40}?)\s+on\s+\d/i,
@@ -205,6 +222,10 @@ export function parseAlert(msg) {
 
   let payee = null;
   for (const re of PAYEE) { const m = t.match(re); if (m) { payee = m[1].trim().replace(/\s+/g, " "); break; } }
+  // When the bracketed "name" is just the handle again — which is what a
+  // person-to-person UPI payment looks like — the part before the @ is the
+  // closest thing to a name available.
+  if (payee && /@/.test(payee)) payee = payee.split("@")[0];
   let acct = t.match(ACCOUNT_TAIL)?.[1] || null;
   // Kotak's subject line names the bank but not the number — "received in
   // your Kotak A/c". Without a tail the alert can't be matched against the
@@ -242,33 +263,55 @@ export const ACCOUNT_FOR_TAIL = { 3752: "asset:bank:hdfc", 3630: "asset:bank:kot
  * later.
  */
 export function findNew(candidates, ledger) {
-  const seen = new Set();
+  // A COUNT per key, not a set.
+  //
+  // With a set, one ₹5 row in the ledger silently swallows every ₹5 alert in
+  // the window — and four ₹5 payments to the same person in a week is an
+  // ordinary Tuesday, not a coincidence. Counting means each ledger row can
+  // account for exactly one alert, and the rest are correctly reported new.
+  const seen = new Map();
+  const bump = (k) => seen.set(k, (seen.get(k) || 0) + 1);
   for (const tx of ledger || []) {
     for (const l of tx.legs) {
       if (!l.account.startsWith("asset:bank") && !l.account.startsWith("liability:card")) continue;
-      seen.add(`${l.account}|${Math.abs(l.base)}|${tx.date}`);
+      bump(`${l.account}|${Math.abs(l.base)}|${tx.date}`);
     }
   }
-  const near = (acct, minor, date) => {
-    for (let d = -3; d <= 3; d++) {
+  // Consumes the match, so one ledger row can't suppress two alerts.
+  const take = (acct, minor, date, offsets) => {
+    for (const d of offsets) {
       const dt = new Date(date); dt.setDate(dt.getDate() + d);
-      if (seen.has(`${acct}|${minor}|${dt.toISOString().slice(0, 10)}`)) return true;
+      const k = `${acct}|${minor}|${dt.toISOString().slice(0, 10)}`;
+      const n = seen.get(k) || 0;
+      if (n > 0) { seen.set(k, n - 1); return true; }
     }
     return false;
   };
   // Every account the ledger tracks, for the case where the alert names no
   // account at all.
-  const allAccounts = [...new Set([...seen].map((k) => k.split("|")[0]))];
+  const allAccounts = [...new Set([...seen.keys()].map((k) => k.split("|")[0]))];
 
-  return candidates.filter((c) => {
+  const match = (c, offsets) => {
     const minor = Math.round(c.amount * 100);
     const acct = ACCOUNT_FOR_TAIL[c.accountTail] || c.bank;
-    if (acct) return !near(acct, minor, c.date);
+    if (acct) return take(acct, minor, c.date, offsets);
     // No account named. Previously these bypassed the check entirely and
     // every one showed as new — which buried the genuinely new rows under a
     // month of transactions already on file. Matching the amount and date
     // against ANY tracked account is far better: the same rupee figure on
     // the same day in a bank we already reconciled is that transaction.
-    return !allAccounts.some((a) => near(a, minor, c.date));
-  });
+    return allAccounts.some((a) => take(a, minor, c.date, offsets));
+  };
+
+  // TWO PASSES, exact dates first.
+  //
+  // A ₹5 statement row dated the 30th belongs to the alert dated the 30th —
+  // but a single greedy pass let a ₹5 alert from the 31st claim it simply
+  // because it came first in the list, and then reported the 30th's genuine
+  // transaction as new while hiding the 31st's. Settling every same-day match
+  // before widening the window removes the dependence on ordering entirely.
+  const matched = new Set();
+  candidates.forEach((c, i) => { if (match(c, [0])) matched.add(i); });
+  candidates.forEach((c, i) => { if (!matched.has(i) && match(c, [-1, 1, -2, 2, -3, 3])) matched.add(i); });
+  return candidates.filter((_, i) => !matched.has(i));
 }

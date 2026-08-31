@@ -799,8 +799,23 @@ async function exchangeAndStore(code, origin) {
 export async function handleGmailStatus(headers) {
   if (!requireOwner(headers)) return { status: 401, body: { error: "Not authorised." } };
   const row = await getIntegration("gmail");
-  // The token itself is never returned — only whether one exists.
-  return { status: 200, body: { connected: !!row?.refresh_token, email: row?.email || null, connectedAt: row?.connectedAt || null } };
+  const id = G.clientId();
+  // The token itself is never returned — only whether one exists. The client
+  // ID IS returned: it is public by construction (it travels in the consent
+  // URL), and when Google answers "OAuth client was not found" the only way
+  // to tell a typo from a missing credential is to read back what the server
+  // is actually sending and compare it against the console.
+  return {
+    status: 200,
+    body: {
+      connected: !!row?.refresh_token,
+      email: row?.email || null,
+      connectedAt: row?.connectedAt || null,
+      clientId: id || null,
+      clientIdLooksValid: /^\d+-[a-z0-9]+\.apps\.googleusercontent\.com$/.test(id),
+      hasSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+    },
+  };
 }
 
 export async function handleGmailDisconnect(headers) {

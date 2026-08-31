@@ -78,6 +78,29 @@ export default function GmailAlerts({ token }) {
           </div>
         )}
 
+        {/* Shown only when it can't work. "OAuth client was not found" is
+            indistinguishable from a typo unless you can read back what the
+            server is actually sending, so it prints it. */}
+        {!status.connected && (!status.clientId || !status.clientIdLooksValid || !status.hasSecret) && (
+          <div className="text-[13px] bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5 mb-3 space-y-1">
+            <div className="font-medium text-amber-900 flex items-center gap-1.5">
+              <AlertTriangle size={13} /> This won't connect yet
+            </div>
+            {!status.clientId && <div className="text-amber-800">No <code>GOOGLE_CLIENT_ID</code> on the server.</div>}
+            {status.clientId && !status.clientIdLooksValid && (
+              <div className="text-amber-800">The client ID doesn't look like a Google one: <code className="break-all">{status.clientId}</code></div>
+            )}
+            {!status.hasSecret && <div className="text-amber-800">No <code>GOOGLE_CLIENT_SECRET</code> on the server.</div>}
+          </div>
+        )}
+
+        {!status.connected && status.clientId && (
+          <div className="text-[11.5px] text-stone-400 mb-3">
+            Sending client ID <code className="text-stone-500 break-all">{status.clientId}</code> — this must match the one in
+            your Google Cloud console exactly.
+          </div>
+        )}
+
         {!status.connected ? (
           <button onClick={connect} disabled={busy}
             className="bg-night text-white text-sm font-medium px-4 py-2.5 rounded-xl inline-flex items-center gap-2 transition-transform active:scale-[0.97] disabled:opacity-50">

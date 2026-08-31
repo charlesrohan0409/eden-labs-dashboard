@@ -34,6 +34,16 @@ export default function GmailAlerts({ token, accounts = [], categories = [], exp
   // freely overridable — the guess is a starting point, not an answer.
   const [picked, setPicked] = useState({});
   const [logged, setLogged] = useState(() => new Set());
+  // Per-browser preference. When on, a sync files anything it can categorise
+  // with confidence and leaves the rest for you — the point is to stop having
+  // to press Log for the fortieth Swiggy order, not to file things blind.
+  const [auto, setAuto] = useState(() => {
+    try { return localStorage.getItem("eden-gmail-autolog") === "1"; } catch { return false; }
+  });
+  const [autoCount, setAutoCount] = useState(0);
+  useEffect(() => {
+    try { localStorage.setItem("eden-gmail-autolog", auto ? "1" : "0"); } catch { /* private window */ }
+  }, [auto]);
 
   const load = useCallback(async () => {
     try { setStatus(await api(token, "GET")); }
@@ -53,9 +63,17 @@ export default function GmailAlerts({ token, accounts = [], categories = [], exp
   }
 
   async function sync() {
-    setError(""); setBusy(true); setResult(null);
-    try { setResult(await api(token, "POST", { days })); }
-    catch (e) { setError(e.message); }
+    setError(""); setBusy(true); setResult(null); setAutoCount(0);
+    try {
+      const res = await api(token, "POST", { days });
+      setResult(res);
+      if (auto) {
+        const seen = new Set();
+        const filed = (res.pending || []).filter((p) => canAutoLog(p, seen));
+        filed.forEach((p) => logOne(p, seen));
+        setAutoCount(filed.length);
+      }
+    } catch (e) { setError(e.message); }
     finally { setBusy(false); }
   }
 
@@ -74,13 +92,28 @@ export default function GmailAlerts({ token, accounts = [], categories = [], exp
     [expenses]
   );
 
-  function logOne(p) {
+  function logOne(p, seen) {
     const cat = picked[p.messageId] ?? suggestCategory(p, categories) ?? "Other";
     const record = toExpense(p, { accounts, category: cat, rate });
-    if (!record) return;
+    if (!record) return false;
     onAddExpense?.(record);
     setLogged((s) => new Set(s).add(p.messageId));
+    // `expenses` won't have caught up mid-loop, so a batch needs its own
+    // guard or the same alert files twice within one pass.
+    seen?.add(p.messageId);
+    return true;
   }
+
+  // Confident enough to file without asking: a debit, not already filed, and
+  // the payee matched a category outright.
+  const canAutoLog = useCallback(
+    (p, seen) => p.dir === "DR"
+      && !seen.has(p.messageId)
+      && !logged.has(p.messageId)
+      && !alreadyLogged.has(p.messageId)
+      && !!suggestCategory(p, categories),
+    [logged, alreadyLogged, categories]
+  );
 
   if (!status) return <Card className="p-6 text-sm text-stone-400">Checking Gmail…</Card>;
 
@@ -140,6 +173,11 @@ export default function GmailAlerts({ token, accounts = [], categories = [], exp
               className="bg-night text-white text-sm font-medium px-4 py-2 rounded-xl inline-flex items-center gap-2 transition-transform active:scale-[0.97] disabled:opacity-50">
               <RefreshCw size={14} className={busy ? "animate-spin" : ""} /> {busy ? "Reading…" : "Check for new transactions"}
             </button>
+            <label className="text-[13px] text-stone-600 flex items-center gap-2 select-none cursor-pointer">
+              <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)}
+                className="w-3.5 h-3.5 accent-emerald-700" />
+              Log new expenses automatically
+            </label>
             <button onClick={disconnect} disabled={busy}
               className="text-sm text-stone-500 px-3 py-2 rounded-xl border border-line inline-flex items-center gap-1.5 hover:text-stone-800 transition-colors">
               <Unplug size={13} /> Disconnect
@@ -159,6 +197,16 @@ export default function GmailAlerts({ token, accounts = [], categories = [], exp
               </Card>
             ))}
           </div>
+
+          {autoCount > 0 && (
+            <div className="flex items-center gap-2 text-[13px] text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-xl px-3.5 py-2.5">
+              <Check size={14} className="shrink-0" />
+              <span>
+                {autoCount} expense{autoCount === 1 ? "" : "s"} filed automatically into your Expenses tab.
+                Anything I couldn't categorise is below, waiting for you.
+              </span>
+            </div>
+          )}
 
           <Card className="p-5">
             <CardTitle sub={result.pending.length

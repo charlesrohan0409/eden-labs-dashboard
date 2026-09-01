@@ -1,5 +1,9 @@
 # Eden Labs — Ops Dashboard
 
+> **Working on anything financial?** Read [HANDOFF.md](HANDOFF.md) first — it
+> carries the reconciled figures, whose money is whose, and the rules that
+> stop a guess from becoming a wrong number in someone's accounts.
+
 Charles Rohan's agency dashboard: clients, CRM (outbound pipeline + inbound
 enquiries), content (board, calendar, composer, analytics, repurposing),
 finance (invoicing, personal accounts/budgets/subscriptions), a client

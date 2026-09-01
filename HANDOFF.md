@@ -108,27 +108,27 @@ going back out. Of the original ₹57,804 gap:
   instalments and a ₹10,000 branch withdrawal had been moved into his own
   spending, splitting one loan across two treatments while its other eight
   instalments stayed with family. Reverted on evidence.
-- **₹23,557 remains, and it is exactly two receipts.** Matching every rupee in
-  against every rupee out chronologically — oldest money spent first — leaves
-  only these unmatched across the whole twenty months:
+- **₹25,607 remains, and the target is ₹4,500 — he owes his brother that.**
+  Nine corrections came from him directly and are applied: the Abirami ₹50,000
+  went out as ₹37,150 to Pramila plus ₹12,850 to Liberty (exactly ₹50,000); the
+  Liberty ₹2,500 went straight to Md Ehsan Alam the same day; Hostinger ×2,
+  Muthumari ×2 and two Sayan Baidya payments were his own and left family; the
+  third Sayan payment was his dad's and stayed.
 
-  | Date | Amount | From |
-  | --- | --- | --- |
-  | 21 Aug 2026 | ₹21,057 (of ₹50,000 received) | Mrs Abirami Kadirwan |
-  | 23 Aug 2026 | ₹2,500 | Liberty Seafood |
+  **The remainder is pocket money.** He said the many ₹1k–₹3k arrivals from his
+  parents "weren't any borrowing — most was my pocket money". A gift is not a
+  liability. Ticking the 21 non-EMI receipts of ₹5,000 or under lands the
+  account at ₹4,582, which is ₹82 from the ₹4,500 he owes. He is choosing which
+  in the artifact; apply his list, do not infer it.
 
-  Everything else pairs off. Note that ₹1,00,000 arrived from Liberty and
-  ₹1,00,000 went back to Abirami the same day — the ₹50,000 from Abirami on
-  top of that is the piece with no outflow after it. He is identifying these
-  from memory; do not allocate them without his answer.
+  Keep the ₹5,000-at-the-start-of-a-month receipts OUT of that — those are the
+  float for the dad's ₹4,238 vehicle EMI and pair with it days later.
 
-**Do not re-plug this.** If a future session is tempted to zero it, that is
-the same shortcut, and he has explicitly declined it once.
-
-If an adjusting entry is ever made here it must NOT be `conduit`: flagged
-conduit it clears the liability while staying out of the P&L, and the
-opened-plus-kept identity breaks by exactly its own value. That is how the
-first attempt was caught.
+**A caution on matching.** Pairing receipts to payments oldest-first (FIFO)
+produced two false "unmatched" receipts, because he settles specific receipts
+with specific payments days apart, not in order. It reported ₹1,11,671 on the
+first attempt and ₹23,107 on the second, and both were artefacts. Use it to
+narrow, never to conclude.
 
 ### The ₹1.32 lakh he expected
 

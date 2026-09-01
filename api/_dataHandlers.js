@@ -325,6 +325,17 @@ const CLIENT_PATCH_FIELDS = {
   post: ["content", "media", "poll", "type", "contentType", "topic"],
   contact: ["name", "company", "title", "email", "phone", "url", "notes", "dealValue"],
   commentTarget: ["name", "headline", "notes", "inSearch"],
+  // A client runs their own campaigns now, so they edit the shape of a list
+  // or script they created. `clientId` is absent by design — pickAllowed
+  // drops it, so no patch can move a record to another owner.
+  leadList: ["name", "channel", "niche", "status", "notes"],
+  script: ["name", "channel", "body", "status", "notes"],
+  outreachEntry: [
+    "date", "listId", "scriptId", "notes",
+    "linkedinConnectionsSent", "linkedinConnectionsAccepted", "linkedinConversationsStarted",
+    "linkedinReplied", "linkedinCallsBooked", "linkedinDealsClosed",
+    "emailSent", "emailReplied", "emailCallsBooked",
+  ],
 };
 
 function buildPortalData(full, clientId) {
@@ -346,9 +357,22 @@ function buildPortalData(full, clientId) {
     outreachLog: (full.outreachLog || []).filter((e) => e.clientId === clientId),
     // Names only — the list is context for the client's own numbers, and the
     // niche notes on it are internal targeting thinking, not theirs to read.
+    // A list the CLIENT created comes back whole — they wrote it, and they
+    // need its channel and niche to edit it. One the AGENCY built for them
+    // stays names-only: the targeting thinking on it is Eden Labs' working
+    // material, not part of what the client is buying.
     leadLists: (full.leadLists || [])
       .filter((l) => l.clientId === clientId)
-      .map((l) => ({ id: l.id, name: l.name, status: l.status })),
+      .map((l) => (l.createdByClient
+        ? l
+        : { id: l.id, name: l.name, status: l.status })),
+    // Their own scripts, same rule — the body of an agency-written script is
+    // the agency's copywriting, so only its name travels.
+    scripts: (full.scripts || [])
+      .filter((sc) => sc.clientId === clientId)
+      .map((sc) => (sc.createdByClient
+        ? sc
+        : { id: sc.id, name: sc.name, status: sc.status, channel: sc.channel })),
     // The rhythm view needs these. Same strict === clientId as everything
     // else here, so the agency's own commenting never reaches a client.
     commentLog: (full.commentLog || []).filter((c) => c.clientId === clientId),
@@ -363,6 +387,27 @@ export async function handlePortalDataGet(headers) {
     return { status: 404, body: { error: "This client no longer exists." } };
   }
   return { status: 200, body: { data: buildPortalData(full, payload.clientId) } };
+}
+
+/**
+ * Refuses an outreach entry that points at someone else's list or script.
+ *
+ * The clientId hinge stops a client writing a row that BELONGS to another
+ * client, but says nothing about what that row REFERENCES — and a listId is
+ * a foreign key into a table full of other people's campaigns. Without this,
+ * a hand-made request could file its numbers against a rival's list and read
+ * back that list's name in its own dashboard.
+ */
+function refNotOwned(full, clientId, fields) {
+  if (fields.listId) {
+    const l = (full.leadLists || []).find((x) => x.id === fields.listId);
+    if (!l || l.clientId !== clientId) return { status: 403, body: { error: "Not your list." } };
+  }
+  if (fields.scriptId) {
+    const sc = (full.scripts || []).find((x) => x.id === fields.scriptId);
+    if (!sc || sc.clientId !== clientId) return { status: 403, body: { error: "Not your script." } };
+  }
+  return null;
 }
 
 // Small allowlist of actions a client session may trigger. Every one forces
@@ -422,6 +467,82 @@ export async function handlePortalAction(headers, body) {
         M.deleteContact(full, p.id);
         break;
       }
+
+      // ---- campaigns: lists, scripts, and the daily numbers ----
+      //
+      // A client session could already log outreach through the Chrome
+      // extension (EXTENSION_ACTIONS.logOutreachEntry) while their own
+      // dashboard offered no way to do the same thing, or to create the list
+      // the extension's picker was asking them to choose from. These close
+      // that gap. Every one forces clientId from the token and refuses to
+      // touch a record belonging to anyone else.
+      case "addLeadList":
+        M.addLeadList(full, {
+          ...pickAllowed(p, CLIENT_PATCH_FIELDS.leadList),
+          clientId,
+          // Marks it as the client's own work, which is what lets
+          // buildPortalData hand back its full detail rather than just a
+          // name — the stripping exists to keep the agency's targeting
+          // notes private, and a list the client wrote isn't that.
+          createdByClient: true,
+        });
+        break;
+      case "updateLeadList": {
+        const list = (full.leadLists || []).find((x) => x.id === p?.id);
+        if (!list || list.clientId !== clientId) return { status: 403, body: { error: "Not your list." } };
+        M.updateLeadList(full, p.id, pickAllowed(p.patch, CLIENT_PATCH_FIELDS.leadList));
+        break;
+      }
+      case "deleteLeadList": {
+        const list = (full.leadLists || []).find((x) => x.id === p?.id);
+        if (!list || list.clientId !== clientId) return { status: 403, body: { error: "Not your list." } };
+        // Only their own. A list the agency built for them stays put — the
+        // history hanging off it is the agency's record of work delivered.
+        if (!list.createdByClient) return { status: 403, body: { error: "This list was set up by Eden Labs — ask them to remove it." } };
+        M.deleteLeadList(full, p.id);
+        break;
+      }
+
+      case "addScript":
+        M.addScript(full, { ...pickAllowed(p, CLIENT_PATCH_FIELDS.script), clientId, createdByClient: true });
+        break;
+      case "updateScript": {
+        const sc = (full.scripts || []).find((x) => x.id === p?.id);
+        if (!sc || sc.clientId !== clientId) return { status: 403, body: { error: "Not your script." } };
+        M.updateScript(full, p.id, pickAllowed(p.patch, CLIENT_PATCH_FIELDS.script));
+        break;
+      }
+      case "deleteScript": {
+        const sc = (full.scripts || []).find((x) => x.id === p?.id);
+        if (!sc || sc.clientId !== clientId) return { status: 403, body: { error: "Not your script." } };
+        if (!sc.createdByClient) return { status: 403, body: { error: "This script was written by Eden Labs — ask them to remove it." } };
+        M.deleteScript(full, p.id);
+        break;
+      }
+
+      case "logOutreachEntry": {
+        const fields = pickAllowed(p, CLIENT_PATCH_FIELDS.outreachEntry);
+        const bad = refNotOwned(full, clientId, fields);
+        if (bad) return bad;
+        M.addOutreachEntry(full, { ...fields, clientId });
+        break;
+      }
+      case "updateOutreachEntry": {
+        const e = (full.outreachLog || []).find((x) => x.id === p?.id);
+        if (!e || e.clientId !== clientId) return { status: 403, body: { error: "Not your entry." } };
+        const patch = pickAllowed(p.patch, CLIENT_PATCH_FIELDS.outreachEntry);
+        const bad = refNotOwned(full, clientId, patch);
+        if (bad) return bad;
+        M.updateOutreachEntry(full, p.id, patch);
+        break;
+      }
+      case "deleteOutreachEntry": {
+        const e = (full.outreachLog || []).find((x) => x.id === p?.id);
+        if (!e || e.clientId !== clientId) return { status: 403, body: { error: "Not your entry." } };
+        M.deleteOutreachEntry(full, p.id);
+        break;
+      }
+
       default:
         return { status: 400, body: { error: `Unknown or disallowed action: ${action}` } };
       }
@@ -475,6 +596,10 @@ const EXTENSION_ACTIONS = {
   // for the same reason they get saveSwipe — the folders are scoped by the
   // clientId hinge below, so one can only ever create its own.
   addSwipeFolder:      { ownerOnly: false },
+  // Same reasoning as addSwipeFolder: listCampaigns asks you to pick a list,
+  // and being unable to create one without leaving LinkedIn for the
+  // dashboard is why the picker sat empty.
+  addLeadList:         { ownerOnly: false },
   // Read-only — the overlay's panel needs to show what's already on the
   // list, not just write to it. Owner-only like the rest of the comment-
   // target actions, and deliberately returns just this one array rather
@@ -614,6 +739,26 @@ export async function handleExtension(headers, body) {
       });
       break;
     }
+    // Mirrors addSwipeFolder exactly, including the same-name guard: the
+    // popup's list picker is one tap away from a "+" and typing a list that
+    // already exists is the expected mistake, not an edge case.
+    case "addLeadList": {
+      const name = (p.name || "").trim();
+      if (!name) return { status: 400, body: { error: "List needs a name." } };
+      const existing = (data.leadLists || []).find(
+        (l) => (l.clientId || null) === clientId && (l.name || "").trim().toLowerCase() === name.toLowerCase()
+      );
+      if (existing) { extra = { listId: existing.id }; break; }
+      M.addLeadList(data, {
+        clientId, name,
+        channel: p.channel || "linkedin",
+        niche: p.niche || "",
+        ...(isOwner ? {} : { createdByClient: true }),
+      });
+      extra = { listId: (data.leadLists || []).at(-1)?.id };
+      break;
+    }
+
     case "addSwipeFolder": {
       const name = (p.name || "").trim();
       if (!name) return { status: 400, body: { error: "Folder needs a name." } };

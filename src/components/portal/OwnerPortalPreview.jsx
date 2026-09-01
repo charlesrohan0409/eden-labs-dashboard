@@ -124,6 +124,17 @@ export default function OwnerPortalPreview({ data, actions, onExit }) {
             onDeleteContact={actions.deleteContact}
             onAddComment={actions.addComment}
             onUpdatePostStatus={actions.updatePostStatus}
+            // Campaign actions the client now has. The owner's versions don't
+            // force a clientId — that hinge lives in the portal API, which a
+            // preview never goes through — so it's injected here, or a list
+            // made in preview would file itself against the agency instead of
+            // the client whose portal is on screen.
+            onAddLeadList={(l) => actions.addLeadList({ ...l, clientId })}
+            onUpdateLeadList={actions.updateLeadList}
+            onDeleteLeadList={actions.deleteLeadList}
+            onLogOutreachEntry={(e) => actions.addOutreachEntry({ ...e, clientId })}
+            onUpdateOutreachEntry={actions.updateOutreachEntry}
+            onDeleteOutreachEntry={actions.deleteOutreachEntry}
           />
         </CurrencyProvider>
       )}

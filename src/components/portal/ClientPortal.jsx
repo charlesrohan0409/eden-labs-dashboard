@@ -18,6 +18,7 @@ import MiniCalendar from "../ui/MiniCalendar";
 import PortalHero from "./PortalHero";
 import PortalShell from "./PortalShell";
 import PortalOutreach from "./PortalOutreach";
+import PortalCampaigns from "./PortalCampaigns";
 import { navForClient } from "./portalNav";
 import PortalEmpty from "./PortalEmpty";
 import CrmBoard from "../ui/CrmBoard";
@@ -33,6 +34,8 @@ export default function ClientPortal({
   exitLabel = "Exit preview",
   data, clientId, onExit, onAddPost, onUpdatePost, onAddContact, onUpdateStage,
   onAddComment, onUpdatePostStatus, onUpdateContact, onDeleteContact,
+  onAddLeadList, onUpdateLeadList, onDeleteLeadList,
+  onLogOutreachEntry, onUpdateOutreachEntry, onDeleteOutreachEntry,
   onRefresh, refreshing, token,
 }) {
   const [tab, setTab] = useState("overview");
@@ -387,6 +390,17 @@ export default function ClientPortal({
               clientId={clientId}
               targets={data.settings?.outreachTargets}
               weeklyTarget={data.settings?.outreachTargets?.weeklyConnections}
+            />
+            <PortalCampaigns
+              lists={data.leadLists || []}
+              scripts={data.scripts || []}
+              entries={outreachEntries}
+              onAddList={onAddLeadList}
+              onUpdateList={onUpdateLeadList}
+              onDeleteList={onDeleteLeadList}
+              onLogEntry={onLogOutreachEntry}
+              onUpdateEntry={onUpdateOutreachEntry}
+              onDeleteEntry={onDeleteOutreachEntry}
             />
             <Card className="p-5">
               <CardTitle sub={`${clientCalls.length} logged`}>Call log</CardTitle>

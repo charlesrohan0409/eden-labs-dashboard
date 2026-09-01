@@ -175,6 +175,12 @@ export default function App() {
           onDeleteContact={portal.actions.deleteContact}
           onAddComment={portal.actions.addComment}
           onUpdatePostStatus={portal.actions.updatePostStatus}
+          onAddLeadList={portal.actions.addLeadList}
+          onUpdateLeadList={portal.actions.updateLeadList}
+          onDeleteLeadList={portal.actions.deleteLeadList}
+          onLogOutreachEntry={portal.actions.logOutreachEntry}
+          onUpdateOutreachEntry={portal.actions.updateOutreachEntry}
+          onDeleteOutreachEntry={portal.actions.deleteOutreachEntry}
           onRefresh={portal.refresh}
           refreshing={portal.refreshing}
           token={portalSession.token}

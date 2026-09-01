@@ -77,6 +77,18 @@ export function usePortalData(token, onUnauthorized) {
     addComment: (c) => act("addComment", c),
     updateContact: (id, patch) => act("updateContact", { id, patch }),
     deleteContact: (id) => act("deleteContact", { id }),
+    // Campaigns. The extension could already log outreach for a client
+    // session while their own dashboard couldn't, and neither could create
+    // the list the extension's picker asked them to choose from.
+    addLeadList: (l) => act("addLeadList", l),
+    updateLeadList: (id, patch) => act("updateLeadList", { id, patch }),
+    deleteLeadList: (id) => act("deleteLeadList", { id }),
+    addScript: (sc) => act("addScript", sc),
+    updateScript: (id, patch) => act("updateScript", { id, patch }),
+    deleteScript: (id) => act("deleteScript", { id }),
+    logOutreachEntry: (e) => act("logOutreachEntry", e),
+    updateOutreachEntry: (id, patch) => act("updateOutreachEntry", { id, patch }),
+    deleteOutreachEntry: (id) => act("deleteOutreachEntry", { id }),
   };
 
   return { data, actions, error, refreshing, refresh: load, dismissError: () => setError("") };

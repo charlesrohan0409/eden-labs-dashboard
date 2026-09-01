@@ -108,11 +108,19 @@ going back out. Of the original ₹57,804 gap:
   instalments and a ₹10,000 branch withdrawal had been moved into his own
   spending, splitting one loan across two treatments while its other eight
   instalments stayed with family. Reverted on evidence.
-- **₹23,557 remains.** I briefly closed it with a single adjusting entry
-  crediting `expense:cash`. He asked for it back — he wants to identify the
-  actual transactions rather than accept an allocation I guessed at, which is
-  the right instinct. An artifact lists all 247 family transactions with a
-  note box under each; his notes come back as text to apply.
+- **₹23,557 remains, and it is exactly two receipts.** Matching every rupee in
+  against every rupee out chronologically — oldest money spent first — leaves
+  only these unmatched across the whole twenty months:
+
+  | Date | Amount | From |
+  | --- | --- | --- |
+  | 21 Aug 2026 | ₹21,057 (of ₹50,000 received) | Mrs Abirami Kadirwan |
+  | 23 Aug 2026 | ₹2,500 | Liberty Seafood |
+
+  Everything else pairs off. Note that ₹1,00,000 arrived from Liberty and
+  ₹1,00,000 went back to Abirami the same day — the ₹50,000 from Abirami on
+  top of that is the piece with no outflow after it. He is identifying these
+  from memory; do not allocate them without his answer.
 
 **Do not re-plug this.** If a future session is tempted to zero it, that is
 the same shortcut, and he has explicitly declined it once.

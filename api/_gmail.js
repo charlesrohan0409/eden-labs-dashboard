@@ -91,6 +91,10 @@ export const BANK_DOMAINS = [
   "kotak.com", "kotakbank.com",
   "yes.bank.in", "yesbank.in",
   "icicibank.com", "axisbank.com", "sbi.co.in",
+  // Not a bank — the provider that settles his overseas client payouts into
+  // India. Its mail is the only notice a payout has landed, and the ₹56,546.63
+  // from Leadbolt arrived with no bank alert at all.
+  "xflowpay.com",
 ];
 
 // Kept for anything that still imports the old name.

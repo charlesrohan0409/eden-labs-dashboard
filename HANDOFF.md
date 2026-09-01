@@ -1,6 +1,6 @@
 # Session handoff — finance & ledger
 
-Last updated: 1 September 2026.
+Last updated: 1 September 2026 (after the xFlow payout and squaring family).
 
 This exists because the financial work in this repo carries a lot of context
 that is expensive to rebuild and dangerous to guess at. Read this before
@@ -42,19 +42,23 @@ Established over several sessions. Do not re-derive these.
 - **Alphonse Rajiv Fernando** — friend.
 - **Mrs Souwri Paramasivam**, **Mrs Abirami Kadirwan** — neighbours acting as
   middlemen for family money.
-- **Mano Athai** — relative; the ₹50,000 loan.
-- **Leadbolt / Chemaly Associates** — the same overseas client.
+- **Leadbolt / Chemaly Associates** — the same overseas client. Payouts settle
+  through **xFlow** (`updates@xflowpay.com`), and its email is the ONLY notice
+  — the ₹56,546.63 payout on 31 Aug generated no bank alert at all.
+- **Mano J / Mano Athai** — relative. Lent ₹50,000 on 1 Sep 2026, due back
+  **10 October 2026**.
 - **Brandingta**, **Mrinal Choudhury**, **Vinayak Naik** — clients.
 - **Beulah S** — church donations (`expense:giving`).
 - **Depesh Selvaraj** — Sales Navigator, business.
 - **Accretive Cleantech / Ecofy Finance** — the **dad's vehicle EMI**,
   ₹4,238 on the 5th of every month. NOT Charles's expense.
 - **IDFC** — a ₹2,36,260 loan taken in Charles's name **for his dad**, who
-  repaid it. See the open question in §7.
+  repaid it. All twelve instalments belong to family; four had been split into
+  his own spending and were put back (§3).
 
 Family money is modelled as `liability:family` with `conduit: true`, never as
-an expense. Over 20 months ₹17.9 lakh flowed each way and netted to ~₹25k —
-that balance is the proof the treatment is right.
+an expense. Over 20 months ₹18 lakh flowed each way and now nets to zero —
+see §3. That it balances at all is the proof the treatment is right.
 
 ---
 
@@ -64,41 +68,59 @@ As at 30 August 2026 — 2,971 entries, trial balance **exact**, period
 1 Jan 2025 → 30 Aug 2026 (20 months).
 
 ```
-income      ₹8,90,246      opened at   −₹3,998
-spending    ₹8,24,134      kept         ₹66,112     (7.4%)
-                           net worth    ₹62,113
+income      ₹8,91,066      opened at   −₹3,998
+spending    ₹7,66,331      kept        ₹1,24,735    (14.0%)
+                           net worth   ₹1,20,737
 ```
+
+The identity holds exactly: −₹3,998 + ₹1,24,735 = ₹1,20,737. Charles's own
+test — "if I started from nothing, what I kept should equal what I have" — is
+the fastest way to catch a broken change. Run it after touching anything.
 
 | Account | Balance | Ledger account |
 | --- | --- | --- |
 | Kotak ••3630 | ₹18,339 | `asset:bank:kotak` |
-| HDFC ••3752 | ₹479 | `asset:bank:hdfc` |
-| Overseas (USD 900) | ₹84,000 | `asset:overseas` |
+| HDFC ••3752 | ₹7,026 | `asset:bank:hdfc` |
+| Overseas (USD 300) | ₹28,273 | `asset:overseas` |
+| Mano Athai — due 10 Oct 2026 | ₹50,000 | `asset:receivable` |
 | Investments (Groww) | ₹19,800 | `asset:investments` |
 | Other accounts (SBI/Axis/TMB) | ₹9,360 | `asset:other-accounts` |
 | HDFC card ••5902 | ₹2,454 owed | `liability:card:hdfc` |
 | Yes Bank Pop Card | ₹3,825 owed | `liability:card:yesbank` |
 | Amazon Pay Later | ₹6,160 owed | `liability:card:amazonpay` |
-| Family money held | ₹57,804 owed | `liability:family` |
+| Family money held | **₹0** | `liability:family` |
 | Merlin | ₹378 owed **to him** | `liability:partner` |
 
-**₹17.5 lakh has passed through** his accounts that was never his.
+Total assets **₹1,33,176**, owed **₹12,439** on three cards.
 
-### The reconciliation he keeps asking about
+**₹18 lakh has passed through** his accounts that was never his.
 
-His instinct — "if I started from nothing, what I kept should equal what I
-have" — is correct, and it now holds: −₹3,998 + ₹66,112 = ₹62,113.
+### Family nets to zero — and why that is a stated fact, not a plug
 
-When he says "I have ₹1.8 lakh", it decomposes as:
+Charles: *"I don't owe anything to my family. Whatever has come from them has
+gone out for their own purpose."* ₹18,04,453 arrived, ₹17,46,649 was tagged
+going back out. The ₹57,804 gap closed in two parts:
 
-```
-₹1,79,725   Finance-tab accounts + the ₹50,000 loan
- −₹50,000   the loan is DOUBLE COUNTED — money hasn't left yet
- −₹15,435   owed on three cards
- −₹57,804   family money sitting in his accounts that isn't his
-──────────
-   ₹62,113   actually his
-```
+1. **₹34,247 was a real classification error** — four IDFC instalments and a
+   ₹10,000 branch withdrawal had been moved into his own spending, splitting
+   one loan across two treatments while its other eight instalments stayed
+   with family. Reverted on evidence.
+2. **₹23,557 is his assertion**, recorded as ONE visible entry
+   (`ref.origin: family-square-2026-08`) crediting `expense:cash`, because
+   cash is much the likeliest vehicle and I cannot say which withdrawals. It
+   deletes in one line if he ever disagrees.
+
+That entry must NOT be `conduit`. Flagged conduit it cleared the liability
+while staying out of the P&L, and the opened-plus-kept identity broke by
+exactly ₹23,557.
+
+### The ₹1.32 lakh he expected
+
+He said he should be holding about ₹1.32 lakh after everything. He was right:
+total assets are **₹1,33,176**. Less ₹12,439 owed on three cards, ₹1,20,737 is
+his. The ₹50,000 to Mano Athai genuinely left on 1 Sep, so it is a real
+receivable now rather than the double count it was while the money sat in the
+overseas balance.
 
 ---
 
@@ -187,19 +209,13 @@ suppressed as already-in-ledger (usually correct).
 
 ## 7. Open questions for Charles
 
-1. **The IDFC loan is split across two treatments.** Four payments totalling
-   ₹24,247 sit in `expense:bnpl` (his own), while the other eight — including
-   the ₹2,36,260 disbursement — are `liability:family` (his dad's), per his
-   earlier instruction. One loan, two answers. That single decision is worth
-   ₹24,247 of surplus and ₹24,247 of what he owes family. **Ask before
-   touching it.**
-2. **Gramiyam** — his ecom brand. Found ₹1,800 of Meta ads and a ₹5,499
+1. **Gramiyam** — his ecom brand. Found ₹1,800 of Meta ads and a ₹5,499
    RazorpayX credit, but he remembers ~₹20k of revenue that isn't in these
    accounts. Where did it settle?
 3. **Overseas is $900 in conversation, $977 in the dashboard.** ₹7,187 apart.
 4. **Jan–Feb 2025 is HDFC-only.** The Kotak statement starts 1 Apr 2025 and
    the card statements 20 Mar, so those two months are understated.
-5. Two card balances (Yes Bank ₹3,825, Amazon Pay ₹6,160) are his own figures
+4. Two card balances (Yes Bank ₹3,825, Amazon Pay ₹6,160) are his own figures
    from screen, not statements — the only non-verified numbers left.
 
 ---

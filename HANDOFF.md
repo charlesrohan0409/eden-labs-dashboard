@@ -44,7 +44,10 @@ Established over several sessions. Do not re-derive these.
   middlemen for family money.
 - **Leadbolt / Chemaly Associates** — the same overseas client. Payouts settle
   through **xFlow** (`updates@xflowpay.com`), and its email is the ONLY notice
-  — the ₹56,546.63 payout on 31 Aug generated no bank alert at all.
+  — the ₹56,546.63 payout on 31 Aug generated no bank alert at all. He holds
+  **USD 900 in xFlow** and that is a balance to ASK for, not to derive: a
+  payout does not mean the balance fell by that much, and assuming it did
+  understated the account by ₹57,367 of unrecorded earnings.
 - **Mano J / Mano Athai** — relative. Lent ₹50,000 on 1 Sep 2026, due back
   **10 October 2026**.
 - **Brandingta**, **Mrinal Choudhury**, **Vinayak Naik** — clients.
@@ -81,38 +84,43 @@ the fastest way to catch a broken change. Run it after touching anything.
 | --- | --- | --- |
 | Kotak ••3630 | ₹18,339 | `asset:bank:kotak` |
 | HDFC ••3752 | ₹7,026 | `asset:bank:hdfc` |
-| Overseas (USD 300) | ₹28,273 | `asset:overseas` |
+| Overseas — xFlow (USD 900) | ₹84,820 | `asset:overseas` |
 | Mano Athai — due 10 Oct 2026 | ₹50,000 | `asset:receivable` |
 | Investments (Groww) | ₹19,800 | `asset:investments` |
 | Other accounts (SBI/Axis/TMB) | ₹9,360 | `asset:other-accounts` |
 | HDFC card ••5902 | ₹2,454 owed | `liability:card:hdfc` |
 | Yes Bank Pop Card | ₹3,825 owed | `liability:card:yesbank` |
 | Amazon Pay Later | ₹6,160 owed | `liability:card:amazonpay` |
-| Family money held | **₹0** | `liability:family` |
+| Family money held | ₹23,557 — **his to sort** | `liability:family` |
 | Merlin | ₹378 owed **to him** | `liability:partner` |
 
 Total assets **₹1,33,176**, owed **₹12,439** on three cards.
 
 **₹18 lakh has passed through** his accounts that was never his.
 
-### Family nets to zero — and why that is a stated fact, not a plug
+### The family gap — ₹23,557, and he is closing it himself
 
 Charles: *"I don't owe anything to my family. Whatever has come from them has
-gone out for their own purpose."* ₹18,04,453 arrived, ₹17,46,649 was tagged
-going back out. The ₹57,804 gap closed in two parts:
+gone out for their own purpose."* ₹18,04,453 arrived, ₹17,80,896 is tagged
+going back out. Of the original ₹57,804 gap:
 
-1. **₹34,247 was a real classification error** — four IDFC instalments and a
-   ₹10,000 branch withdrawal had been moved into his own spending, splitting
-   one loan across two treatments while its other eight instalments stayed
-   with family. Reverted on evidence.
-2. **₹23,557 is his assertion**, recorded as ONE visible entry
-   (`ref.origin: family-square-2026-08`) crediting `expense:cash`, because
-   cash is much the likeliest vehicle and I cannot say which withdrawals. It
-   deletes in one line if he ever disagrees.
+- **₹34,247 was a real classification error**, already fixed — four IDFC
+  instalments and a ₹10,000 branch withdrawal had been moved into his own
+  spending, splitting one loan across two treatments while its other eight
+  instalments stayed with family. Reverted on evidence.
+- **₹23,557 remains.** I briefly closed it with a single adjusting entry
+  crediting `expense:cash`. He asked for it back — he wants to identify the
+  actual transactions rather than accept an allocation I guessed at, which is
+  the right instinct. An artifact lists all 247 family transactions with a
+  note box under each; his notes come back as text to apply.
 
-That entry must NOT be `conduit`. Flagged conduit it cleared the liability
-while staying out of the P&L, and the opened-plus-kept identity broke by
-exactly ₹23,557.
+**Do not re-plug this.** If a future session is tempted to zero it, that is
+the same shortcut, and he has explicitly declined it once.
+
+If an adjusting entry is ever made here it must NOT be `conduit`: flagged
+conduit it clears the liability while staying out of the P&L, and the
+opened-plus-kept identity breaks by exactly its own value. That is how the
+first attempt was caught.
 
 ### The ₹1.32 lakh he expected
 

@@ -3,6 +3,8 @@
 // a different concern, same "server-only" rule.
 
 import { migrateData } from "../src/data/migrate.js";
+import { financeAlerts, alertsEmail } from "../src/lib/financeAlerts.js";
+import { handleSendEmail } from "./_handlers.js";
 import { seedData } from "../src/data/seed.js";
 import * as M from "../src/data/mutations.js";
 import { getOwnerAuth, getAllClientCredentials, setClientCredential, deleteClientCredential, getAppData, upsertAppData, updateAppDataIfUnchanged, getLedger, upsertLedger, updateLedgerIfUnchanged, getIntegration, setIntegration, deleteIntegration, uploadToStorage } from "./_supabaseAdmin.js";
@@ -1083,3 +1085,51 @@ export const DATA_ROUTES = {
   "/api/upload": { method: "POST", handler: ({ headers, body }) => handleUpload(headers, body) },
   "/api/extension": { method: "POST", handler: ({ headers, body }) => handleExtension(headers, body) },
 };
+
+// ------------------------------------------------------ finance digest ---
+
+/**
+ * The scheduled money check: works out what's wrong and emails it.
+ *
+ * Runs on a cron rather than on page load, because the whole point is to
+ * reach Charles on a day he DOESN'T open the dashboard — a budget breach he
+ * only discovers by going to look at budgets is not a notification.
+ *
+ * Authorised by CRON_SECRET (what Vercel's scheduler sends) or an ordinary
+ * owner token, so the same endpoint can be triggered by hand to preview
+ * exactly what the next scheduled run would say.
+ *
+ * `?dry=1` computes and returns without sending. Nothing here writes.
+ */
+export async function handleFinanceDigest(headers, query = {}) {
+  const cronSecret = process.env.CRON_SECRET;
+  const bearer = bearerFrom(headers);
+  const viaCron = !!cronSecret && bearer === cronSecret;
+  const viaOwner = !!requireOwner(headers);
+  if (!viaCron && !viaOwner) return { status: 401, body: { error: "Not authorised." } };
+
+  const data = await loadData();
+  const ledgerRow = await getLedger();
+  const alerts = financeAlerts(data, ledgerRow?.entries || []);
+
+  // Info-only weeks are not worth an email. A digest that arrives every day
+  // saying everything is fine trains you to delete it unread, and then the
+  // one that matters gets deleted too.
+  const worthSending = alerts.filter((a) => a.severity === "critical" || a.severity === "warning");
+  const dry = query.dry === "1" || query.dry === "true";
+
+  if (!worthSending.length) {
+    return { status: 200, body: { ok: true, sent: false, reason: "nothing critical or warning", alerts } };
+  }
+
+  const mail = alertsEmail(alerts, { name: (data.profile?.name || "Charles").split(" ")[0] });
+  const to = data.profile?.email || process.env.DIGEST_TO;
+  if (!to) return { status: 200, body: { ok: true, sent: false, reason: "no email on the profile", alerts } };
+  if (dry) return { status: 200, body: { ok: true, sent: false, dry: true, to, subject: mail.subject, alerts } };
+
+  const res = await handleSendEmail({ to, subject: mail.subject, html: mail.html, text: mail.text });
+  return {
+    status: 200,
+    body: { ok: res.status === 200, sent: res.status === 200, to, subject: mail.subject, count: alerts.length, error: res.body?.error },
+  };
+}

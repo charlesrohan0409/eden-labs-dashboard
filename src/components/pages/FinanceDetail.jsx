@@ -15,6 +15,7 @@ import Avatar from "../ui/Avatar";
 import PillTabs from "../ui/PillTabs";
 import GmailAlerts from "./GmailAlerts";
 import LedgerReconcile from "./LedgerReconcile";
+import Categorise from "./Categorise";
 import PrimaryButton from "../ui/PrimaryButton";
 import InvoiceModal from "../ui/InvoiceModal";
 import PrivacyToggle from "../ui/PrivacyToggle";
@@ -24,6 +25,8 @@ import CategoryManager from "../ui/CategoryManager";
 import FinanceActivity from "../ui/FinanceActivity";
 import Outgoings from "../ui/Outgoings";
 import Budgets from "../ui/Budgets";
+import Runway from "../ui/Runway";
+import FinanceAlerts from "../ui/FinanceAlerts";
 import Receivables from "../ui/Receivables";
 import { downloadCSV, today, computeMRR, billingTypeLabel , monthBuckets } from "../../lib/utils";
 import { useCurrency } from "../../hooks/useCurrency";
@@ -266,6 +269,7 @@ export default function FinanceDetail({
             { value: "money", label: "My money" },
             { value: "unit-economics", label: "Unit economics" },
             { value: "alerts", label: "Bank alerts" },
+            { value: "categorise", label: "Categorise" },
             { value: "reconcile", label: "Reconcile" },
           ]}
         />
@@ -842,6 +846,18 @@ export default function FinanceDetail({
             ]}
           />
 
+          {/* Before anything else on the tab: if something is wrong, it should
+              not be behind a scroll. */}
+          <FinanceAlerts data={data} ledgerEntries={ledgerEntries} />
+
+          {/* Above the lists, because "can I cover this" is the question the
+              lists exist to answer and it was the one thing nothing showed. */}
+          <Runway
+            accounts={data.accounts}
+            outgoings={data.outgoings}
+            loans={data.loans}
+          />
+
           <div className="grid lg:grid-cols-2 gap-4 items-start">
             <Outgoings
               outgoings={data.outgoings}
@@ -890,6 +906,10 @@ export default function FinanceDetail({
       )}
 
       {/* ══ Unit economics ══ */}
+      {activeTab === "categorise" && (
+        <Categorise categories={data.expenseCategories} token={token} />
+      )}
+
       {activeTab === "reconcile" && (
         <LedgerReconcile
           token={token}

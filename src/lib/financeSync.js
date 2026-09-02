@@ -123,8 +123,24 @@ export const isUnified = (data) => Array.isArray(data?.settings?.[EXCLUDE_KEY]);
  * unmapped spending (shopping, education, cash) is real but unbudgeted, and
  * filing it under an invented heading would be worse than leaving it out.
  */
-export function ledgerAsExpenses(entries, categories = []) {
+export function ledgerAsExpenses(entries, categories = [], budgets = []) {
   const out = [];
+  // WHICH BOOK A LEDGER ROW BELONGS TO.
+  //
+  // spentOn filters by book and bookOf() defaults anything untagged to
+  // "business" — so without this every ledger row read as business and his
+  // PERSONAL budgets (Food, Date, Church Food) matched nothing at all. The
+  // budget would have shown ₹0 spent no matter what, which is the same
+  // failure this whole change exists to fix, just arriving differently.
+  //
+  // The budget itself is the authority: if he keeps a personal Food budget,
+  // food spending is personal money. Only where no budget says otherwise does
+  // the account prefix decide, and expense:business:* is the one prefix that
+  // genuinely means the agency.
+  const bookFor = new Map();
+  for (const b of budgets || []) {
+    if (b?.category) bookFor.set(String(b.category).toLowerCase(), b.book === "personal" ? "personal" : "business");
+  }
   for (const t of entries || []) {
     // Conduit money was never his — it belongs in balances and cash flow, and
     // counting it against a spending limit would be a budget breach caused by
@@ -144,6 +160,8 @@ export function ledgerAsExpenses(entries, categories = []) {
         nativeAmount: amount,
         amount,
         vendor: t.memo || category,
+        book: bookFor.get(category.toLowerCase())
+          || (l.account.startsWith("expense:business:") ? "business" : "personal"),
         fromLedger: true,
       });
     }
@@ -160,7 +178,7 @@ export function ledgerAsExpenses(entries, categories = []) {
  * list exists to prevent.
  */
 export function budgetExpenses(data, ledgerEntries, categories = []) {
-  const fromLedger = ledgerAsExpenses(ledgerEntries, categories);
+  const fromLedger = ledgerAsExpenses(ledgerEntries, categories, data?.budgets);
   if (!Array.isArray(ledgerEntries) || !ledgerEntries.length) return data?.expenses || [];
   const skip = excluded(data);
   const unsynced = (data?.expenses || []).filter((e) => skip.has(e.id));

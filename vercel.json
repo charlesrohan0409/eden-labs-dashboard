@@ -1,6 +1,18 @@
 {
   "rewrites": [
-    { "source": "/portal/(.*)", "destination": "/index.html" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+    {
+      "source": "/portal/(.*)",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/finance-digest",
+      "schedule": "0 3 * * *"
+    }
   ]
 }

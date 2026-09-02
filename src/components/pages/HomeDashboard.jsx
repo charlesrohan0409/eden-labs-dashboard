@@ -14,6 +14,8 @@ import MonthReportButton from "../ui/MonthReportButton";
 import TaskList from "../ui/TaskList";
 import MeetingRow from "../ui/MeetingRow";
 import TodayPanel from "../ui/TodayPanel";
+import FinanceAlerts from "../ui/FinanceAlerts";
+import { useLedger } from "../../hooks/useLedger";
 import { computeHealthScore, healthTone, STAGE_WEIGHTS, relativeDays, isMetricOnTrack, metricProgressPct, computeMRR, toDateKey, monthBuckets } from "../../lib/utils";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { useBufferPerformance } from "../../hooks/useBufferPerformance";
@@ -29,6 +31,10 @@ function greetingFor(hour) {
 
 export default function HomeDashboard({ data, token, setView, setSelectedClient, onAddTask, onToggleTask, onDeleteTask, onUpdateTask, onReorderTasks }) {
   const { money } = useCurrency();
+  // Money warnings belong on the page you open first, not two clicks inside
+  // Finance. `compact` renders nothing at all when everything is fine, so a
+  // healthy week costs no space here.
+  const { entries: ledgerEntries } = useLedger(token);
   const finSeries = useMemo(() => {
     const b = monthBuckets(() => ({ revenue: 0, cost: 0 }));
     data.invoices.forEach((i) => {
@@ -104,6 +110,8 @@ export default function HomeDashboard({ data, token, setView, setSelectedClient,
 
   return (
     <div className="space-y-5">
+      <FinanceAlerts data={data} ledgerEntries={ledgerEntries} compact />
+
       {/* ── Greeting header ── */}
       <div className="flex items-end justify-between gap-4 flex-wrap">
         <div className="rounded-2xl px-6 py-4 sm:py-5 flex-1 min-w-[16rem] bg-night">

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { AlertTriangle, X } from "lucide-react";
 import { useAppData } from "./hooks/useAppData";
+import { useFinanceLedgerSync } from "./hooks/useFinanceLedgerSync";
 import { useOwnerAuth } from "./hooks/useOwnerAuth";
 import { usePortalData } from "./hooks/usePortalData";
 import { CurrencyProvider } from "./hooks/useCurrency";
@@ -67,6 +68,10 @@ export default function App() {
   // driver of the Vercel/Supabase bandwidth blowout.
   const handleOwnerUnauthorized = useCallback(() => ownerAuth.logout(), [ownerAuth.logout]);
   const { data, actions, saveError, dismissSaveError } = useAppData(ownerAuth.token, handleOwnerUnauthorized);
+  // Keeps the Finance tab and the ledger as one book. Reads finished state
+  // and appends what the ledger is missing — see useFinanceLedgerSync for why
+  // this can't live inside the mutations themselves.
+  useFinanceLedgerSync(data, ownerAuth.token);
 
   const [view, setView] = useState("home");
   const [paletteOpen, setPaletteOpen] = useState(false);

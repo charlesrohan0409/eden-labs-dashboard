@@ -60,7 +60,61 @@ const CATEGORY_MAP = {
   "education": "expense:education", "taxes": "expense:taxes", "tax": "expense:taxes",
   "bank charges": "expense:bank-charges", "fees": "expense:bank-charges",
   "cash": "expense:cash", "bnpl": "expense:bnpl",
+  // Charles's own category list. Without these, a "Date" or "Church Food"
+  // expense synced to the ledger as expense:uncategorised and lost the very
+  // label its budget is keyed on — the budget would then read zero against
+  // spending that had definitely happened.
+  "marketing": "expense:business:ads",
+  "rent": "expense:rent",
+  "contractor": "expense:business:contractor",
+  "date": "expense:personal:date",
+  "cafe subscription": "expense:food:cafe",
+  "birthday": "expense:gifts", "mom birthday": "expense:gifts",
+  "church food": "expense:giving",
+  "diet expense": "expense:health:diet",
+  "other": "expense:uncategorised",
 };
+
+// The way back, for reading ledger spending as budget categories.
+//
+// Deliberately incomplete: only accounts that correspond to a category
+// Charles actually keeps. An account with no entry here (shopping, education,
+// cash) simply isn't budgeted, and inventing a category for it would put
+// spending under a heading he never chose.
+//
+// Several forward keys share a target — Birthday and Mom Birthday both write
+// to expense:gifts — so this can't be a mechanical inverse. It's the coarse
+// fallback; ref.category on the entry is the precise answer when present.
+const ACCOUNT_CATEGORY = {
+  "expense:food:eating-out": "Food",
+  "expense:food:local": "Food",
+  "expense:food:cafe": "Cafe Subscription",
+  "expense:food:groceries": "Groceries",
+  "expense:travel": "Travel",
+  "expense:utilities": "Utilities",
+  "expense:business:software": "Software",
+  "expense:subscriptions": "Software",
+  "expense:business:ads": "Marketing",
+  "expense:business:contractor": "Contractor",
+  "expense:rent": "Rent",
+  "expense:personal:date": "Date",
+  "expense:gifts": "Birthday",
+  "expense:health:diet": "Diet Expense",
+};
+
+/**
+ * Which of Charles's categories a ledger expense leg belongs to.
+ *
+ * `ref.category` first — an entry that came FROM the Finance tab carries the
+ * exact category it was filed under, and no mapping can beat that. The
+ * account table is the fallback for the 2,900 statement rows, which never had
+ * one. Returns null rather than guessing: an unmapped account is spending
+ * that simply isn't budgeted.
+ */
+export function categoryOfLeg(entry, account, categories = []) {
+  const known = (name) => (categories || []).find((c) => c.toLowerCase() === String(name || "").toLowerCase());
+  return known(entry?.ref?.category) || known(ACCOUNT_CATEGORY[account]) || null;
+}
 export const categoryAccount = (name) =>
   CATEGORY_MAP[String(name || "").trim().toLowerCase()] || "expense:uncategorised";
 
@@ -113,7 +167,7 @@ export function loanEntry(loan, accounts) {
   const m = toMinor(amount);
   return entry({
     date: loan.date || new Date().toISOString().slice(0, 10),
-    memo: `Lent to ${loan.to || loan.name || "someone"}`,
+    memo: `Lent to ${loan.person || loan.to || loan.name || "someone"}`,
     kind: "transfer",
     ref: { source: "finance", origin: `loan:${loan.id}` },
     legs: [
@@ -132,12 +186,46 @@ export function loanSettlementEntry(loan, accounts) {
   const m = toMinor(amount);
   return entry({
     date: loan.settledDate || new Date().toISOString().slice(0, 10),
-    memo: `Repaid by ${loan.to || loan.name || "someone"}`,
+    memo: `Repaid by ${loan.person || loan.to || loan.name || "someone"}`,
     kind: "transfer",
     ref: { source: "finance", origin: `loan-settled:${loan.id}` },
     legs: [
       { account: into, amount: m, currency: "INR", base: m },
       { account: "asset:receivable", amount: -m, currency: "INR", base: -m },
+    ],
+  });
+}
+
+/**
+ * A credit-card bill payment.
+ *
+ * The only Finance action that books no expense at all — the purchases that
+ * built the balance were expensed when they happened, so the payment is a
+ * transfer: bank down, card debt down. Which is exactly why it needs its own
+ * conversion. Every other Finance write leaves an `expenses` row behind for
+ * expenseEntry to find; this one leaves nothing, so without this the ledger's
+ * bank balance drifts by the whole bill every month while the card debt never
+ * falls.
+ *
+ * Built from the finance-log entry rather than the outgoing, because an
+ * outgoing only remembers its LAST payment — the log keeps every one.
+ */
+export function cardPaymentEntry(logEntry, accounts) {
+  const from = accountFor((accounts || []).find((a) => a.id === logEntry?.meta?.accountId));
+  const card = accountFor((accounts || []).find((a) => a.id === logEntry?.meta?.paysDownAccountId));
+  const amount = Math.abs(Number(logEntry?.amount) || 0);
+  if (!from || !card || !amount) return null;
+  const m = toMinor(amount);
+  return entry({
+    date: String(logEntry.at || "").slice(0, 10),
+    memo: `${logEntry.title || "Card bill"} — paid off`,
+    kind: "transfer",
+    ref: { source: "finance", origin: `card-payment:${logEntry.id}` },
+    legs: [
+      // Debit-positive: paying a card REDUCES the liability, and a liability
+      // is carried negative, so discharging it is a positive leg.
+      { account: card, amount: m, currency: "INR", base: m },
+      { account: from, amount: -m, currency: "INR", base: -m },
     ],
   });
 }

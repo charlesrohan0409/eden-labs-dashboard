@@ -31,6 +31,8 @@ import { formatAmount, CURRENCIES, convertBetween } from "../../lib/currency";
 import { invoiceNumber } from "../../lib/invoice";
 import { COLORS, chartTooltipStyle, axisTick } from "../../lib/theme";
 import { effectiveInvoiceStatus } from "../../lib/finance.js";
+import { budgetExpenses } from "../../lib/financeSync";
+import { useLedger } from "../../hooks/useLedger";
 
 // A function rather than a shared object literal — resetting the form must
 // hand back a fresh copy, not a reference every reset then mutates in common.
@@ -75,6 +77,15 @@ export default function FinanceDetail({
   const [editExpenseForm, setEditExpenseForm] = useState({ category: "Software", vendor: "", amount: "", currency: "USD" });
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
   const { money, moneyIn, rate } = useCurrency();
+  // Budgets measure against the LEDGER, not the Finance tab's own list. That
+  // list held 25 rows against a 2,978-entry book, so a ₹2,500 food budget was
+  // reading ₹4,870 while ₹2,46,036 of food spending sat unseen — a limit that
+  // could never be breached however much was spent.
+  const { entries: ledgerEntries } = useLedger(token);
+  const budgetSpend = useMemo(
+    () => budgetExpenses(data, ledgerEntries, data.expenseCategories),
+    [data, ledgerEntries]
+  );
 
   const clientOf = (id) => data.clients.find((c) => c.id === id);
 
@@ -848,7 +859,7 @@ export default function FinanceDetail({
             />
             <Budgets
               budgets={data.budgets}
-              expenses={data.expenses}
+              expenses={budgetSpend}
               book={book}
               categories={data.expenseCategories}
               onAddCategory={onAddExpenseCategory}
@@ -894,8 +905,11 @@ export default function FinanceDetail({
             accounts={data.accounts}
             categories={data.expenseCategories}
             expenses={data.expenses}
+            outgoings={data.outgoings}
+            financeLog={data.financeLog}
             rate={rate}
             onAddExpense={onAddExpense}
+            onPayOutgoing={onPayOutgoing}
           />
         )}
 

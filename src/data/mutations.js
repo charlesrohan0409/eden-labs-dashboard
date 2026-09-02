@@ -683,6 +683,10 @@ export function undoOutgoingPayment(d, id) {
   // (they are transfers), so expenseId is null there and nothing is removed.
   if (p.expenseId) d.expenses = (d.expenses || []).filter((e) => e.id !== p.expenseId);
 
+  // And the receivable a shared bill raised. Left behind, it would show the
+  // other person still owing their half of a payment that no longer exists.
+  if (p.splitLoanId) d.loans = (d.loans || []).filter((l) => l.id !== p.splitLoanId);
+
   o.lastPaidDate = p.prevLastPaidDate || "";
   o.lastPaidAmount = p.prevLastPaidAmount ?? null;
   if (p.prevNextRenewal) o.nextRenewal = p.prevNextRenewal;
@@ -699,7 +703,13 @@ export function undoOutgoingPayment(d, id) {
   });
 }
 
-export function payOutgoing(d, id, { date, nextRenewal, amount, rate } = {}) {
+// `gmailMessageId` is the idempotency key when this payment came from a bank
+// alert rather than a click. An ordinary expense carries it on the expense
+// row itself, which is what stops a re-sync filing the same debit twice — but
+// a CARD payment books no expense at all, so there would be no row to carry
+// it, and every re-sync would pay the card down again. Recorded here and in
+// the log entry so both paths have somewhere to look.
+export function payOutgoing(d, id, { date, nextRenewal, amount, rate, gmailMessageId } = {}) {
   const o = (d.outgoings || []).find((x) => x.id === id);
   if (!o) return d;
   const paidOn = date || today();
@@ -720,6 +730,20 @@ export function payOutgoing(d, id, { date, nextRenewal, amount, rate } = {}) {
   // about — bank down, card debt down — and books no expense at all.
   const isCardPayment = !!o.paysDownAccountId;
 
+  // A SHARED BILL IS NOT ALL YOUR COST.
+  //
+  // Charles pays the whole ₹6,100 electricity bill and his brother pays him
+  // back half. The full amount really does leave the account — so the bank
+  // balance must fall by all of it — but only his share is an expense. Book
+  // the whole thing and his Utilities budget reads double what the bill
+  // actually costs him; book only his half and the account stops matching
+  // the bank. So: full debit, half expense, half recorded as owed back.
+  const share = Number(o.splitShare);
+  const hasSplit = !isCardPayment && share > 0 && share < 1;
+  const round2 = (n) => Math.round(n * 100) / 100;
+  const ownCost = hasSplit ? round2(paid * share) : paid;
+  const owedBack = hasSplit ? round2(paid - ownCost) : 0;
+
   let bookedExpenseId = null;
   if (!isCardPayment) {
     bookedExpenseId = uid();
@@ -734,9 +758,9 @@ export function payOutgoing(d, id, { date, nextRenewal, amount, rate } = {}) {
       // then money() multiplied it back out for display, showing roughly ₹1.3
       // lakh for a ₹1,500 charge. Exactly the bug already fixed for
       // hand-entered expenses, never applied to this path.
-      amount: convertBetween(paid, o.currency || "INR", "USD", rate),
+      amount: convertBetween(ownCost, o.currency || "INR", "USD", rate),
       fxRate: (o.currency || "INR") === "USD" ? 1 : rate,
-      nativeAmount: paid,
+      nativeAmount: ownCost,
       currency: o.currency || "INR",
       date: paidOn,
       // Inherited, not defaulted. A personal subscription's charge is a
@@ -745,6 +769,7 @@ export function payOutgoing(d, id, { date, nextRenewal, amount, rate } = {}) {
       // is exactly the blending the two books exist to prevent.
       book: o.book === "personal" ? "personal" : "business",
       outgoingId: o.id,
+      ...(gmailMessageId ? { gmailMessageId } : {}),
     });
   }
 
@@ -775,6 +800,31 @@ export function payOutgoing(d, id, { date, nextRenewal, amount, rate } = {}) {
     account.balance = (Number(account.balance) || 0) + (account.type === "credit" ? debited : -debited);
   }
 
+  // The other person's share, recorded as owed back.
+  //
+  // Pushed directly rather than through addLoan, which debits the funding
+  // account — the money already left above, as part of the full bill. Going
+  // through addLoan would take it out twice.
+  let splitLoanId = null;
+  if (hasSplit && owedBack > 0) {
+    if (!Array.isArray(d.loans)) d.loans = [];
+    splitLoanId = uid();
+    d.loans.push({
+      id: splitLoanId,
+      person: o.splitWith || "Shared",
+      reason: `${o.name} — their share`,
+      amount: owedBack,
+      currency: o.currency || "INR",
+      date: paidOn,
+      dueDate: "",
+      status: "outstanding",
+      book: o.book === "business" ? "business" : "personal",
+      notes: `Half of ${o.name} paid ${paidOn}. The full ${paid} left ${account ? account.name : "the account"}; only ${ownCost} is your cost.`,
+      accountId: "",
+      fromOutgoingId: o.id,
+    });
+  }
+
   // The card being paid down. Its stored balance IS the debt, so paying it
   // SUBTRACTS — the opposite sign to a purchase on the same card.
   const card = isCardPayment
@@ -798,6 +848,8 @@ export function payOutgoing(d, id, { date, nextRenewal, amount, rate } = {}) {
     accountId: o.accountId || null,
     paysDownAccountId: o.paysDownAccountId || null,
     expenseId: bookedExpenseId,
+    splitLoanId,
+    gmailMessageId: gmailMessageId || null,
     prevLastPaidDate,
     prevLastPaidAmount,
     prevNextRenewal,
@@ -811,9 +863,15 @@ export function payOutgoing(d, id, { date, nextRenewal, amount, rate } = {}) {
     title: o.name,
     description: isCardPayment
       ? `${o.name} — ${account ? `${account.name} → ` : ""}${card ? card.name : "card"} (transfer, not an expense)`
-      : `${o.name} paid${account ? ` from ${account.name}` : ""}`,
+      : `${o.name} paid${account ? ` from ${account.name}` : ""}`
+        + (hasSplit ? ` — ${ownCost} yours, ${owedBack} owed back by ${o.splitWith || "the other half"}` : ""),
     amount: -paid, currency: o.currency,
-    meta: { category: o.category, accountId: o.accountId || null, paysDownAccountId: o.paysDownAccountId || null },
+    meta: {
+      category: o.category, accountId: o.accountId || null,
+      paysDownAccountId: o.paysDownAccountId || null,
+      gmailMessageId: gmailMessageId || null,
+      splitLoanId,
+    },
   });
 }
 

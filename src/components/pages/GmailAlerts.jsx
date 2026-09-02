@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Mail, RefreshCw, Check, AlertTriangle, Unplug, ArrowDownLeft, ArrowUpRight, Plus } from "lucide-react";
 import Card, { CardTitle } from "../ui/Card";
 import { suggestCategory, matchAccount, toExpense } from "../../lib/alertToExpense";
+import { routeAlert, advanceRenewal } from "../../lib/alertRouter";
 
 // Bank alert emails, read and proposed — never recorded on their own.
 //
@@ -24,7 +25,10 @@ async function api(token, method, body) {
   return json;
 }
 
-export default function GmailAlerts({ token, accounts = [], categories = [], expenses = [], rate = 1, onAddExpense }) {
+export default function GmailAlerts({
+  token, accounts = [], categories = [], expenses = [], outgoings = [], financeLog = [],
+  rate = 1, onAddExpense, onPayOutgoing,
+}) {
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -87,16 +91,54 @@ export default function GmailAlerts({ token, accounts = [], categories = [], exp
   // An alert already logged as an expense must not be offered again. The id
   // is stored on the expense, so this survives a reload and a re-sync — the
   // component's own state would not.
-  const alreadyLogged = useMemo(
-    () => new Set((expenses || []).map((e) => e.gmailMessageId).filter(Boolean)),
-    [expenses]
-  );
+  // Everything this mailbox has already been used to record.
+  //
+  // Expenses carry the message id on the row itself. A CARD payment books no
+  // expense at all — bank down, card debt down — so its only trace is the
+  // finance log entry, and without reading that too a re-sync would pay the
+  // same card bill again every time it ran.
+  const alreadyLogged = useMemo(() => {
+    const s = new Set((expenses || []).map((e) => e.gmailMessageId).filter(Boolean));
+    for (const l of financeLog || []) if (l?.meta?.gmailMessageId) s.add(l.meta.gmailMessageId);
+    return s;
+  }, [expenses, financeLog]);
 
+  // Where each alert belongs. Computed once per sync rather than per render
+  // so the table, the auto-log pass and the summary all read one verdict.
+  const verdicts = useMemo(() => {
+    const m = new Map();
+    for (const p of result?.pending || []) m.set(p.messageId, routeAlert(p, { outgoings, accounts, categories }));
+    return m;
+  }, [result, outgoings, accounts, categories]);
+
+  // File one alert wherever it belongs.
+  //
+  // Three destinations, not one. The old version sent everything to
+  // addExpense, which was right for a shop and wrong for the two cases that
+  // cost money: a card bill (already expensed when the purchases happened)
+  // and a subscription (already on the books with a due date).
   function logOne(p, seen) {
-    const cat = picked[p.messageId] ?? suggestCategory(p, categories) ?? "Other";
-    const record = toExpense(p, { accounts, category: cat, rate });
-    if (!record) return false;
-    onAddExpense?.(record);
+    const v = verdicts.get(p.messageId) || routeAlert(p, { outgoings, accounts, categories });
+    if (v.kind === "skip") return false;
+
+    if ((v.kind === "card-payment" || v.kind === "outgoing") && v.outgoing) {
+      if (!onPayOutgoing) return false;
+      onPayOutgoing(v.outgoing.id, {
+        date: p.date,
+        amount: Number(p.amount) || 0,
+        // Stepped from the RENEWAL date, not the payment date, so a bill paid
+        // late doesn't walk its due date forward a few days every month.
+        nextRenewal: advanceRenewal(v.outgoing, p.date),
+        rate,
+        gmailMessageId: p.messageId,
+      });
+    } else {
+      const cat = picked[p.messageId] ?? suggestCategory(p, categories) ?? "Other";
+      const record = toExpense(p, { accounts, category: cat, rate });
+      if (!record) return false;
+      onAddExpense?.(record);
+    }
+
     setLogged((s) => new Set(s).add(p.messageId));
     // `expenses` won't have caught up mid-loop, so a batch needs its own
     // guard or the same alert files twice within one pass.
@@ -106,13 +148,25 @@ export default function GmailAlerts({ token, accounts = [], categories = [], exp
 
   // Confident enough to file without asking: a debit, not already filed, and
   // the payee matched a category outright.
+  // Confident enough to file without asking.
+  //
+  // For a subscription or a card bill that is a matched recurring item with
+  // no review flag — the alert names it, the amount fits and it is due. For
+  // anything else it still means what it always meant: the payee matched a
+  // category outright. A verdict carrying needsReview is never auto-applied,
+  // which is what keeps an ambiguous CRED payment (three cards, narration
+  // names none of them) in front of Charles instead of guessing a card.
   const canAutoLog = useCallback(
-    (p, seen) => p.dir === "DR"
-      && !seen.has(p.messageId)
-      && !logged.has(p.messageId)
-      && !alreadyLogged.has(p.messageId)
-      && !!suggestCategory(p, categories),
-    [logged, alreadyLogged, categories]
+    (p, seen) => {
+      if (p.dir !== "DR") return false;
+      if (seen.has(p.messageId) || logged.has(p.messageId) || alreadyLogged.has(p.messageId)) return false;
+      const v = verdicts.get(p.messageId) || routeAlert(p, { outgoings, accounts, categories });
+      if (v.kind === "skip") return false;
+      if (v.needsReview) return false;
+      if (v.kind === "card-payment" || v.kind === "outgoing") return !!v.outgoing && !!onPayOutgoing;
+      return !!suggestCategory(p, categories);
+    },
+    [logged, alreadyLogged, categories, verdicts, outgoings, accounts, onPayOutgoing]
   );
 
   if (!status) return <Card className="p-6 text-sm text-stone-400">Checking Gmail…</Card>;
@@ -236,7 +290,7 @@ export default function GmailAlerts({ token, accounts = [], categories = [], exp
                       <th className="text-left font-semibold py-2 w-24">Date</th>
                       <th className="text-left font-semibold py-2">Who</th>
                       <th className="text-right font-semibold py-2 w-28 pr-5">Amount</th>
-                      <th className="text-left font-semibold py-2 w-64">Log as an expense</th>
+                      <th className="text-left font-semibold py-2 w-72">Where it goes</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -245,6 +299,8 @@ export default function GmailAlerts({ token, accounts = [], categories = [], exp
                       const guess = suggestCategory(p, categories);
                       const cat = picked[p.messageId] ?? guess ?? "";
                       const acct = matchAccount(p, accounts);
+                      const v = verdicts.get(p.messageId) || { kind: p.dir === "DR" ? "expense" : "skip" };
+                      const paysDown = v.outgoing && accounts.find((a) => a.id === v.outgoing.paysDownAccountId);
                       return (
                         <tr key={p.messageId} className="border-b border-stone-100 last:border-0">
                           <td className="py-2 tnum text-stone-500 align-top">{p.date}</td>
@@ -267,6 +323,47 @@ export default function GmailAlerts({ token, accounts = [], categories = [], exp
                               <span className="text-[11.5px] text-stone-400">money in — not an expense</span>
                             ) : done ? (
                               <span className="text-[12px] text-emerald-700 inline-flex items-center gap-1"><Check size={12} /> logged</span>
+                            ) : v.kind === "card-payment" && v.outgoing ? (
+                              // A card bill. Says plainly that no expense is
+                              // booked, because that reads like a mistake
+                              // until you know the purchases were already
+                              // counted when they happened.
+                              <div className="flex items-center gap-1.5">
+                                <div className="flex-1 min-w-0 text-[11.5px] leading-tight">
+                                  <span className="text-sky-800 font-medium">Pays down {paysDown?.name || "your card"}</span>
+                                  <div className="text-stone-400">transfer — no expense booked</div>
+                                </div>
+                                <button onClick={() => logOne(p)} className="text-[12px] border border-line rounded-lg px-2 py-1 inline-flex items-center gap-1 hover:border-stone-300 transition-colors shrink-0">
+                                  <Plus size={11} /> Apply
+                                </button>
+                              </div>
+                            ) : v.kind === "card-payment" ? (
+                              // Card wording, no card identified. Never filed
+                              // unattended: as an expense it double-counts.
+                              <div className="text-[11.5px] leading-tight">
+                                <span className="text-amber-800 font-medium inline-flex items-center gap-1">
+                                  <AlertTriangle size={12} className="shrink-0" /> Looks like a card bill
+                                </span>
+                                <div className="text-stone-500 mt-0.5">
+                                  {v.candidates?.length
+                                    ? "Which card? Mark it paid from My money — filing it here would count the spending twice."
+                                    : "No card bill is set up to pay a card down, so I can't apply it."}
+                                </div>
+                              </div>
+                            ) : v.kind === "outgoing" && v.outgoing ? (
+                              <div className="flex items-center gap-1.5">
+                                <div className="flex-1 min-w-0 text-[11.5px] leading-tight">
+                                  <span className="text-emerald-800 font-medium">Marks {v.outgoing.name} paid</span>
+                                  <div className="text-stone-400">
+                                    {v.outgoing.category ? `${v.outgoing.category} · ` : ""}
+                                    renews {advanceRenewal(v.outgoing, p.date)}
+                                    {v.needsReview ? " · check this one" : ""}
+                                  </div>
+                                </div>
+                                <button onClick={() => logOne(p)} className="text-[12px] border border-line rounded-lg px-2 py-1 inline-flex items-center gap-1 hover:border-stone-300 transition-colors shrink-0">
+                                  <Plus size={11} /> Apply
+                                </button>
+                              </div>
                             ) : (
                               <div className="flex items-center gap-1.5">
                                 <select

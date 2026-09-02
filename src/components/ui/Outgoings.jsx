@@ -288,6 +288,12 @@ function OutgoingForm({ outgoing, accounts, categories, onAddCategory, onSave, o
     paysDownAccountId: outgoing?.paysDownAccountId || "",
     // Optional last date for a finite bill — an EMI, a fixed-term plan.
     endsOn: outgoing?.endsOn || "",
+    // A bill paid in full but shared. Stored as YOUR fraction of it, so 0.5
+    // on the ₹6,100 electricity bill books ₹3,050 as your cost and raises
+    // ₹3,050 as owed back — while the whole ₹6,100 still leaves the account,
+    // because that is what the bank actually did.
+    splitWith: outgoing?.splitWith || "",
+    splitPercent: outgoing?.splitShare ? Math.round(Number(outgoing.splitShare) * 100) : "",
     website: outgoing?.website || "",
     logoUrl: outgoing?.logoUrl || "",
   });
@@ -368,7 +374,7 @@ function OutgoingForm({ outgoing, accounts, categories, onAddCategory, onSave, o
             because the purchases behind the balance were already expensed
             when they happened. Without it the same spending is counted
             twice: once as the purchase, again as the statement. */}
-        {form.kind === "card" && (
+        {(form.kind === "card" || form.paysDownAccountId) && (
           <div>
             <label className={label}>Pays down</label>
             <select className={input} value={form.paysDownAccountId} onChange={set("paysDownAccountId")}>
@@ -384,6 +390,33 @@ function OutgoingForm({ outgoing, accounts, categories, onAddCategory, onSave, o
               it recurs indefinitely, which is right for a subscription. */}
           <input className={input} type="date" value={form.endsOn} onChange={set("endsOn")} min={form.nextRenewal} />
         </div>
+
+        {/* Shared bills. Only meaningful when an expense is actually booked —
+            a card payment books none, so there is nothing to split. */}
+        {!form.paysDownAccountId && (
+          <>
+            <div>
+              <label className={label}>Shared with (optional)</label>
+              <input className={input} value={form.splitWith} onChange={set("splitWith")} placeholder="e.g. Francis" />
+            </div>
+            <div>
+              <label className={label}>Your share %</label>
+              <input
+                className={input} type="number" min="1" max="99"
+                value={form.splitPercent} onChange={set("splitPercent")}
+                placeholder="100"
+                disabled={!form.splitWith}
+              />
+            </div>
+            {form.splitWith && form.splitPercent && Number(form.splitPercent) < 100 && (
+              <div className="col-span-2 text-[11.5px] text-stone-500 -mt-1">
+                The full {form.currency === "USD" ? "$" : "₹"}{form.amount || "0"} leaves your account.
+                {" "}{Math.round((Number(form.amount) || 0) * Number(form.splitPercent) / 100).toLocaleString("en-IN")}
+                {" "}counts as your expense; the rest is recorded as owed back by {form.splitWith}.
+              </div>
+            )}
+          </>
+        )}
       </div>
       <div className="mt-3">
         <ImagePicker
@@ -398,7 +431,20 @@ function OutgoingForm({ outgoing, accounts, categories, onAddCategory, onSave, o
 
       <div className="flex gap-2 mt-3">
         <button
-          onClick={() => onSave({ ...form, amount: Number(form.amount) || 0, accountId: form.accountId || null })}
+          onClick={() => {
+            const { splitPercent, ...rest } = form;
+            const pct = Number(splitPercent);
+            onSave({
+              ...rest,
+              amount: Number(form.amount) || 0,
+              accountId: form.accountId || null,
+              // Stored as a fraction, and only when it is genuinely a split —
+              // a blank or 100% share must clear it, not persist a 1 that
+              // makes every future edit look like a shared bill.
+              splitShare: form.splitWith && pct > 0 && pct < 100 ? pct / 100 : null,
+              splitWith: form.splitWith && pct > 0 && pct < 100 ? form.splitWith : "",
+            });
+          }}
           disabled={!form.name.trim()}
           className={`text-xs font-medium bg-emerald-800 text-white rounded-lg px-3 py-1.5
             transition-transform duration-150 ${EASE} active:scale-[0.97] hover:bg-emerald-900 disabled:opacity-40`}

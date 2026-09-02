@@ -858,6 +858,8 @@ export default function FinanceDetail({
             accounts={data.accounts}
             outgoings={data.outgoings}
             loans={data.loans}
+            clients={data.clients}
+            rate={rate}
           />
 
           <div className="grid lg:grid-cols-2 gap-4 items-start">

@@ -62,6 +62,7 @@ export function financeAlerts(data, ledgerEntries, { now = new Date(), dueWithin
   // ---- can you cover what's coming ---------------------------------------
   const runway = projectRunway({
     accounts: data.accounts, outgoings: data.outgoings, loans: data.loans,
+    clients: data.clients, rate: Number(data.settings?.usdInr) || 0,
     days: 45, from: now,
   });
   if (runway.shortfall > 0) {

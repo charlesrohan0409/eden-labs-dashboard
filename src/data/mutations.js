@@ -820,7 +820,13 @@ export function payOutgoing(d, id, { date, nextRenewal, amount, rate, gmailMessa
       status: "outstanding",
       book: o.book === "business" ? "business" : "personal",
       notes: `Half of ${o.name} paid ${paidOn}. The full ${paid} left ${account ? account.name : "the account"}; only ${ownCost} is your cost.`,
-      accountId: "",
+      // The account their half comes BACK into when they pay.
+      //
+      // No debit happens from setting this — that only occurs inside addLoan,
+      // and this is pushed directly for exactly that reason. But settleLoan
+      // credits `accountId`, so leaving it blank meant marking Francis's half
+      // repaid flipped the status and moved no money at all.
+      accountId: o.accountId || "",
       fromOutgoingId: o.id,
     });
   }

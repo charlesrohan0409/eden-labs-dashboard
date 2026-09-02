@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Scale, AlertTriangle, Check, ArrowRight } from "lucide-react";
+import { Scale, AlertTriangle, Check, ArrowRight, Undo2, Loader2 } from "lucide-react";
 import Card, { CardTitle } from "../ui/Card";
 import { useLedger } from "../../hooks/useLedger";
 import { balances, asNormal, fromMinor } from "../../lib/ledger";
@@ -16,8 +16,10 @@ import { reconcile } from "../../lib/financeToLedger";
 const inr = (n) => (n < 0 ? "−" : "") + "₹" + Math.round(Math.abs(n)).toLocaleString("en-IN");
 
 export default function LedgerReconcile({ token, accounts, loans, rate = 93.33, onUpdateAccount }) {
-  const { entries, loading } = useLedger(token);
+  const { entries, save, loading } = useLedger(token);
   const [applied, setApplied] = useState(() => new Set());
+  const [retiring, setRetiring] = useState("");
+  const [retireNote, setRetireNote] = useState("");
 
   const ledgerBalances = useMemo(() => {
     const m = new Map();
@@ -39,14 +41,77 @@ export default function LedgerReconcile({ token, accounts, loans, rate = 93.33, 
     return (loans || []).filter((l) => l.status !== "settled" && !origins.has(`loan:${l.id}`));
   }, [loans, entries]);
 
+  // PLACEHOLDER SPENDING THAT HAS SERVED ITS PURPOSE.
+  //
+  // When the ledger's balance lagged reality, the gap was booked as one lump
+  // of "spending not yet itemised" so the balance would be right. The moment
+  // the real transactions arrive from a statement or an alert, that lump is
+  // counting the same money a second time — and nothing would ever have
+  // noticed, because the balance it was created to fix is still correct
+  // either way. This finds them and offers to remove them.
+  const adjustments = useMemo(
+    () => (entries || []).filter((t) => /^true-/.test(t.ref?.origin || "")),
+    [entries]
+  );
+
+  const retire = async (tx) => {
+    setRetiring(tx.ref.origin); setRetireNote("");
+    try {
+      await save((entries || []).filter((t) => t.ref?.origin !== tx.ref.origin));
+    } catch (e) {
+      setRetireNote(e.message || "That didn't save — the adjustment is still there.");
+    } finally {
+      setRetiring("");
+    }
+  };
+
   if (loading) return <Card className="p-6 text-sm text-stone-400">Comparing against the ledger…</Card>;
 
   const off = rows.filter((r) => r.diff !== null && Math.abs(r.diff) >= 1);
   const missing = rows.filter((r) => r.diff === null);
   const totalDrift = off.reduce((s, r) => s + r.diff, 0);
 
+  const amountOf = (t) => Math.abs((t.legs || []).reduce((m, l) => (l.account.startsWith("expense:") ? l.base : m), 0)) / 100;
+
   return (
     <div className="space-y-3">
+      {adjustments.length > 0 && (
+        <Card className="p-5">
+          <CardTitle sub="Each one stood in for spending the ledger hadn't seen yet, so a balance would read correctly. Once the real transactions arrive, it counts that money twice — remove it then, not before.">
+            <span className="inline-flex items-center gap-2">
+              <AlertTriangle size={15} className="text-amber-600" />
+              {adjustments.length} placeholder adjustment{adjustments.length === 1 ? "" : "s"}
+            </span>
+          </CardTitle>
+          {retireNote && <div className="text-[13px] text-rose-700 bg-rose-50 border border-rose-100 rounded-xl px-3.5 py-2.5 mb-2">{retireNote}</div>}
+          <div className="space-y-1 mt-1">
+            {adjustments.map((t) => (
+              <div key={t.ref.origin} className="flex items-start gap-2.5 py-2.5 border-b border-stone-100 last:border-0">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13.5px]">
+                    <span className="tnum text-stone-500 mr-2">{t.date}</span>
+                    <span className="tnum font-semibold">{inr(amountOf(t))}</span>
+                  </div>
+                  <div className="text-[11.5px] text-stone-500 mt-0.5">{t.memo}</div>
+                </div>
+                <button
+                  onClick={() => retire(t)}
+                  disabled={!!retiring}
+                  className="text-[12px] border border-line rounded-lg px-2.5 py-1 inline-flex items-center gap-1 hover:border-stone-300 disabled:opacity-40 transition-colors shrink-0"
+                >
+                  {retiring === t.ref.origin ? <Loader2 size={11} className="animate-spin" /> : <Undo2 size={11} />}
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+          <p className="text-[11.5px] text-stone-400 mt-3">
+            Removing one lowers your recorded spending and raises the balance it was propping up — which is correct only once the real
+            transactions are in. Check the account matches your bank first.
+          </p>
+        </Card>
+      )}
+
       <Card className="p-5">
         <CardTitle sub="Your dashboard keeps a running balance; the ledger derives one from statements that had to reconcile against the bank. Where they differ, the ledger is right.">
           <span className="inline-flex items-center gap-2"><Scale size={15} /> Dashboard vs your statements</span>

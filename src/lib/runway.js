@@ -64,7 +64,7 @@ export const spendableAccounts = (accounts = []) => (accounts || []).filter(
  * Returns the events in order, the running balance after each, and the
  * lowest point reached — which is the number that matters.
  */
-export function projectRunway({ accounts = [], outgoings = [], loans = [], days = 30, from = new Date() } = {}) {
+export function projectRunway({ accounts = [], outgoings = [], loans = [], clients = [], rate = 0, days = 30, from = new Date() } = {}) {
   const start = new Date(iso(from));
   const end = new Date(start);
   end.setDate(end.getDate() + days);
@@ -103,6 +103,38 @@ export function projectRunway({ accounts = [], outgoings = [], loans = [], days 
       // strength of money that hasn't arrived.
       note: "expected, not guaranteed",
     });
+  }
+
+  // Retainers. Every bill Charles pays was modelled and nothing modelled the
+  // money coming in, so the forecast could only ever look worse than reality.
+  //
+  // Retainers ONLY — a one-off fee has no next date and a commission depends
+  // on a deal closing, so treating either as scheduled income would be
+  // inventing money. Contracts bill on the 1st, which is what they say.
+  for (const c of clients) {
+    if (c.status !== "active") continue;
+    const k = c.contract || {};
+    if ((k.billingType || "retainer") !== "retainer") continue;
+    const usd = Number(k.value) || 0;
+    if (!usd || !rate) continue;
+    const amount = usd * rate;                 // contracts are written in USD
+    const d = new Date(start.getFullYear(), start.getMonth(), 1);
+    let guard = 0;
+    while (d <= end && guard++ < 24) {
+      if (d >= start) {
+        events.push({
+          date: iso(d),
+          label: `${c.name || "Client"} retainer`,
+          amount,
+          kind: "incoming",
+          // Same caution as a loan repayment: an invoice due is not an
+          // invoice paid, and a runway that leans on unpaid ones is a runway
+          // that says you're fine while the account empties.
+          note: "expected, not guaranteed",
+        });
+      }
+      d.setMonth(d.getMonth() + 1);
+    }
   }
 
   events.sort((a, b) => (a.date === b.date ? a.amount - b.amount : a.date < b.date ? -1 : 1));

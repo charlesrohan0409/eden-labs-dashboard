@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Mail, RefreshCw, Check, AlertTriangle, Unplug, ArrowDownLeft, ArrowUpRight, Plus } from "lucide-react";
 import Card, { CardTitle } from "../ui/Card";
 import { suggestCategory, matchAccount, toExpense } from "../../lib/alertToExpense";
@@ -55,6 +55,24 @@ export default function GmailAlerts({
   }, [token]);
 
   useEffect(() => { load(); }, [load]);
+
+  // PULL WITHOUT BEING ASKED.
+  //
+  // The sync was a button, so today's spending only reached the dashboard on
+  // days Charles remembered to press it — which defeats the point of reading
+  // alerts at all, since the whole value is freshness. Once connected, this
+  // runs the pull on its own the first time the tab is opened in a session.
+  //
+  // Once per session, not per render: `syncedOnce` is a ref so a re-render
+  // can't re-fire it, and it deliberately does NOT retry after a failure —
+  // a broken token would otherwise hammer Gmail every time the tab mounted.
+  const syncedOnce = useRef(false);
+  useEffect(() => {
+    if (!status?.connected || syncedOnce.current || busy) return;
+    syncedOnce.current = true;
+    sync();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status?.connected]);
 
   async function connect() {
     setError(""); setBusy(true);

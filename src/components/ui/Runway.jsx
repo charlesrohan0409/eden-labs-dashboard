@@ -23,11 +23,11 @@ const dayLabel = (iso) => {
 
 const KIND_ICON = { "card-bill": CreditCard, incoming: ArrowUpRight, bill: ArrowDownRight };
 
-export default function Runway({ accounts = [], outgoings = [], loans = [], defaultDays = 30 }) {
+export default function Runway({ accounts = [], outgoings = [], loans = [], clients = [], rate = 0, defaultDays = 30 }) {
   const [days, setDays] = useState(defaultDays);
   const r = useMemo(
-    () => projectRunway({ accounts, outgoings, loans, days }),
-    [accounts, outgoings, loans, days]
+    () => projectRunway({ accounts, outgoings, loans, clients, rate, days }),
+    [accounts, outgoings, loans, clients, rate, days]
   );
   const funding = spendableAccounts(accounts);
 

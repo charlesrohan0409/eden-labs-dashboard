@@ -16,6 +16,7 @@ import PillTabs from "../ui/PillTabs";
 import GmailAlerts from "./GmailAlerts";
 import LedgerReconcile from "./LedgerReconcile";
 import Categorise from "./Categorise";
+import SmsImport from "./SmsImport";
 import PrimaryButton from "../ui/PrimaryButton";
 import InvoiceModal from "../ui/InvoiceModal";
 import PrivacyToggle from "../ui/PrivacyToggle";
@@ -269,6 +270,7 @@ export default function FinanceDetail({
             { value: "money", label: "My money" },
             { value: "unit-economics", label: "Unit economics" },
             { value: "alerts", label: "Bank alerts" },
+            { value: "sms", label: "SMS" },
             { value: "categorise", label: "Categorise" },
             { value: "reconcile", label: "Reconcile" },
           ]}
@@ -906,7 +908,20 @@ export default function FinanceDetail({
       )}
 
       {/* ══ Unit economics ══ */}
-      {activeTab === "categorise" && (
+      {activeTab === "sms" && (
+            <SmsImport
+              accounts={data.accounts}
+              categories={data.expenseCategories}
+              expenses={data.expenses}
+              outgoings={data.outgoings}
+              financeLog={data.financeLog}
+              rate={rate}
+              onAddExpense={onAddExpense}
+              onPayOutgoing={onPayOutgoing}
+            />
+          )}
+
+          {activeTab === "categorise" && (
         <Categorise categories={data.expenseCategories} token={token} />
       )}
 

@@ -194,6 +194,16 @@ const PAYEE = [
   /\b(?:at|to)\s+([A-Z0-9][A-Za-z0-9 &.'*_-]{2,40}?)\s+on\s+\d/i,
   /\bfrom\s+([A-Za-z0-9][A-Za-z0-9 &.'*_-]{2,40}?)\s+on\s+\d/i,
   /\binfo[:\s]+([A-Za-z0-9][A-Za-z0-9 &.'*_-]{2,40})/i,
+  // LABELLED FIELDS.
+  //
+  // HDFC's credit-card alert doesn't write "at SHOP on <date>" — it lays the
+  // transaction out as labelled lines, and no pattern above touches those. So
+  // the payee came back null, toExpense fell back to the SUBJECT, and ₹1,711
+  // of spending was filed under a vendor literally called "A payment was made
+  // using your Credit Card".
+  /\bmerchant(?:\s*name)?\s*[:\-]\s*([A-Za-z0-9][A-Za-z0-9 &.'*_-]{2,40})/i,
+  /\b(?:spent|paid)\s+at\s*[:\-]?\s*([A-Za-z0-9][A-Za-z0-9 &.'*_-]{2,40})/i,
+  /\bpayee\s*[:\-]\s*([A-Za-z0-9][A-Za-z0-9 &.'*_-]{2,40})/i,
 ];
 
 const ACCOUNT_TAIL = /(?:a\/?c|account|card)\s*(?:no\.?|ending|xx+|\*+)?\s*[xX*]*(\d{4})\b/i;

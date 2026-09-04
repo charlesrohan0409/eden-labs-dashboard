@@ -182,6 +182,14 @@ export default function GmailAlerts({
       if (v.kind === "skip") return false;
       if (v.needsReview) return false;
       if (v.kind === "card-payment" || v.kind === "outgoing") return !!v.outgoing && !!onPayOutgoing;
+      // NO NAME, NO AUTO-FILE.
+      //
+      // When the parser can't find a merchant, toExpense falls back to the
+      // email subject — so a row auto-files as a vendor called "A payment was
+      // made using your Credit Card", under a category guessed from that same
+      // boilerplate. ₹1,711 of spending landed in Food that way. An unnamed
+      // payment is exactly the one a human should look at.
+      if (!p.payee) return false;
       return !!suggestCategory(p, categories);
     },
     [logged, alreadyLogged, categories, verdicts, outgoings, accounts, onPayOutgoing]

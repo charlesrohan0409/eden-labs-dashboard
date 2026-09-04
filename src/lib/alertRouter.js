@@ -40,10 +40,35 @@ const ALIASES = {
   "canva": ["canva"],
   "linkedin sales navigator": ["linkedin", "sales navigator", "salesnav"],
   "electricity": ["best ", "bestundertaking", "b.e.s.t", "electricity", "adani electricity", "tata power"],
-  "amazon pay": ["amazon", "amazonpay", "amazon pay later"],
-  "yes bank credit card bill": ["yes bank", "yesbank", "ybl card"],
-  "hdfc credit card bill": ["hdfc", "billpay", "hdfc9d"],
+  "amazon pay": ["amazonpay", "amazon pay later"],
+  "yes bank credit card bill": ["ybl card"],
+  "hdfc credit card bill": ["billpay", "hdfc9d"],
 };
+
+// THE BANK'S OWN NAME IS NOT EVIDENCE OF ANYTHING.
+//
+// Every alert HDFC sends contains the words "HDFC Bank" — it is the sender,
+// not the payee. With "hdfc" as a search term on the HDFC card bill, a ₹248
+// Swiggy order matched the card bill on the strength of the bank naming
+// itself, scored 5 on name + account, and was offered as "pays down HDFC
+// Credit — no expense booked". Every HDFC alert did. Booking spending as a
+// card transfer loses the expense entirely and credits the card for money
+// that never went near it.
+//
+// This did not show up in testing because those tests ran on statement
+// narrations, which say "UPI-AYYAPPAN IDLI-PAYTMQR..." and never name the
+// bank. Real emails do, on every single line.
+//
+// So issuer names are stripped from the search terms. What identifies a card
+// bill is the PAYMENT wording — BILLPAY, BPPY, CRED — plus the account, and
+// those are matched separately.
+const ISSUER_WORDS = new Set([
+  "hdfc", "hdfcbank", "hdfc bank",
+  "kotak", "kotakbank", "kotak bank", "kotak811",
+  "yes bank", "yesbank", "ybl",
+  "icici", "axis", "axisbank", "sbi", "amazon",
+  "bank", "credit", "card", "creditcard", "credit card", "bill",
+]);
 
 // How a payment TO a card looks in Charles's own statements and alerts. These
 // are taken from lines that actually appear in his HDFC and Kotak history —
@@ -84,7 +109,11 @@ function termsFor(o) {
   if (n.length >= 4) set.add(n);
   const host = hostRoot(o.website);
   if (host.length >= 4) set.add(host);
-  return [...set].filter(Boolean);
+  // An issuer name matches every alert that bank sends, so it can only
+  // produce false positives — see ISSUER_WORDS. The full outgoing name is
+  // kept even when it contains one ("hdfc credit card bill" is specific);
+  // it's the bare words that have to go.
+  return [...set].filter((t) => t && !ISSUER_WORDS.has(t));
 }
 
 const daysBetween = (a, b) => {

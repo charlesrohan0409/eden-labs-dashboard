@@ -34,6 +34,15 @@ const STATE = path.join(HOME, ".edenlabs-sms-sync.json");
 // never found and the script reported a missing token that was right there.
 const ENV = path.join(path.dirname(fileURLToPath(import.meta.url)), "../.env.local");
 const DRY = process.argv.includes("--dry");
+// How far back a FIRST run looks.
+//
+// With no watermark the query takes everything, and Charles has 2,396 bank
+// messages going back years — almost all of it already in the ledger from
+// bank statements. Pushing the lot would bury the genuinely new dozen under
+// a thousand duplicates. Recent history is the useful part; --all or
+// --days=N is there for when it isn't.
+const ALL = process.argv.includes("--all");
+const DAYS = Number((process.argv.find((a) => a.startsWith("--days=")) || "").split("=")[1]) || 30;
 
 // --- config ---------------------------------------------------------------
 const env = {};
@@ -75,6 +84,7 @@ function buildQuery(sinceRowId) {
       FROM message m
       LEFT JOIN handle h ON m.handle_id = h.ROWID
      WHERE m.ROWID > ${Number(sinceRowId) || 0}
+       ${sinceRowId || ALL ? "" : `AND m.date/1000000000 + 978307200 > strftime('%s','now','-${Math.max(1, Math.round(DAYS))} days')`}
        AND m.is_from_me = 0
        AND m.text IS NOT NULL
        AND (${senders})
@@ -189,9 +199,14 @@ if (!rows.length) {
   console.log(`Nothing new (last seen message #${state.lastRowId || 0}).`);
   process.exit(0);
 }
-console.log(`${rows.length} new bank message${rows.length === 1 ? "" : "s"} since #${state.lastRowId || 0}`);
+const window = state.lastRowId ? `since #${state.lastRowId}` : ALL ? "(entire history)" : `(last ${DAYS} days)`;
+console.log(`${rows.length} bank message${rows.length === 1 ? "" : "s"} ${window}`);
+if (!state.lastRowId && !ALL) {
+  console.log("First run, so only recent messages — older ones are already in the ledger from your statements.");
+  console.log("Use --all, or --days=90, to reach further back.");
+}
 
-let sent = 0, dup = 0, unread = 0, failed = 0;
+let sent = 0, dup = 0, unread = 0, failed = 0, consecutive = 0;
 for (const r of rows) {
   if (DRY) {
     console.log(`  [dry] ${r.date}  ${r.sender.padEnd(12)} ${r.text.slice(0, 78).replace(/\s+/g, " ")}`);
@@ -204,7 +219,25 @@ for (const r of rows) {
       body: JSON.stringify({ text: r.text, date: r.date, from: r.sender }),
     });
     const j = await res.json().catch(() => ({}));
-    if (!res.ok) { failed++; console.error(`  failed ${res.status}: ${j.error || ""}`); continue; }
+    if (res.status === 401 || res.status === 403) {
+      // Configuration, not a bad message. Retrying it 2,395 more times cannot
+      // help and only fills the screen.
+      console.error(`\n  ${j.error || "Not authorised."}`);
+      console.error("  Nothing was sent. Set SMS_INGEST_TOKEN in Vercel, redeploy, and run again.");
+      console.error("  (Vercel bakes env vars in at build time — adding one does nothing until you redeploy.)");
+      process.exit(1);
+    }
+    if (!res.ok) {
+      failed++;
+      console.error(`  failed ${res.status}: ${j.error || ""}`);
+      // A run of failures means something systemic; stop rather than grind on.
+      if (++consecutive >= 5) {
+        console.error("  Five failures in a row — stopping. Nothing after this point was attempted.");
+        break;
+      }
+      continue;
+    }
+    consecutive = 0;
     if (j.duplicate) dup++;
     else if (j.read) { sent++; console.log(`  ${r.date}  ₹${j.amount}  ${j.payee || "(no payee)"}`); }
     else { unread++; console.log(`  ${r.date}  queued but unreadable — ${j.reason}`); }

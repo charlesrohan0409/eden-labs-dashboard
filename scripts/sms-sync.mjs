@@ -211,7 +211,23 @@ function readMessages(sinceRowId) {
       `  This is running inside ${who}, and Full Disk Access is granted per app —`,
       "  so granting it to a different terminal has no effect.",
       "",
-      ...(isAssistant ? [
+      // No parent .app at all means launchd, which has no app to inherit a
+      // grant from — a case with genuinely different instructions.
+      ...(!app ? [
+        "  Nothing is hosting this, so it is almost certainly the scheduled job.",
+        "  launchd has no application to inherit Full Disk Access from, so the",
+        "  BINARY needs the grant:",
+        "",
+        `    ${process.execPath}`,
+        "",
+        "    System Settings → Privacy & Security → Full Disk Access → +",
+        "    then ⌘⇧G in the file picker and paste that path.",
+        "",
+        "  If that path is /usr/local/bin/node, granting it gives Messages access",
+        "  to every node script on this Mac. Point the job at a dedicated copy",
+        "  instead and grant only that:",
+        "    mkdir -p ~/.edenlabs/bin && cp \"$(which node)\" ~/.edenlabs/bin/edenlabs-node",
+      ] : isAssistant ? [
         "  DO THIS: open Terminal.app and run the command there.",
         "",
         "    System Settings → Privacy & Security → Full Disk Access",

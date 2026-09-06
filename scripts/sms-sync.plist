@@ -12,9 +12,19 @@
   <key>RunAtLoad</key>
   <true/>
 
+  <!-- A DEDICATED COPY OF NODE, not /usr/local/bin/node.
+
+       launchd runs this with no parent application, so Terminal's Full Disk
+       Access does not apply and the job needs its own grant. Granting it to
+       /usr/local/bin/node would give Messages access to every node script on
+       the machine; granting it to a copy used only by this job does not.
+
+       Create it with:
+         mkdir -p ~/.edenlabs/bin && cp "$(which node)" ~/.edenlabs/bin/edenlabs-node
+       then add that file to Full Disk Access (⌘⇧G in the file picker). -->
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/local/bin/node</string>
+    <string>/Users/charlesrohan/.edenlabs/bin/edenlabs-node</string>
     <string>/Users/charlesrohan/Projects/EdenLabs Dashboard/eden-labs/scripts/sms-sync.mjs</string>
   </array>
 

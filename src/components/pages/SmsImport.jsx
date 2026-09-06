@@ -4,6 +4,7 @@ import Card, { CardTitle } from "../ui/Card";
 import { parseSmsBatch } from "../../lib/smsParse";
 import { routeAlert, advanceRenewal } from "../../lib/alertRouter";
 import { suggestCategory, matchAccount, toExpense } from "../../lib/alertToExpense";
+import { recallCategory } from "../../lib/categoryMemory";
 
 // Bank SMS, pasted in.
 //
@@ -24,7 +25,7 @@ const inr = (n) => "₹" + Math.round(Math.abs(n)).toLocaleString("en-IN");
 
 export default function SmsImport({
   accounts = [], categories = [], expenses = [], outgoings = [], financeLog = [],
-  rate = 1, token, onAddExpense, onPayOutgoing,
+  rate = 1, token, data, onAddExpense, onPayOutgoing,
 }) {
   const [text, setText] = useState("");
   const [result, setResult] = useState(null);
@@ -222,7 +223,10 @@ export default function SmsImport({
                       const v = verdicts.get(a.messageId) || { kind: "expense" };
                       const done = logged.has(a.messageId) || already.has(a.messageId);
                       const acct = matchAccount(a, accounts);
-                      const guess = suggestCategory(a, categories);
+                      // His own past choice first — it beats any keyword
+                      // guess, and it is his decision rather than mine.
+                      const memory = recallCategory(data, a.payee, categories);
+                      const guess = memory?.category || suggestCategory(a, categories);
                       const cat = picked[a.messageId] ?? "";
                       return (
                         <tr key={a.messageId} className="border-b border-stone-100 last:border-0">
@@ -280,6 +284,20 @@ export default function SmsImport({
                                   <Plus size={11} />
                                 </button>
                               </div>
+                            )}
+                            {a.dir === "DR" && !done && v.kind === "expense" && guess && !picked[a.messageId] && (
+                              <button
+                                onClick={() => setPicked((s) => ({ ...s, [a.messageId]: guess }))}
+                                className={`mt-1 text-[11px] rounded-md px-1.5 py-0.5 border transition-colors ${
+                                  memory
+                                    ? "text-sky-900 bg-sky-50 border-sky-100 hover:bg-sky-100"
+                                    : "text-emerald-800 bg-emerald-50 border-emerald-100 hover:bg-emerald-100"
+                                }`}
+                              >
+                                {memory
+                                  ? `${guess} — what you chose${memory.count > 1 ? ` ${memory.count} times` : " last time"}`
+                                  : `Looks like ${guess} — use it?`}
+                              </button>
                             )}
                           </td>
                         </tr>

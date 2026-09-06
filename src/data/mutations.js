@@ -12,6 +12,7 @@
 import { today, uid, commissionInstallment } from "../lib/utils.js";
 import { periodStartFor } from "../lib/recurrence.js";
 import { convertBetween } from "../lib/currency.js";
+import { rememberCategory } from "../lib/categoryMemory.js";
 
 const ensureActivityLog = (d) => {
   if (!Array.isArray(d.activityLog)) d.activityLog = [];
@@ -438,6 +439,10 @@ export function addExpense(d, e, rate) {
   const convert = (amt, from, to) => convertBetween(amt, from, to, rate);
   const expense = { id: uid(), ...e };
   d.expenses.push(expense);
+  // Learn the choice he just made. Nothing is ever filed FROM this — it only
+  // becomes a chip he can press next time the same shop appears, which is the
+  // difference between playing back his decision and guessing at one.
+  if (expense.vendor && expense.category) rememberCategory(d, expense.vendor, expense.category);
   const account = (d.accounts || []).find((a) => a.id === expense.accountId);
   if (account) {
     const native = Number(expense.nativeAmount ?? expense.amount) || 0;
@@ -524,6 +529,83 @@ export function updateExpense(d, id, patch, rate) {
   }
   return d;
 }
+/**
+ * "Someone owes me half of this."
+ *
+ * Charles pays a lot of shared bills — a hotel bill Alphonse settles half of
+ * later, a light bill split with Francis, an AC repair split three ways. Only
+ * the electricity split was modelled, and only because it was hard-coded.
+ *
+ * THE FULL AMOUNT STILL LEFT THE ACCOUNT, so the expense row and the balance
+ * it already moved are left completely alone. What changes is how much of it
+ * is HIS COST: `splitShare` is applied when the expense reaches the ledger, and
+ * the remainder is raised as money owed back. Half a ₹920 dinner is a ₹460
+ * expense and a ₹460 receivable against ₹920 of cash gone.
+ *
+ * Keeping the row intact is what lets deleting or editing it still restore
+ * the right amount to the account — a split that rewrote the stored figures
+ * would leave every undo path quietly wrong.
+ */
+export function splitExpense(d, id, { share = 0.5, person = "", dueDate = "" } = {}) {
+  const e = (d.expenses || []).find((x) => x.id === id);
+  if (!e || e.splitLoanId) return d;                 // already split
+  const pct = Number(share);
+  if (!(pct > 0 && pct < 1)) return d;
+
+  const full = Number(e.nativeAmount ?? e.amount) || 0;
+  if (!full) return d;
+  const round2 = (n) => Math.round(n * 100) / 100;
+  const mine = round2(full * pct);
+  const owed = round2(full - mine);
+  if (!owed) return d;
+
+  if (!Array.isArray(d.loans)) d.loans = [];
+  const loanId = uid();
+  d.loans.push({
+    id: loanId,
+    person: person || "Someone",
+    reason: `${e.vendor || e.category || "Shared expense"} — their share`,
+    amount: owed,
+    currency: e.currency || "INR",
+    date: e.date || today(),
+    dueDate: dueDate || "",
+    status: "outstanding",
+    book: e.book === "business" ? "business" : "personal",
+    notes: `You paid ${full}; ${mine} is yours.`,
+    // Where their half comes back to. Setting this moves no money now — that
+    // only happens inside addLoan, and this is pushed directly — but
+    // settleLoan credits accountId, so without it marking them repaid would
+    // flip the status and move nothing.
+    accountId: e.accountId || e.settledFromAccountId || "",
+    fromExpenseId: e.id,
+  });
+
+  e.splitShare = pct;
+  e.splitWith = person || "Someone";
+  e.splitLoanId = loanId;
+
+  return logFinance(d, {
+    type: "expense_split",
+    title: e.vendor || e.category,
+    description: `${e.vendor || "Expense"} split — ${owed} owed back by ${person || "someone"}`,
+    amount: owed, currency: e.currency || "INR",
+    meta: { expenseId: e.id, loanId, share: pct },
+  });
+}
+
+/** Undoes a split: removes the receivable and restores the expense in full. */
+export function unsplitExpense(d, id) {
+  const e = (d.expenses || []).find((x) => x.id === id);
+  if (!e?.splitLoanId) return d;
+  d.loans = (d.loans || []).filter((l) => l.id !== e.splitLoanId);
+  delete e.splitShare; delete e.splitWith; delete e.splitLoanId;
+  return logFinance(d, {
+    type: "expense_split_undone", title: e.vendor || e.category,
+    description: `${e.vendor || "Expense"} is yours in full again`,
+    amount: 0, currency: e.currency || "INR", meta: { expenseId: e.id },
+  });
+}
+
 export function deleteExpense(d, id) {
   const expense = d.expenses.find((x) => x.id === id);
   // Reverse the balance effect using the amount actually applied, for the

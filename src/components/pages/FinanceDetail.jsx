@@ -6,7 +6,7 @@ import {
 import {
   ArrowLeft, Plus, DollarSign, AlertCircle, Clock, Search,
   ArrowUpRight, ArrowDownRight, FileDown, Wallet, Receipt, Repeat, Mail, Loader2,
-  Pencil, Trash2, X,
+  Pencil, Trash2, X, Users,
 } from "lucide-react";
 import { sendEmail } from "../../lib/email";
 import Card, { CardTitle } from "../ui/Card";
@@ -64,7 +64,8 @@ export default function FinanceDetail({
   onAddAccount, onUpdateAccount, onDeleteAccount,
   onAddOutgoing, onUpdateOutgoing, onDeleteOutgoing, onCancelOutgoing, onPayOutgoing,
   onAddBudget, onUpdateBudget, onDeleteBudget, onAddExpenseCategory,
-  onAddLoan, onUpdateLoan, onDeleteLoan, onSettleLoan, onUndoPayOutgoing, token,
+  onAddLoan, onUpdateLoan, onDeleteLoan, onSettleLoan, onUndoPayOutgoing,
+  onSplitExpense, onUnsplitExpense, token,
 }) {
   const [activeTab, setActiveTab] = useState("overview");
   // Which book the "My money" tab is showing. Defaults to everything —
@@ -718,6 +719,32 @@ export default function FinanceDetail({
                         <button onClick={() => startEditExpense(e)} aria-label="Edit expense" className="text-stone-300 hover:text-stone-600 p-1">
                           <Pencil size={13} />
                         </button>
+                        {/* Shared bills are common enough here — a hotel bill
+                            Alphonse settles half of, a light bill split with
+                            Francis — that doing it by hand meant it mostly
+                            wasn't done at all. The money already left; this
+                            only says how much of it was actually his. */}
+                        {e.splitLoanId ? (
+                          <button
+                            onClick={() => onUnsplitExpense?.(e.id)}
+                            title={`${e.splitWith} owes you half — click to make it yours in full again`}
+                            className="text-[11px] text-sky-800 bg-sky-50 border border-sky-100 rounded-md px-1.5 py-0.5 hover:bg-sky-100 transition-colors shrink-0"
+                          >
+                            ½ {e.splitWith}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              const who = window.prompt("Who owes you half of this?", e.splitWith || "");
+                              if (who && who.trim()) onSplitExpense?.(e.id, { share: 0.5, person: who.trim() });
+                            }}
+                            title="Someone owes me half"
+                            className="text-stone-300 hover:text-sky-600 p-1 shrink-0"
+                            aria-label="Split this expense"
+                          >
+                            <Users size={13} />
+                          </button>
+                        )}
                         <button onClick={() => onDeleteExpense(e.id)} aria-label="Delete expense" className="text-stone-300 hover:text-rose-500 p-1">
                           <Trash2 size={13} />
                         </button>
@@ -917,6 +944,7 @@ export default function FinanceDetail({
               expenses={data.expenses}
               outgoings={data.outgoings}
               financeLog={data.financeLog}
+              data={data}
               rate={rate}
               token={token}
               onAddExpense={onAddExpense}
@@ -945,6 +973,7 @@ export default function FinanceDetail({
             expenses={data.expenses}
             outgoings={data.outgoings}
             financeLog={data.financeLog}
+            data={data}
             rate={rate}
             onAddExpense={onAddExpense}
             onPayOutgoing={onPayOutgoing}

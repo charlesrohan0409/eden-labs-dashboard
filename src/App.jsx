@@ -256,6 +256,8 @@ export default function App() {
             data={data}
             setView={setView}
             onAddExpense={actions.addExpense}
+            onSplitExpense={actions.splitExpense}
+            onUnsplitExpense={actions.unsplitExpense}
             onUpdateExpense={actions.updateExpense}
             onDeleteExpense={actions.deleteExpense}
             onAddInvoice={actions.addInvoice}

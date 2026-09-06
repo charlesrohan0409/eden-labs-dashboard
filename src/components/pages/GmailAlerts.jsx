@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Mail, RefreshCw, Check, AlertTriangle, Unplug, ArrowDownLeft, ArrowUpRight, Plus } from "lucide-react";
 import Card, { CardTitle } from "../ui/Card";
 import { suggestCategory, matchAccount, toExpense } from "../../lib/alertToExpense";
+import { recallCategory } from "../../lib/categoryMemory";
 import { routeAlert, advanceRenewal } from "../../lib/alertRouter";
 
 // Bank alert emails, read and proposed — never recorded on their own.
@@ -27,7 +28,7 @@ async function api(token, method, body) {
 
 export default function GmailAlerts({
   token, accounts = [], categories = [], expenses = [], outgoings = [], financeLog = [],
-  rate = 1, onAddExpense, onPayOutgoing,
+  rate = 1, data, onAddExpense, onPayOutgoing,
 }) {
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -274,7 +275,10 @@ export default function GmailAlerts({
                   <tbody>
                     {result.pending.map((p) => {
                       const done = logged.has(p.messageId) || alreadyLogged.has(p.messageId);
-                      const guess = suggestCategory(p, categories);
+                      // His own past choice first — it beats any keyword
+                      // guess, and it is his decision rather than mine.
+                      const memory = recallCategory(data, p.payee, categories);
+                      const guess = memory?.category || suggestCategory(p, categories);
                       // The suggestion is NOT pre-selected. A pre-filled
                       // dropdown is a decision already made, and pressing Log
                       // next to one is how a guess becomes a filed category
@@ -373,9 +377,15 @@ export default function GmailAlerts({
                                 {guess && !picked[p.messageId] && (
                                   <button
                                     onClick={() => setPicked((s) => ({ ...s, [p.messageId]: guess }))}
-                                    className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-md px-1.5 py-0.5 hover:bg-emerald-100 transition-colors"
+                                    className={`text-[11px] rounded-md px-1.5 py-0.5 border transition-colors ${
+                                      memory
+                                        ? "text-sky-900 bg-sky-50 border-sky-100 hover:bg-sky-100"
+                                        : "text-emerald-800 bg-emerald-50 border-emerald-100 hover:bg-emerald-100"
+                                    }`}
                                   >
-                                    Looks like {guess} — use it?
+                                    {memory
+                                      ? `${guess} — what you chose${memory.count > 1 ? ` ${memory.count} times` : " last time"}`
+                                      : `Looks like ${guess} — use it?`}
                                   </button>
                                 )}
                               </div>

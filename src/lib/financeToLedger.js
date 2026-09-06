@@ -163,8 +163,17 @@ export function expenseEntry(expense, accounts) {
   // `settledAmount` is what the mutation already converted into the account's
   // own currency. Recomputing it here is how the two halves end up disagreeing
   // by an exchange rate.
-  const amount = Number(expense.settledAmount ?? expense.nativeAmount ?? expense.amount) || 0;
-  if (!amount) return null;
+  const settled = Number(expense.settledAmount ?? expense.nativeAmount ?? expense.amount) || 0;
+  if (!settled) return null;
+  // A SHARED EXPENSE IS ONLY PARTLY HIS.
+  //
+  // The whole amount left the account and the row still says so — that is what
+  // keeps delete and undo correct. But only his share is a cost, and the rest
+  // rides on the receivable raised alongside it. Without this the ledger would
+  // book the full ₹920 dinner as spending AND ₹460 as owed back, counting the
+  // same money twice in opposite directions.
+  const share = Number(expense.splitShare);
+  const amount = share > 0 && share < 1 ? Math.round(settled * share * 100) / 100 : settled;
   const m = toMinor(amount);
   // Debit-positive: spending RAISES an expense and LOWERS an asset — but on a
   // card it raises a liability, which is the same negative leg either way.

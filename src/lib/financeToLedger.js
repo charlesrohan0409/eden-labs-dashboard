@@ -172,7 +172,10 @@ export function expenseEntry(expense, accounts) {
   // rides on the receivable raised alongside it. Without this the ledger would
   // book the full ₹920 dinner as spending AND ₹460 as owed back, counting the
   // same money twice in opposite directions.
-  const share = Number(expense.splitShare);
+  // `outgoingId` marks a row payOutgoing wrote, and that path has already
+  // reduced the figure to his share — applying splitShare again would halve
+  // it twice. Only a hand-split expense still needs the multiplication.
+  const share = expense.outgoingId ? 0 : Number(expense.splitShare);
   const amount = share > 0 && share < 1 ? Math.round(settled * share * 100) / 100 : settled;
   const m = toMinor(amount);
   // Debit-positive: spending RAISES an expense and LOWERS an asset — but on a

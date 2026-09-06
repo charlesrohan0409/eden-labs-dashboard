@@ -843,6 +843,10 @@ export function payOutgoing(d, id, { date, nextRenewal, amount, rate, gmailMessa
   const owedBack = hasSplit ? round2(paid - ownCost) : 0;
 
   let bookedExpenseId = null;
+  // expenseEntry prefers settledAmount, so on a split it has to be the share
+  // that is actually his — otherwise the split is applied to a figure that
+  // already had the whole bill in it.
+  const debitedOwnShare = ownCost;
   if (!isCardPayment) {
     bookedExpenseId = uid();
     d.expenses.push({
@@ -867,6 +871,17 @@ export function payOutgoing(d, id, { date, nextRenewal, amount, rate, gmailMessa
       // is exactly the blending the two books exist to prevent.
       book: o.book === "personal" ? "personal" : "business",
       outgoingId: o.id,
+      // WITHOUT THIS THE EXPENSE NEVER REACHES THE LEDGER.
+      //
+      // expenseEntry returns null when it can't find the account the money
+      // left, because an expense that came out of nothing cannot be double
+      // entered. This row had no accountId at all, so every subscription paid
+      // through here was booked in the Finance tab, moved the account balance,
+      // and then silently failed to sync — the ₹3,150 half of a ₹6,300 light
+      // bill simply wasn't in the ledger.
+      accountId: o.accountId || null,
+      settledFromAccountId: o.accountId || null,
+      settledAmount: debitedOwnShare,
       ...(gmailMessageId ? { gmailMessageId } : {}),
     });
   }

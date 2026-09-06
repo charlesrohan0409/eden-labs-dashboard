@@ -38,16 +38,17 @@ export default function GmailAlerts({
   // freely overridable — the guess is a starting point, not an answer.
   const [picked, setPicked] = useState({});
   const [logged, setLogged] = useState(() => new Set());
-  // Per-browser preference. When on, a sync files anything it can categorise
-  // with confidence and leaves the rest for you — the point is to stop having
-  // to press Log for the fortieth Swiggy order, not to file things blind.
-  const [auto, setAuto] = useState(() => {
-    try { return localStorage.getItem("eden-gmail-autolog") === "1"; } catch { return false; }
-  });
-  const [autoCount, setAutoCount] = useState(0);
-  useEffect(() => {
-    try { localStorage.setItem("eden-gmail-autolog", auto ? "1" : "0"); } catch { /* private window */ }
-  }, [auto]);
+  // NOTHING FILES ITSELF.
+  //
+  // There was an auto-log preference here that filed anything the guesser felt
+  // confident about. It filed things Charles disagreed with — ₹1,711 under a
+  // vendor called "A payment was made using your Credit Card", a chemist under
+  // Food — and by the time he saw them they were already in the totals.
+  //
+  // A guess that acts on its own is worse than no guess, because a wrong
+  // category is invisible once it's filed. Suggestions are still made; they
+  // are shown as a hint to accept, never pre-selected and never applied.
+  // Every transaction now waits for him.
 
   const load = useCallback(async () => {
     try { setStatus(await api(token, "GET")); }
@@ -85,16 +86,9 @@ export default function GmailAlerts({
   }
 
   async function sync() {
-    setError(""); setBusy(true); setResult(null); setAutoCount(0);
+    setError(""); setBusy(true); setResult(null);
     try {
-      const res = await api(token, "POST", { days });
-      setResult(res);
-      if (auto) {
-        const seen = new Set();
-        const filed = (res.pending || []).filter((p) => canAutoLog(p, seen));
-        filed.forEach((p) => logOne(p, seen));
-        setAutoCount(filed.length);
-      }
+      setResult(await api(token, "POST", { days }));
     } catch (e) { setError(e.message); }
     finally { setBusy(false); }
   }
@@ -151,7 +145,11 @@ export default function GmailAlerts({
         gmailMessageId: p.messageId,
       });
     } else {
-      const cat = picked[p.messageId] ?? suggestCategory(p, categories) ?? "Other";
+      // No fallback to "Other". Filing something under a category he never
+      // chose is exactly what he asked to stop; without a choice, nothing
+      // happens and the row stays on screen.
+      const cat = picked[p.messageId];
+      if (!cat) return false;
       const record = toExpense(p, { accounts, category: cat, rate });
       if (!record) return false;
       onAddExpense?.(record);
@@ -166,34 +164,6 @@ export default function GmailAlerts({
 
   // Confident enough to file without asking: a debit, not already filed, and
   // the payee matched a category outright.
-  // Confident enough to file without asking.
-  //
-  // For a subscription or a card bill that is a matched recurring item with
-  // no review flag — the alert names it, the amount fits and it is due. For
-  // anything else it still means what it always meant: the payee matched a
-  // category outright. A verdict carrying needsReview is never auto-applied,
-  // which is what keeps an ambiguous CRED payment (three cards, narration
-  // names none of them) in front of Charles instead of guessing a card.
-  const canAutoLog = useCallback(
-    (p, seen) => {
-      if (p.dir !== "DR") return false;
-      if (seen.has(p.messageId) || logged.has(p.messageId) || alreadyLogged.has(p.messageId)) return false;
-      const v = verdicts.get(p.messageId) || routeAlert(p, { outgoings, accounts, categories });
-      if (v.kind === "skip") return false;
-      if (v.needsReview) return false;
-      if (v.kind === "card-payment" || v.kind === "outgoing") return !!v.outgoing && !!onPayOutgoing;
-      // NO NAME, NO AUTO-FILE.
-      //
-      // When the parser can't find a merchant, toExpense falls back to the
-      // email subject — so a row auto-files as a vendor called "A payment was
-      // made using your Credit Card", under a category guessed from that same
-      // boilerplate. ₹1,711 of spending landed in Food that way. An unnamed
-      // payment is exactly the one a human should look at.
-      if (!p.payee) return false;
-      return !!suggestCategory(p, categories);
-    },
-    [logged, alreadyLogged, categories, verdicts, outgoings, accounts, onPayOutgoing]
-  );
 
   if (!status) return <Card className="p-6 text-sm text-stone-400">Checking Gmail…</Card>;
 
@@ -253,11 +223,6 @@ export default function GmailAlerts({
               className="bg-night text-white text-sm font-medium px-4 py-2 rounded-xl inline-flex items-center gap-2 transition-transform active:scale-[0.97] disabled:opacity-50">
               <RefreshCw size={14} className={busy ? "animate-spin" : ""} /> {busy ? "Reading…" : "Check for new transactions"}
             </button>
-            <label className="text-[13px] text-stone-600 flex items-center gap-2 select-none cursor-pointer">
-              <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)}
-                className="w-3.5 h-3.5 accent-emerald-700" />
-              Log new expenses automatically
-            </label>
             <button onClick={disconnect} disabled={busy}
               className="text-sm text-stone-500 px-3 py-2 rounded-xl border border-line inline-flex items-center gap-1.5 hover:text-stone-800 transition-colors">
               <Unplug size={13} /> Disconnect
@@ -278,36 +243,16 @@ export default function GmailAlerts({
             ))}
           </div>
 
-          {autoCount > 0 && (
-            <div className="flex items-center gap-2 text-[13px] text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-xl px-3.5 py-2.5">
-              <Check size={14} className="shrink-0" />
-              <span>
-                {autoCount} expense{autoCount === 1 ? "" : "s"} filed automatically into your Expenses tab.
-                Anything I couldn't categorise is below, waiting for you.
-              </span>
-            </div>
-          )}
-
           <Card className="p-5">
             <CardTitle sub={result.pending.length
               ? "Not recorded yet — these are alerts your statements haven't caught up with."
               : "Nothing new. Every alert in this window is already in your ledger."}>
               {result.pending.length} new since your last statement
             </CardTitle>
-            {result.pending.some((p) => p.dir === "DR" && !logged.has(p.messageId) && !alreadyLogged.has(p.messageId) && (picked[p.messageId] ?? suggestCategory(p, categories))) && (
-              <div className="mb-3">
-                <button
-                  onClick={() => result.pending
-                    .filter((p) => p.dir === "DR" && !logged.has(p.messageId) && !alreadyLogged.has(p.messageId)
-                      && (picked[p.messageId] ?? suggestCategory(p, categories)))
-                    .forEach(logOne)}
-                  className="bg-night text-white text-[12.5px] font-medium px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5 transition-transform active:scale-[0.97]"
-                >
-                  <Plus size={12} /> Log everything with a category
-                </button>
-                <span className="text-[11.5px] text-stone-400 ml-2">Rows without one stay untouched.</span>
-              </div>
-            )}
+            {/* Deliberately no "log everything" button. It applied the
+                guesser's suggestions in bulk, which is the behaviour Charles
+                asked to remove — one press filing forty categories he never
+                read. Each row is chosen on its own. */}
             {result.pending.length > 0 && (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -323,7 +268,11 @@ export default function GmailAlerts({
                     {result.pending.map((p) => {
                       const done = logged.has(p.messageId) || alreadyLogged.has(p.messageId);
                       const guess = suggestCategory(p, categories);
-                      const cat = picked[p.messageId] ?? guess ?? "";
+                      // The suggestion is NOT pre-selected. A pre-filled
+                      // dropdown is a decision already made, and pressing Log
+                      // next to one is how a guess becomes a filed category
+                      // without anybody reading it.
+                      const cat = picked[p.messageId] ?? "";
                       const acct = matchAccount(p, accounts);
                       const v = verdicts.get(p.messageId) || { kind: p.dir === "DR" ? "expense" : "skip" };
                       const paysDown = v.outgoing && accounts.find((a) => a.id === v.outgoing.paysDownAccountId);
@@ -391,22 +340,32 @@ export default function GmailAlerts({
                                 </button>
                               </div>
                             ) : (
-                              <div className="flex items-center gap-1.5">
-                                <select
-                                  value={cat}
-                                  onChange={(e) => setPicked((s) => ({ ...s, [p.messageId]: e.target.value }))}
-                                  className={`text-[12px] px-2 py-1 rounded-lg border bg-white flex-1 min-w-0 ${guess && !picked[p.messageId] ? "border-emerald-200 text-emerald-800" : "border-line"}`}
-                                >
-                                  <option value="">Pick a category…</option>
-                                  {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-                                </select>
-                                <button
-                                  onClick={() => logOne(p)}
-                                  disabled={!cat}
-                                  className="text-[12px] border border-line rounded-lg px-2 py-1 inline-flex items-center gap-1 hover:border-stone-300 disabled:opacity-40 transition-colors shrink-0"
-                                >
-                                  <Plus size={11} /> Log
-                                </button>
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1.5">
+                                  <select
+                                    value={cat}
+                                    onChange={(e) => setPicked((s) => ({ ...s, [p.messageId]: e.target.value }))}
+                                    className="text-[12px] px-2 py-1 rounded-lg border border-line bg-white flex-1 min-w-0"
+                                  >
+                                    <option value="">Pick a category…</option>
+                                    {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                                  </select>
+                                  <button
+                                    onClick={() => logOne(p)}
+                                    disabled={!cat}
+                                    className="text-[12px] border border-line rounded-lg px-2 py-1 inline-flex items-center gap-1 hover:border-stone-300 disabled:opacity-40 transition-colors shrink-0"
+                                  >
+                                    <Plus size={11} /> Log
+                                  </button>
+                                </div>
+                                {guess && !picked[p.messageId] && (
+                                  <button
+                                    onClick={() => setPicked((s) => ({ ...s, [p.messageId]: guess }))}
+                                    className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-md px-1.5 py-0.5 hover:bg-emerald-100 transition-colors"
+                                  >
+                                    Looks like {guess} — use it?
+                                  </button>
+                                )}
                               </div>
                             )}
                           </td>

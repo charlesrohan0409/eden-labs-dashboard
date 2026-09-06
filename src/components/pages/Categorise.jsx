@@ -115,7 +115,9 @@ export default function Categorise({ categories = [], token }) {
               <tbody>
                 {rows.map((r) => {
                   const guess = suggestFor(r, categories);
-                  const value = picked[r.id] ?? guess ?? "";
+                  // Shown as a hint, never pre-selected — same rule as the
+                  // import tabs. A filled dropdown is a decision already made.
+                  const value = picked[r.id] ?? "";
                   const alike = similar(r, rows);
                   return (
                     <tr key={r.id} className="border-b border-stone-100 last:border-0">
@@ -135,9 +137,7 @@ export default function Categorise({ categories = [], token }) {
                             value={value}
                             disabled={busy}
                             onChange={(e) => setPicked((p) => ({ ...p, [r.id]: e.target.value }))}
-                            className={`text-[12px] px-2 py-1 rounded-lg border bg-white flex-1 min-w-0 ${
-                              guess && !picked[r.id] ? "border-emerald-200 text-emerald-800" : "border-line"
-                            }`}
+                            className="text-[12px] px-2 py-1 rounded-lg border border-line bg-white flex-1 min-w-0"
                           >
                             <option value="">Pick a category…</option>
                             {categories.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -160,6 +160,15 @@ export default function Categorise({ categories = [], token }) {
                             </button>
                           )}
                         </div>
+                        {guess && !picked[r.id] && (
+                          <button
+                            disabled={busy}
+                            onClick={() => setPicked((p) => ({ ...p, [r.id]: guess }))}
+                            className="mt-1 text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-md px-1.5 py-0.5 hover:bg-emerald-100 transition-colors"
+                          >
+                            Looks like {guess} — use it?
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

@@ -73,6 +73,21 @@ const CATEGORY_MAP = {
   "church food": "expense:giving",
   "diet expense": "expense:health:diet",
   "other": "expense:uncategorised",
+  // Categories added because real spending had nowhere to go: ₹4.71 lakh sat
+  // in ledger accounts with no category name attached, so none of it could be
+  // budgeted, filed by hand, or even named in a breakdown.
+  "shopping": "expense:shopping",
+  "cash": "expense:cash", "cash withdrawal": "expense:cash",
+  "education": "expense:education",
+  "giving": "expense:giving",
+  "health": "expense:health",
+  "personal care": "expense:personal-care",
+  "bank charges": "expense:bank-charges",
+  "taxes": "expense:taxes",
+  "subscriptions": "expense:subscriptions",
+  "family": "expense:family",
+  "entertainment": "expense:entertainment",
+  "transport": "expense:travel",
 };
 
 // The way back, for reading ledger spending as budget categories.
@@ -93,13 +108,28 @@ const ACCOUNT_CATEGORY = {
   "expense:travel": "Travel",
   "expense:utilities": "Utilities",
   "expense:business:software": "Software",
-  "expense:subscriptions": "Software",
+  // Personal subscriptions are their own category now that one exists. They
+  // were folded into Software, which mixed an Apple Music renewal in with the
+  // agency's tooling — same money, different book, different decision.
+  "expense:subscriptions": "Subscriptions",
   "expense:business:ads": "Marketing",
   "expense:business:contractor": "Contractor",
   "expense:rent": "Rent",
   "expense:personal:date": "Date",
   "expense:gifts": "Birthday",
   "expense:health:diet": "Diet Expense",
+  // The way back for the newly added ones, so ₹4.71 lakh of existing history
+  // stops reading as unbudgetable and starts appearing under a name.
+  "expense:shopping": "Shopping",
+  "expense:cash": "Cash",
+  "expense:education": "Education",
+  "expense:giving": "Giving",
+  "expense:health": "Health",
+  "expense:personal-care": "Personal Care",
+  "expense:bank-charges": "Bank Charges",
+  "expense:taxes": "Taxes",
+  "expense:family": "Family",
+  "expense:entertainment": "Entertainment",
 };
 
 /**

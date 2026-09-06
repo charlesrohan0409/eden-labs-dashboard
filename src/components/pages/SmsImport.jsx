@@ -74,7 +74,11 @@ export default function SmsImport({
         gmailMessageId: a.messageId,
       });
     } else {
-      const cat = picked[a.messageId] ?? suggestCategory(a, categories) ?? "Other";
+      // No "Other" fallback and no suggestion applied on his behalf — the
+      // same rule as the Gmail path. Without an explicit choice nothing is
+      // filed and the row stays on screen.
+      const cat = picked[a.messageId];
+      if (!cat) return false;
       const record = toExpense(a, { accounts, category: cat, rate });
       if (!record) return false;
       onAddExpense?.(record);
@@ -83,13 +87,6 @@ export default function SmsImport({
     return true;
   }
 
-  const pending = (result?.alerts || []).filter(
-    (a) => a.dir === "DR" && !logged.has(a.messageId) && !already.has(a.messageId)
-  );
-  const readyCount = pending.filter((a) => {
-    const v = verdicts.get(a.messageId);
-    return v && !v.needsReview && (v.outgoing || picked[a.messageId] || suggestCategory(a, categories));
-  }).length;
 
   return (
     <div className="space-y-3">
@@ -149,14 +146,9 @@ export default function SmsImport({
             ))}
           </div>
 
-          {readyCount > 0 && (
-            <button
-              onClick={() => pending.forEach(logOne)}
-              className="bg-night text-white text-[12.5px] font-medium px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5 transition-transform active:scale-[0.97]"
-            >
-              <Plus size={12} /> Record all {readyCount}
-            </button>
-          )}
+          {/* No bulk "record all". It applied the guesser's suggestions in one
+              press, which is the behaviour being removed — each row is chosen
+              on its own. */}
 
           <Card className="p-5">
             <CardTitle sub={result.alerts.length ? "Each one goes wherever it belongs — a subscription is marked paid, a card bill moves money without booking an expense." : "Nothing in that paste looked like a transaction."}>
@@ -179,7 +171,7 @@ export default function SmsImport({
                       const done = logged.has(a.messageId) || already.has(a.messageId);
                       const acct = matchAccount(a, accounts);
                       const guess = suggestCategory(a, categories);
-                      const cat = picked[a.messageId] ?? guess ?? "";
+                      const cat = picked[a.messageId] ?? "";
                       return (
                         <tr key={a.messageId} className="border-b border-stone-100 last:border-0">
                           <td className="py-2 tnum text-stone-500 align-top">{a.date}</td>
@@ -227,7 +219,7 @@ export default function SmsImport({
                                 <select
                                   value={cat}
                                   onChange={(e) => setPicked((s) => ({ ...s, [a.messageId]: e.target.value }))}
-                                  className={`text-[12px] px-2 py-1 rounded-lg border bg-white flex-1 min-w-0 ${guess && !picked[a.messageId] ? "border-emerald-200 text-emerald-800" : "border-line"}`}
+                                  className="text-[12px] px-2 py-1 rounded-lg border border-line bg-white flex-1 min-w-0"
                                 >
                                   <option value="">Pick a category…</option>
                                   {categories.map((c) => <option key={c} value={c}>{c}</option>)}

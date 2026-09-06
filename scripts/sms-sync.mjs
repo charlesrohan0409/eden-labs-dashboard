@@ -65,7 +65,13 @@ if (!TOKEN) {
 // Indian bank senders are short codes like AD-HDFCBK, VM-KOTAKB, JD-ICICIB.
 // Matched on the sender AND on transaction wording, so a marketing blast from
 // the same short code never travels.
-const BANK_SENDERS = ["KOTAK", "HDFC", "YESBNK", "YESBK", "ICICI", "AXIS", "SBIIN", "AMZNPY"];
+// TMBANK is Tamilnad Mercantile Bank — 2,100 messages of it on this Mac, and
+// TMBL IFSC codes appear in his own transfers, so it is an account the books
+// have never seen.
+const BANK_SENDERS = [
+  "KOTAK", "HDFC", "YESBNK", "YESBK", "ICICI", "AXIS", "SBIIN", "AMZNPY",
+  "TMBANK", "TMBLTD",
+];
 const TXN_WORDS = ["debited", "credited", "Sent Rs", "spent", "received", "withdrawn"];
 
 // sqlite3's CLI takes no bind parameters, so the query is assembled here. Every
@@ -79,6 +85,10 @@ const quote = (v) => `'${String(v).replace(/'/g, "''")}'`;
 // nothing — which is exactly what happened: 2,396 messages found with no date
 // filter, zero with one.
 const EPOCH = "(CASE WHEN m.date > 1000000000000 THEN m.date/1000000000 ELSE m.date END + 978307200)";
+// CAST is not decoration. strftime() returns TEXT, and SQLite orders every
+// text value above every number — so `EPOCH > strftime(...)` is false for
+// every row ever written. The window silently matched nothing while the same
+// query without it returned 2,135 messages.
 
 function buildQuery(sinceRowId) {
   const senders = BANK_SENDERS.map((b) => `upper(h.id) LIKE ${quote("%" + b + "%")}`).join(" OR ");
@@ -91,7 +101,7 @@ function buildQuery(sinceRowId) {
       FROM message m
       LEFT JOIN handle h ON m.handle_id = h.ROWID
      WHERE m.ROWID > ${Number(sinceRowId) || 0}
-       ${sinceRowId || ALL ? "" : `AND ${EPOCH} > strftime('%s','now','-${Math.max(1, Math.round(DAYS))} days')`}
+       ${sinceRowId || ALL ? "" : `AND ${EPOCH} > CAST(strftime('%s','now','-${Math.max(1, Math.round(DAYS))} days') AS INTEGER)`}
        AND m.is_from_me = 0
        AND m.text IS NOT NULL
        AND (${senders})
@@ -204,10 +214,10 @@ if (process.argv.includes("--debug")) {
   const D = (expr) => `strftime('%Y-%m-%d', ${expr}, 'unixepoch', 'localtime')`;
 
   console.log("every message on this Mac:      " + q("select count(*) from message;"));
-  console.log("  newest / oldest:              " + q(`select ${D(EPOCH)}, min(${D(EPOCH)}) from message m order by m.ROWID desc limit 1;`));
+  console.log("  newest / oldest:              " + q(`select max(${D(EPOCH)}), min(${D(EPOCH)}) from message m;`));
   console.log("from a bank sender:             " + q(`select count(*) from message m left join handle h on m.handle_id=h.ROWID where ${senders};`));
   console.log("  ...and transaction wording:   " + q(`select count(*) from message m left join handle h on m.handle_id=h.ROWID where (${senders}) and (${words});`));
-  console.log("  ...in the last 30 days:       " + q(`select count(*) from message m left join handle h on m.handle_id=h.ROWID where (${senders}) and (${words}) and ${EPOCH} > strftime('%s','now','-30 days');`));
+  console.log("  ...in the last 30 days:       " + q(`select count(*) from message m left join handle h on m.handle_id=h.ROWID where (${senders}) and (${words}) and ${EPOCH} > CAST(strftime('%s','now','-30 days') AS INTEGER);`));
   console.log("\nmost recent bank senders (name and date only, no message text):");
   console.log(q(`select ${D(EPOCH)}, coalesce(h.id,'?') from message m left join handle h on m.handle_id=h.ROWID where ${senders} order by m.ROWID desc limit 12;`).split("\n").map((l) => "  " + l).join("\n"));
   console.log("\nsenders the filter does NOT recognise, that look like shortcodes:");

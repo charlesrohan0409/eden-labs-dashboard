@@ -20,7 +20,10 @@
 const CLEAN = (s) => String(s || "").replace(/\s+/g, " ").trim();
 
 // Amounts: "Rs.60.00", "INR 1,234", "Rs 2,500.50", "₹99"
-const AMOUNT = /(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d{1,2})?)/i;
+// HDFC's mandate notices write "INR.149.00" and "USD.14.16" — a dot directly
+// after the currency. Without it the amount was unreadable, so a reminder was
+// reported as "no amount found" rather than as the reminder it is.
+const AMOUNT = /(?:rs|inr|usd|₹)\.?\s*([\d,]+(?:\.\d{1,2})?)/i;
 
 // Direction. Order matters — "debited" must be tested before the looser
 // credit words, because "Your account is debited... available credit limit"
@@ -133,8 +136,20 @@ export function parseSms(raw, { fallbackDate } = {}) {
   // genuine ₹6,100 payment was thrown out as a balance enquiry. Anything
   // carrying a real movement verb skips the soft guards entirely; OTPs and
   // "do not share" are absolute and still refuse it.
-  const moved = /\b(?:debited|credited|spent|sent|withdrawn|deducted|received|transferred)\b/i.test(text);
-  const HARD = NOT_A_TXN.slice(0, 2);          // OTP, and "do not share"
+  // FUTURE TENSE IS NOT A MOVEMENT.
+  //
+  // "INR.149.00 will be debited on 12/08/2026" contains the word "debited",
+  // so a bare test read a mandate notice as a payment and booked an expense
+  // on the day the bank announced it rather than the day it happened. The
+  // announcement is stripped before asking whether anything moved.
+  const pastTense = text.replace(/\bwill\s+be\s+\w+/gi, " ");
+  const moved = /\b(?:debited|credited|spent|sent|withdrawn|deducted|received|transferred)\b/i.test(pastTense);
+  // HARD is the OTP pattern alone. "Do not share" was in here too, and HDFC
+  // prints it as security boilerplate at the foot of genuine card alerts — so
+  // "Rs.149.00 spent via HDFC BANK Debit Card xx9905 at GOOGLEPLAY ... do not
+  // share" was thrown out as an OTP. A real OTP says "OTP" and carries no
+  // movement verb, so the first pattern still catches it on its own.
+  const HARD = NOT_A_TXN.slice(0, 1);
   for (const re of (moved ? HARD : NOT_A_TXN)) {
     if (re.test(text)) return { ok: false, reason: "not a transaction (OTP, reminder or offer)", text };
   }

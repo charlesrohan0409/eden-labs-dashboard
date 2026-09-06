@@ -1215,12 +1215,29 @@ export async function handleSmsIngest(headers, body, query = {}) {
 export async function handleSmsQueueGet(headers) {
   if (!requireOwner(headers)) return { status: 401, body: { error: "Not authorised." } };
   const messages = await smsQueue();
+  const all = messages.filter((m) => m.alert).map((m) => m.alert);
+
+  // MOST OF THESE ARE ALREADY RECORDED.
+  //
+  // The Mac holds months of bank SMS, and the statements those same
+  // transactions appear on are already in the ledger. The first sync pushed
+  // 175 messages of which the great majority were history — offering them
+  // again would have meant re-recording a ₹37,150 payment and a ₹50,000 loan
+  // that were booked weeks ago.
+  //
+  // The Gmail path has always run findNew against the ledger. This is the
+  // same guard: an alert whose account, amount and date already appear there
+  // is not new, however it reached us.
+  const { entries: ledger } = (await handleLedgerGet(headers)).body;
+  const fresh = G.findNew(all, ledger || []);
+
   return {
     status: 200,
     body: {
-      alerts: messages.filter((m) => m.alert).map((m) => m.alert),
+      alerts: fresh.sort((a, b) => String(b.date).localeCompare(String(a.date))),
       unread: messages.filter((m) => !m.alert).map((m) => ({ text: m.raw, reason: m.reason })),
       total: messages.length,
+      alreadyInLedger: all.length - fresh.length,
     },
   };
 }

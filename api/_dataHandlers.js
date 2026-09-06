@@ -4,6 +4,7 @@
 
 import { migrateData } from "../src/data/migrate.js";
 import { financeAlerts, alertsEmail } from "../src/lib/financeAlerts.js";
+import { parseSms } from "../src/lib/smsParse.js";
 import { handleSendEmail } from "./_handlers.js";
 import { seedData } from "../src/data/seed.js";
 import * as M from "../src/data/mutations.js";
@@ -1148,4 +1149,88 @@ export async function handleFinanceDigest(headers, query = {}) {
     status: 200,
     body: { ok: res.status === 200, sent: res.status === 200, to, subject: mail.subject, count: alerts.length, error: res.body?.error },
   };
+}
+
+// --------------------------------------------------------- sms ingest ---
+//
+// Kotak sends Charles no transaction email at all — only SMS. iOS gives no
+// app access to SMS, so there is nothing to poll and nothing to scrape.
+//
+// What iOS DOES give is a Personal Automation: "when I receive a message
+// containing X, run this shortcut". The shortcut can POST. So the phone pushes
+// each message here the moment it arrives, and nothing has to be copied by
+// hand ever again.
+//
+// A shortcut cannot hold an OAuth session, so this authenticates on a single
+// long random secret. That secret can only ever ADD a pending message — it
+// cannot read the ledger, move money, or see anything else.
+
+const smsQueue = async () => (await getIntegration("sms-inbox"))?.messages || [];
+
+function ingestAuthorised(headers, query) {
+  const secret = process.env.SMS_INGEST_TOKEN;
+  if (!secret) return { ok: false, why: "SMS_INGEST_TOKEN isn't set on the server." };
+  const given = String(query?.token || bearerFrom(headers) || "");
+  // Length check first so a wrong-length guess can't be distinguished by time.
+  if (given.length !== secret.length) return { ok: false, why: "Bad token." };
+  let diff = 0;
+  for (let i = 0; i < secret.length; i++) diff |= given.charCodeAt(i) ^ secret.charCodeAt(i);
+  return diff === 0 ? { ok: true } : { ok: false, why: "Bad token." };
+}
+
+export async function handleSmsIngest(headers, body, query = {}) {
+  const auth = ingestAuthorised(headers, query);
+  if (!auth.ok) return { status: 401, body: { error: auth.why } };
+
+  const text = String(body?.text || body?.message || "").trim();
+  if (!text) return { status: 400, body: { error: "`text` is required." } };
+
+  const parsed = parseSms(text, { fallbackDate: body?.date });
+  const queue = await smsQueue();
+
+  // Same message twice — a retried shortcut, or iOS firing the automation
+  // again — must not become two transactions.
+  const id = parsed.ok ? parsed.alert.messageId : "sms-raw:" + text.slice(0, 80);
+  if (queue.some((m) => m.id === id)) {
+    return { status: 200, body: { ok: true, duplicate: true, queued: queue.length } };
+  }
+
+  const row = parsed.ok
+    ? { id, at: new Date().toISOString(), alert: parsed.alert, raw: text.slice(0, 400) }
+    // Kept even when unreadable. A message the parser can't handle is the
+    // most useful thing it could possibly report — silently dropping it is
+    // how a bank changes its wording and nobody notices for a month.
+    : { id, at: new Date().toISOString(), alert: null, reason: parsed.reason, raw: text.slice(0, 400) };
+
+  // Bounded: a stuck automation shouldn't grow this without limit.
+  const next = [...queue, row].slice(-300);
+  await setIntegration("sms-inbox", { messages: next });
+  return {
+    status: 200,
+    body: { ok: true, read: parsed.ok, queued: next.length, ...(parsed.ok ? { amount: parsed.alert.amount, payee: parsed.alert.payee } : { reason: parsed.reason }) },
+  };
+}
+
+/** What the phone has pushed and Charles hasn't dealt with yet. */
+export async function handleSmsQueueGet(headers) {
+  if (!requireOwner(headers)) return { status: 401, body: { error: "Not authorised." } };
+  const messages = await smsQueue();
+  return {
+    status: 200,
+    body: {
+      alerts: messages.filter((m) => m.alert).map((m) => m.alert),
+      unread: messages.filter((m) => !m.alert).map((m) => ({ text: m.raw, reason: m.reason })),
+      total: messages.length,
+    },
+  };
+}
+
+/** Clears messages once they've been recorded, by id. */
+export async function handleSmsQueueClear(headers, body) {
+  if (!requireOwner(headers)) return { status: 401, body: { error: "Not authorised." } };
+  const ids = new Set(Array.isArray(body?.ids) ? body.ids : []);
+  const messages = await smsQueue();
+  const next = ids.size ? messages.filter((m) => !ids.has(m.id)) : [];
+  await setIntegration("sms-inbox", { messages: next });
+  return { status: 200, body: { ok: true, remaining: next.length } };
 }

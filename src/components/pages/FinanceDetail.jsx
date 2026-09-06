@@ -918,6 +918,7 @@ export default function FinanceDetail({
               outgoings={data.outgoings}
               financeLog={data.financeLog}
               rate={rate}
+              token={token}
               onAddExpense={onAddExpense}
               onPayOutgoing={onPayOutgoing}
             />

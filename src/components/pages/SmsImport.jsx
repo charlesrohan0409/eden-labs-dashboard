@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from "react";
-import { MessageSquare, Upload, Check, AlertTriangle, Plus, ArrowUpRight, ArrowDownLeft, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MessageSquare, Upload, Check, AlertTriangle, Plus, ArrowUpRight, ArrowDownLeft, Trash2, Smartphone, RefreshCw } from "lucide-react";
 import Card, { CardTitle } from "../ui/Card";
 import { parseSmsBatch } from "../../lib/smsParse";
 import { routeAlert, advanceRenewal } from "../../lib/alertRouter";
@@ -24,13 +24,29 @@ const inr = (n) => "₹" + Math.round(Math.abs(n)).toLocaleString("en-IN");
 
 export default function SmsImport({
   accounts = [], categories = [], expenses = [], outgoings = [], financeLog = [],
-  rate = 1, onAddExpense, onPayOutgoing,
+  rate = 1, token, onAddExpense, onPayOutgoing,
 }) {
   const [text, setText] = useState("");
   const [result, setResult] = useState(null);
   const [picked, setPicked] = useState({});
   const [logged, setLogged] = useState(() => new Set());
   const fileRef = useRef(null);
+  // Messages the phone pushed on its own. Kotak sends no transaction email at
+  // all, so without this its spending only ever arrived by hand.
+  const [queue, setQueue] = useState(null);
+  const [checking, setChecking] = useState(false);
+
+  const loadQueue = useCallback(async () => {
+    if (!token) return;
+    setChecking(true);
+    try {
+      const res = await fetch("/api/sms-ingest", { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setQueue(await res.json());
+    } catch { /* offline is not an error worth shouting about */ }
+    finally { setChecking(false); }
+  }, [token]);
+
+  useEffect(() => { loadQueue(); }, [loadQueue]);
 
   // Anything this device has already been used to record — the same guard the
   // Gmail path uses, so pasting the same thread twice can't double-file.
@@ -40,11 +56,31 @@ export default function SmsImport({
     return s;
   }, [expenses, financeLog]);
 
+  // Pushed and pasted messages are the same thing once parsed, so they share
+  // one list — and the messageId fingerprint means a message that arrived both
+  // ways appears once.
+  const shown = useMemo(() => {
+    if (!result && !queue) return null;
+    const seen = new Set();
+    const alerts = [];
+    for (const a of [...(queue?.alerts || []), ...(result?.alerts || [])]) {
+      if (seen.has(a.messageId)) continue;
+      seen.add(a.messageId);
+      alerts.push(a);
+    }
+    return {
+      alerts,
+      unread: [...(queue?.unread || []), ...(result?.unread || [])],
+      total: (queue?.total || 0) + (result?.total || 0),
+      fromPhone: (queue?.alerts || []).length,
+    };
+  }, [result, queue]);
+
   const verdicts = useMemo(() => {
     const m = new Map();
-    for (const a of result?.alerts || []) m.set(a.messageId, routeAlert(a, { outgoings, accounts, categories }));
+    for (const a of shown?.alerts || []) m.set(a.messageId, routeAlert(a, { outgoings, accounts, categories }));
     return m;
-  }, [result, outgoings, accounts, categories]);
+  }, [shown, outgoings, accounts, categories]);
 
   const read = (raw) => {
     const parsed = parseSmsBatch(raw);
@@ -84,6 +120,14 @@ export default function SmsImport({
       onAddExpense?.(record);
     }
     setLogged((s) => new Set(s).add(a.messageId));
+    // Take it off the phone queue too, so it isn't offered again next time.
+    if (token) {
+      fetch("/api/sms-ingest", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [a.messageId] }),
+      }).catch(() => { /* it will simply show again; nothing is lost */ });
+    }
     return true;
   }
 
@@ -111,6 +155,14 @@ export default function SmsImport({
 
         <div className="flex items-center gap-2 mt-2.5 flex-wrap">
           <button
+            onClick={loadQueue}
+            disabled={checking}
+            className="text-[12.5px] border border-line rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5 hover:border-stone-300 disabled:opacity-50 transition-colors"
+          >
+            {checking ? <RefreshCw size={12} className="animate-spin" /> : <Smartphone size={12} />}
+            Check phone
+          </button>
+          <button
             onClick={() => read(text)}
             disabled={text.trim().length < 20}
             className="bg-night text-white text-[12.5px] font-medium px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5 disabled:opacity-40 transition-transform active:scale-[0.97]"
@@ -135,10 +187,10 @@ export default function SmsImport({
         </div>
       </Card>
 
-      {result && (
+      {shown && (
         <>
           <div className="grid sm:grid-cols-3 gap-3">
-            {[["Messages read", result.total], ["Transactions found", result.alerts.length], ["Not transactions", result.unread.length]].map(([k, v]) => (
+            {[["Messages read", shown.total], ["Transactions found", shown.alerts.length], ["Not transactions", shown.unread.length]].map(([k, v]) => (
               <Card key={k} className="p-4">
                 <div className="text-[10.5px] font-semibold text-stone-400 uppercase tracking-wide">{k}</div>
                 <div className="text-[24px] font-bold tracking-tight tnum mt-0.5">{v}</div>
@@ -151,10 +203,10 @@ export default function SmsImport({
               on its own. */}
 
           <Card className="p-5">
-            <CardTitle sub={result.alerts.length ? "Each one goes wherever it belongs — a subscription is marked paid, a card bill moves money without booking an expense." : "Nothing in that paste looked like a transaction."}>
-              {result.alerts.length} transaction{result.alerts.length === 1 ? "" : "s"}
+            <CardTitle sub={shown.alerts.length ? "Each one goes wherever it belongs — a subscription is marked paid, a card bill moves money without booking an expense." : "Nothing in that paste looked like a transaction."}>
+              {shown.alerts.length} transaction{shown.alerts.length === 1 ? "" : "s"}
             </CardTitle>
-            {result.alerts.length > 0 && (
+            {shown.alerts.length > 0 && (
               <div className="overflow-x-auto mt-1">
                 <table className="w-full text-sm">
                   <thead>
@@ -166,7 +218,7 @@ export default function SmsImport({
                     </tr>
                   </thead>
                   <tbody>
-                    {result.alerts.map((a) => {
+                    {shown.alerts.map((a) => {
                       const v = verdicts.get(a.messageId) || { kind: "expense" };
                       const done = logged.has(a.messageId) || already.has(a.messageId);
                       const acct = matchAccount(a, accounts);
@@ -239,20 +291,20 @@ export default function SmsImport({
             )}
           </Card>
 
-          {result.unread.length > 0 && (
+          {shown.unread.length > 0 && (
             <Card className="p-5">
               <CardTitle sub="Shown rather than skipped — if a real transaction is in here, the parser needs fixing and you'd never know otherwise.">
-                {result.unread.length} message{result.unread.length === 1 ? "" : "s"} weren't transactions
+                {shown.unread.length} message{shown.unread.length === 1 ? "" : "s"} weren't transactions
               </CardTitle>
               <div className="space-y-1 mt-1">
-                {result.unread.slice(0, 25).map((u, i) => (
+                {shown.unread.slice(0, 25).map((u, i) => (
                   <div key={i} className="text-[12px] py-1.5 border-b border-stone-100 last:border-0">
                     <span className="text-stone-400">{u.reason}</span>
                     <div className="text-stone-600 truncate" title={u.text}>{u.text}</div>
                   </div>
                 ))}
-                {result.unread.length > 25 && (
-                  <p className="text-[11.5px] text-stone-400 pt-1">…and {result.unread.length - 25} more.</p>
+                {shown.unread.length > 25 && (
+                  <p className="text-[11.5px] text-stone-400 pt-1">…and {shown.unread.length - 25} more.</p>
                 )}
               </div>
             </Card>

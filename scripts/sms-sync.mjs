@@ -83,6 +83,31 @@ function buildQuery(sinceRowId) {
      LIMIT 400;`;
 }
 
+/**
+ * Which application is actually running this.
+ *
+ * Full Disk Access is granted per-app, and the app is whichever one owns the
+ * shell — Terminal, iTerm, VS Code, or the Claude desktop app if the command
+ * was typed into its terminal panel. Granting the wrong one looks identical
+ * to granting none, which is a genuinely confusing half hour. So rather than
+ * assume Terminal, walk up the process tree and name what is really there.
+ */
+function hostApp() {
+  try {
+    let pid = process.ppid;
+    for (let i = 0; i < 8 && pid > 1; i++) {
+      const line = execFileSync("ps", ["-o", "ppid=,comm=", "-p", String(pid)], { encoding: "utf8" }).trim();
+      if (!line) break;
+      const ppid = Number(line.split(/\s+/)[0]);
+      const comm = line.slice(String(ppid).length).trim();
+      const m = comm.match(/([^/]+)\.app\/Contents\/MacOS\//);
+      if (m) return { name: m[1], path: comm.slice(0, comm.indexOf(".app") + 4) };
+      pid = ppid;
+    }
+  } catch { /* naming it is a nicety, not a requirement */ }
+  return null;
+}
+
 function readMessages(sinceRowId) {
   // Copy first: Messages keeps the database open with a write-ahead log, and
   // querying it in place can fail or return a stale view.
@@ -93,10 +118,44 @@ function readMessages(sinceRowId) {
   try {
     fs.copyFileSync(DB, tmp);
   } catch (e) {
-    const why = e.code === "EPERM" || e.code === "EACCES"
-      ? "macOS is blocking access to Messages."
-      : `Could not read ${DB}: ${e.message}`;
-    throw new Error(`${why}\n\n  Grant Full Disk Access:\n    System Settings → Privacy & Security → Full Disk Access\n    → + → Applications → Utilities → Terminal\n  then QUIT Terminal completely (⌘Q) and reopen it.`);
+    if (e.code !== "EPERM" && e.code !== "EACCES") {
+      throw new Error(`Could not read ${DB}: ${e.message}`);
+    }
+    const app = hostApp();
+    const isAssistant = app && /claude|cursor|copilot|code helper/i.test(app.name);
+    const who = app ? `"${app.name}"` : "the app you are running this from";
+
+    // Full Disk Access is granted PER APP, and the app is whichever one owns
+    // the shell. Granting it to Terminal and then running the command in a
+    // different app's terminal panel looks exactly like granting nothing.
+    //
+    // When that app is an AI assistant, Terminal is the recommendation rather
+    // than a footnote: the grant would give it read access to everything on
+    // the Mac, and a nested helper bundle may not even be the path macOS
+    // attributes the permission to. Terminal is unambiguous and narrow.
+    throw new Error([
+      "macOS is blocking access to Messages.",
+      "",
+      `  This is running inside ${who}, and Full Disk Access is granted per app —`,
+      "  so granting it to a different terminal has no effect.",
+      "",
+      ...(isAssistant ? [
+        "  DO THIS: open Terminal.app and run the command there.",
+        "",
+        "    System Settings → Privacy & Security → Full Disk Access",
+        "      → + → Applications → Utilities → Terminal",
+        "    Quit Terminal completely (⌘Q), reopen it, then run:",
+        "",
+        `      node ${fileURLToPath(import.meta.url).replace(/ /g, "\\ ")} --dry`,
+        "",
+        `  You could instead grant ${who} the same access, but that gives it`,
+        "  read access to everything on this Mac. Terminal is the narrower door.",
+      ] : [
+        "  System Settings → Privacy & Security → Full Disk Access",
+        app ? `    → + → ${app.path}` : "    → + → the app you are using",
+        `  then quit ${who} completely (⌘Q, not just the window) and reopen it.`,
+      ]),
+    ].join("\n"));
   }
   // These two may legitimately be absent.
   for (const ext of ["-wal", "-shm"]) {

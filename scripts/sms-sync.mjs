@@ -90,24 +90,69 @@ const EPOCH = "(CASE WHEN m.date > 1000000000000 THEN m.date/1000000000 ELSE m.d
 // every row ever written. The window silently matched nothing while the same
 // query without it returned 2,135 messages.
 
+// THE TEXT COLUMN IS NO LONGER FILLED IN.
+//
+// Newer macOS writes the message body only into `attributedBody`, a binary
+// typedstream blob, and leaves `text` NULL. On this Mac every one of the 324
+// recent bank messages has an empty text column while 4,394 older ones are
+// fine — so a filter reading `text` sees a live inbox as an empty one.
+//
+// The body sits inside the archive after an NSString class marker: a '+'
+// (0x2B), then a length, then UTF-8 bytes. Lengths above 127 are prefixed
+// with 0x81 and stored as a little-endian short.
+function decodeAttributedBody(hex) {
+  if (!hex) return null;
+  let buf;
+  try { buf = Buffer.from(hex, "hex"); } catch { return null; }
+
+  const marker = buf.lastIndexOf(Buffer.from("NSString", "utf8"));
+  if (marker !== -1) {
+    const plus = buf.indexOf(0x2b, marker);
+    if (plus !== -1) {
+      let i = plus + 1;
+      let len = buf[i]; i += 1;
+      if (len === 0x81) { len = buf.readUInt16LE(i); i += 2; }
+      else if (len === 0x82) { len = buf.readUInt32LE(i); i += 4; }
+      if (len > 0 && len < 4000 && i + len <= buf.length) {
+        const text = buf.slice(i, i + len).toString("utf8");
+        if (/[a-z]/i.test(text)) return text;
+      }
+    }
+  }
+
+  // Fallback: the longest run of printable text in the blob. Cruder, but a
+  // bank SMS is far longer than the class names and keys around it, so it
+  // wins on length — and returning something readable beats returning null
+  // and calling a real transaction "unparseable".
+  const runs = buf.toString("latin1").match(/[\x20-\x7E\u00A0-\u024F]{24,}/g) || [];
+  const best = runs
+    .map((r) => r.replace(/^[^A-Za-z0-9₹]+/, "").trim())
+    .filter((r) => /\d/.test(r) && /[a-z]/i.test(r))
+    .sort((a, b) => b.length - a.length)[0];
+  return best || null;
+}
+
 function buildQuery(sinceRowId) {
   const senders = BANK_SENDERS.map((b) => `upper(h.id) LIKE ${quote("%" + b + "%")}`).join(" OR ");
   const words = TXN_WORDS.map((w) => `m.text LIKE ${quote("%" + w + "%")}`).join(" OR ");
   return `
     SELECT m.ROWID,
            COALESCE(h.id,'?'),
-           m.text,
-           strftime('%Y-%m-%d', ${EPOCH}, 'unixepoch', 'localtime')
+           COALESCE(m.text,''),
+           strftime('%Y-%m-%d', ${EPOCH}, 'unixepoch', 'localtime'),
+           COALESCE(hex(m.attributedBody),'')
       FROM message m
       LEFT JOIN handle h ON m.handle_id = h.ROWID
      WHERE m.ROWID > ${Number(sinceRowId) || 0}
        ${sinceRowId || ALL ? "" : `AND ${EPOCH} > CAST(strftime('%s','now','-${Math.max(1, Math.round(DAYS))} days') AS INTEGER)`}
        AND m.is_from_me = 0
-       AND m.text IS NOT NULL
        AND (${senders})
-       AND (${words})
      ORDER BY m.ROWID ASC
      LIMIT 400;`;
+  // The wording filter moved OUT of the SQL, because SQL cannot see inside
+  // the blob. It is applied in JS immediately below, against bank senders
+  // only — so no personal message is ever examined, which was the point of
+  // having it in the query in the first place.
 }
 
 /**
@@ -192,9 +237,12 @@ function readMessages(sinceRowId) {
     const out = execFileSync("sqlite3", ["-separator", "\x1f", tmp, buildQuery(sinceRowId)],
       { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
     return out.split("\n").filter(Boolean).map((line) => {
-      const [rowid, sender, text, date] = line.split("\x1f");
-      return { rowid: Number(rowid), sender, text, date };
-    });
+      const [rowid, sender, text, date, blob] = line.split("\x1f");
+      const body = text || decodeAttributedBody(blob) || "";
+      return { rowid: Number(rowid), sender, text: body, date };
+    })
+      // Only messages that actually describe a transaction.
+      .filter((r) => r.text && TXN_WORDS.some((w) => r.text.toLowerCase().includes(w.toLowerCase())));
   } finally {
     for (const ext of ["", "-wal", "-shm"]) { try { fs.unlinkSync(tmp + ext); } catch { /* fine */ } }
   }
@@ -218,6 +266,27 @@ if (process.argv.includes("--debug")) {
   console.log("from a bank sender:             " + q(`select count(*) from message m left join handle h on m.handle_id=h.ROWID where ${senders};`));
   console.log("  ...and transaction wording:   " + q(`select count(*) from message m left join handle h on m.handle_id=h.ROWID where (${senders}) and (${words});`));
   console.log("  ...in the last 30 days:       " + q(`select count(*) from message m left join handle h on m.handle_id=h.ROWID where (${senders}) and (${words}) and ${EPOCH} > CAST(strftime('%s','now','-30 days') AS INTEGER);`));
+  // WHICH CLAUSE IS KILLING IT.
+  //
+  // "0 in the last 30 days" has two possible causes and the counts above
+  // cannot separate them: either the dates are wrong, or recent messages use
+  // wording the filter doesn't know. So take the clauses apart.
+  const RECENT = `${EPOCH} > CAST(strftime('%s','now','-30 days') AS INTEGER)`;
+  console.log("\nlast 30 days, clause by clause:");
+  console.log("  bank sender, any wording:     " + q(`select count(*) from message m left join handle h on m.handle_id=h.ROWID where (${senders}) and ${RECENT};`));
+  console.log("  bank sender + wording:        " + q(`select count(*) from message m left join handle h on m.handle_id=h.ROWID where (${senders}) and (${words}) and ${RECENT};`));
+  console.log("  ...and not from me:           " + q(`select count(*) from message m left join handle h on m.handle_id=h.ROWID where (${senders}) and (${words}) and ${RECENT} and m.is_from_me=0;`));
+  console.log("  ...and text is not null:      " + q(`select count(*) from message m left join handle h on m.handle_id=h.ROWID where (${senders}) and (${words}) and ${RECENT} and m.is_from_me=0 and m.text is not null;`));
+  console.log("\nwhich words actually appear (last 30 days, bank senders):");
+  for (const w of TXN_WORDS) {
+    const n = q(`select count(*) from message m left join handle h on m.handle_id=h.ROWID where (${senders}) and m.text LIKE ${quote("%" + w + "%")} and ${RECENT};`);
+    console.log(`  ${String(w).padEnd(12)} ${n}`);
+  }
+  // The single most useful line: is m.text even populated? Newer macOS stores
+  // some message bodies only in attributedBody, leaving text NULL.
+  console.log("\nbank messages in the last 30 days with an EMPTY text column: " +
+    q(`select count(*) from message m left join handle h on m.handle_id=h.ROWID where (${senders}) and ${RECENT} and (m.text is null or m.text='');`));
+
   console.log("\nmost recent bank senders (name and date only, no message text):");
   console.log(q(`select ${D(EPOCH)}, coalesce(h.id,'?') from message m left join handle h on m.handle_id=h.ROWID where ${senders} order by m.ROWID desc limit 12;`).split("\n").map((l) => "  " + l).join("\n"));
   console.log("\nsenders the filter does NOT recognise, that look like shortcodes:");

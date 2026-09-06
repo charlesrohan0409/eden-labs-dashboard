@@ -125,7 +125,17 @@ export function parseSms(raw, { fallbackDate } = {}) {
   const text = CLEAN(raw);
   if (text.length < 20) return { ok: false, reason: "too short", text };
 
-  for (const re of NOT_A_TXN) {
+  // A real debit that also quotes your balance is still a debit.
+  //
+  // Kotak writes "Rs.6100.00 debited ... Not you? Call ... Your available
+  // balance is Rs.10208.00" — the balance comes AFTER the debit, and the
+  // guard's lookahead only checked for a transaction word FOLLOWING it. So a
+  // genuine ₹6,100 payment was thrown out as a balance enquiry. Anything
+  // carrying a real movement verb skips the soft guards entirely; OTPs and
+  // "do not share" are absolute and still refuse it.
+  const moved = /\b(?:debited|credited|spent|sent|withdrawn|deducted|received|transferred)\b/i.test(text);
+  const HARD = NOT_A_TXN.slice(0, 2);          // OTP, and "do not share"
+  for (const re of (moved ? HARD : NOT_A_TXN)) {
     if (re.test(text)) return { ok: false, reason: "not a transaction (OTP, reminder or offer)", text };
   }
 

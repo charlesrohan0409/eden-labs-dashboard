@@ -46,6 +46,9 @@ export function matchAccount(alert, accounts = []) {
   const TAIL = {
     3752: /hdfc bank|hdfc$/i, 9905: /hdfc bank/i,
     3630: /kotak/i, 5902: /hdfc credit/i,
+    // From the alert itself: "your YES BANK Credit Card ending with 1427",
+    // and there is exactly one Yes Bank card on the books.
+    1427: /yes bank/i,
   };
   if (alert.accountTail && TAIL[alert.accountTail]) {
     const a = accounts.find((x) => TAIL[alert.accountTail].test(x.name || ""));

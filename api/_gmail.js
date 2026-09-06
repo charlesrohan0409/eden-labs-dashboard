@@ -100,7 +100,21 @@ export const BANK_DOMAINS = [
 // Kept for anything that still imports the old name.
 export const BANK_SENDERS = BANK_DOMAINS;
 
-export const searchQuery = ({ days = 30, senders = BANK_DOMAINS } = {}) =>
+// MERCHANTS THAT SEND A RECEIPT.
+//
+// A bank alert says ₹34 left the account; the merchant's own invoice says it
+// was a Rapido ride from Dharavi to Matunga. Some spending produces only the
+// receipt — a wallet payment, or a card that doesn't alert — so without these
+// it never reaches the dashboard at all.
+//
+// Chosen from payees that actually appear in Charles's ledger, not from a
+// generic list of Indian merchants.
+export const MERCHANT_DOMAINS = [
+  "rapido.bike", "swiggy.in", "zomato.com", "zeptonow.com",
+  "blinkit.com", "dominos.co.in", "uber.com", "amazon.in",
+];
+
+export const searchQuery = ({ days = 30, senders = [...BANK_DOMAINS, ...MERCHANT_DOMAINS] } = {}) =>
   `newer_than:${days}d {${senders.map((s) => `from:${s}`).join(" ")}}`;
 
 async function gapi(path, accessToken) {
@@ -167,9 +181,15 @@ const PATTERNS = [
   { dir: "DR", re: new RegExp(String.raw`(?:sent|paid|debited(?:\s+by)?|spent|withdrawn)\s*(?:of\s*)?${AMOUNT}`, "i") },
   { dir: "DR", re: new RegExp(`${AMOUNT}\\s*(?:has been|is|was)?\\s*debited`, "i") },
   // Verb after the amount: "Rs 320.00 spent on your HDFC Bank Debit Card".
-  { dir: "DR", re: new RegExp(`${AMOUNT}\\s+(?:spent|paid|withdrawn|sent|used)`, "i") },
+  //
+  // The auxiliary is optional but must be ALLOWED. Yes Bank writes "INR
+  // 1,380.00 has been spent on your YES BANK Credit Card", and a bare \s+
+  // between the amount and the verb could not step over "has been" — so
+  // every Yes Bank card alert parsed to null and none of them were ever
+  // recorded, despite yes.bank.in being in the fetch list all along.
+  { dir: "DR", re: new RegExp(`${AMOUNT}\\s*(?:has|have|had)?\\s*(?:been)?\\s*(?:is|was)?\\s*(?:spent|paid|withdrawn|sent|used)`, "i") },
   // Same shape, incoming: "₹250.00 received in your Kotak A/c".
-  { dir: "CR", re: new RegExp(`${AMOUNT}\\s+(?:received|credited|deposited)`, "i") },
+  { dir: "CR", re: new RegExp(`${AMOUNT}\\s*(?:has|have|had)?\\s*(?:been)?\\s*(?:is|was)?\\s*(?:received|credited|deposited)`, "i") },
   // "Payment of INR 100000.00 successful" — no verb either side of the amount,
   // the word "Payment" carries it.
   { dir: "DR", re: new RegExp(String.raw`payment\s+of\s+${AMOUNT}`, "i") },
@@ -206,7 +226,100 @@ const PAYEE = [
   /\bpayee\s*[:\-]\s*([A-Za-z0-9][A-Za-z0-9 &.'*_-]{2,40})/i,
 ];
 
-const ACCOUNT_TAIL = /(?:a\/?c|account|card)\s*(?:no\.?|ending|xx+|\*+)?\s*[xX*]*(\d{4})\b/i;
+// "ending WITH 1427" — Yes Bank puts a word between "ending" and the number,
+// which the old pattern could not step over, so the alert arrived with no
+// account attached and could not be matched to the card it came off.
+const ACCOUNT_TAIL = /(?:a\/?c|account|card)\s*(?:no\.?|number|ending(?:\s+with)?|xx+|\*+)?\s*[xX*]*(\d{4})\b/i;
+
+// A merchant mail is only a receipt if it says so. Amazon alone sends far more
+// marketing than invoices, and "₹499 off your next order" is not spending.
+const RECEIPT_SIGNAL = /\b(?:invoice|receipt|payment summary|order (?:total|summary|confirm)|bill details|your (?:order|ride|trip)|has been delivered|thanks? for (?:riding|ordering))\b/i;
+const RECEIPT_TOTAL = [
+  /\b(?:grand\s+)?total\s*(?:amount)?\s*[:\-]?\s*(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d{1,2})?)/i,
+  /\bamount\s+(?:paid|payable|charged)\s*[:\-]?\s*(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d{1,2})?)/i,
+  /\b(?:you\s+paid|paid)\s*[:\-]?\s*(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d{1,2})?)/i,
+];
+// Domain → the name Charles would recognise.
+const MERCHANT_NAME = {
+  "rapido.bike": "Rapido", "swiggy.in": "Swiggy", "zomato.com": "Zomato",
+  "zeptonow.com": "Zepto", "blinkit.com": "Blinkit", "dominos.co.in": "Domino's",
+  "uber.com": "Uber", "amazon.in": "Amazon",
+};
+
+/**
+ * A merchant's own invoice → a candidate transaction, or null.
+ *
+ * Always a debit: a receipt is proof you paid for something. The merchant name
+ * comes from the SENDING DOMAIN rather than the body, because the domain is
+ * the one part of an email that cannot be phrased three different ways.
+ */
+export function parseReceipt(msg) {
+  const from = String(msg.from || "").toLowerCase();
+  const domain = MERCHANT_DOMAINS.find((d) => from.includes(d));
+  if (!domain) return null;
+
+  const t = `${msg.subject || ""}. ${msg.text || ""}`;
+  if (!RECEIPT_SIGNAL.test(t)) return null;
+  // A refund is money coming back, and reading it as a purchase would book
+  // spending that reversed.
+  if (/\brefund(?:ed)?\b|\bcancell?ed\b|\breturn(?:ed)?\s+to\s+source\b/i.test(t)) return null;
+
+  let amount = 0;
+  for (const re of RECEIPT_TOTAL) {
+    const m = t.match(re);
+    if (m) { amount = Number(m[1].replace(/,/g, "")); break; }
+  }
+  if (!amount) return null;
+
+  return {
+    source: "receipt",
+    messageId: msg.id,
+    id: msg.id,
+    date: msg.date,
+    amount,
+    dir: "DR",
+    payee: MERCHANT_NAME[domain] || domain,
+    accountTail: null,
+    bank: null,
+    subject: msg.subject,
+    text: t.slice(0, 300),
+  };
+}
+
+/**
+ * Fold merchant receipts into the bank alerts, without counting anything twice.
+ *
+ * A ₹34 Rapido ride paid by UPI produces BOTH a bank alert and a receipt. The
+ * alert is the authoritative record — it is what actually moved money, and it
+ * knows which account — so the receipt is dropped. But the receipt carries the
+ * better NAME ("Rapido" against "UPI-ROPPEN TRANSPORTATION-..."), so it lends
+ * that to the alert on its way out.
+ *
+ * A receipt with no matching alert is kept: that is spending which produced no
+ * bank mail at all, and it is the whole reason for reading merchant mail.
+ */
+export function mergeReceipts(alerts, receipts, { dayWindow = 2 } = {}) {
+  const used = new Set();
+  const kept = [];
+  for (const r of receipts) {
+    const minor = Math.round(r.amount * 100);
+    const twin = alerts.find((a, i) => {
+      if (used.has(i)) return false;
+      if (Math.round(a.amount * 100) !== minor) return false;
+      const gap = Math.abs((new Date(a.date) - new Date(r.date)) / 86400000);
+      return gap <= dayWindow;
+    });
+    if (twin) {
+      used.add(alerts.indexOf(twin));
+      // Only fill a gap; never overwrite a name the bank did manage to give.
+      if (!twin.payee) twin.payee = r.payee;
+      twin.receiptFrom = r.payee;
+      continue;
+    }
+    kept.push(r);
+  }
+  return kept;
+}
 
 /**
  * One alert email → one candidate transaction, or null.
@@ -247,6 +360,8 @@ export function parseAlert(msg) {
   let bank = null;
   if (!acct) {
     if (/\bkotak\b/i.test(t)) bank = "asset:bank:kotak";
+    else if (/\byes\s*bank\b/i.test(t)) bank = "liability:card:yesbank";
+    else if (/\bamazon\s*pay\b/i.test(t)) bank = "liability:card:amazonpay";
     else if (/\bhdfc\b/i.test(t)) bank = /credit card/i.test(t) ? "liability:card:hdfc" : "asset:bank:hdfc";
   }
 

@@ -1027,19 +1027,35 @@ export async function handleGmailSync(headers, body) {
   for (const { id } of ids) {
     try { msgs.push(await G.getMessage(access, id)); } catch { /* one unreadable mail shouldn't sink the batch */ }
   }
-  const parsed = [], unparsed = [];
+  const parsed = [], receipts = [], unparsed = [];
   for (const m of msgs) {
+    // Bank alert first — it is the authoritative record of money moving and
+    // it knows which account. A merchant's invoice is the fallback, and only
+    // matters for spending the bank never wrote about.
     const p = G.parseAlert(m);
-    if (p) parsed.push(p);
-    else unparsed.push({ id: m.id, date: m.date, subject: m.subject, preview: m.text.slice(0, 160) });
+    if (p) { parsed.push(p); continue; }
+    const r = G.parseReceipt(m);
+    if (r) { receipts.push(r); continue; }
+    unparsed.push({ id: m.id, date: m.date, subject: m.subject, preview: m.text.slice(0, 160) });
   }
+
+  // Anything the merchant billed that the bank also alerted about is dropped
+  // here, after lending the alert its better merchant name. What survives is
+  // spending with no bank mail behind it — a wallet payment, or a card that
+  // doesn't alert — which would otherwise never reach the dashboard.
+  const soloReceipts = G.mergeReceipts(parsed, receipts);
+
   const { entries: ledger } = (await handleLedgerGet(headers)).body;
-  const fresh = G.findNew(parsed, ledger);
+  const fresh = G.findNew([...parsed, ...soloReceipts], ledger);
 
   return {
     status: 200,
     body: {
-      scanned: msgs.length, parsed: parsed.length, alreadyInLedger: parsed.length - fresh.length,
+      scanned: msgs.length,
+      parsed: parsed.length + soloReceipts.length,
+      fromReceipts: soloReceipts.length,
+      receiptsMatchedToAlerts: receipts.length - soloReceipts.length,
+      alreadyInLedger: (parsed.length + soloReceipts.length) - fresh.length,
       pending: fresh.sort((a, b) => b.date.localeCompare(a.date)),
       // Returned so the parser can be calibrated against real mail rather
       // than guessed at — bank alert wording varies and mine are patterns.

@@ -243,6 +243,13 @@ export default function GmailAlerts({
             ))}
           </div>
 
+          {result.fromReceipts > 0 && (
+            <div className="text-[13px] text-sky-900 bg-sky-50 border border-sky-100 rounded-xl px-3.5 py-2.5">
+              {result.fromReceipts} came from a merchant's own invoice — your bank sent no alert for {result.fromReceipts === 1 ? "it" : "them"}.
+              {result.receiptsMatchedToAlerts > 0 && ` Another ${result.receiptsMatchedToAlerts} matched an alert you already have and were folded in, so nothing is counted twice.`}
+            </div>
+          )}
+
           <Card className="p-5">
             <CardTitle sub={result.pending.length
               ? "Not recorded yet — these are alerts your statements haven't caught up with."
@@ -285,6 +292,11 @@ export default function GmailAlerts({
                                 ? <ArrowUpRight size={13} className="text-rose-500 shrink-0" />
                                 : <ArrowDownLeft size={13} className="text-emerald-600 shrink-0" />}
                               <span className="truncate" title={p.text}>{p.payee || p.subject}</span>
+                              {p.source === "receipt" && (
+                                <span className="text-[10px] text-sky-800 bg-sky-50 border border-sky-100 rounded px-1 py-0.5 shrink-0" title="From the merchant's own invoice — your bank sent no alert for this one">
+                                  receipt
+                                </span>
+                              )}
                             </span>
                             <div className="text-[11px] text-stone-400 mt-0.5">
                               {acct ? acct.name : p.accountTail ? `account ••${p.accountTail}` : "account unknown"}

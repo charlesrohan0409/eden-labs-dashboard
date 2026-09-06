@@ -79,6 +79,65 @@ export function reorderTasks(d, orderedIds) {
   return d;
 }
 
+// ---- calls ----
+//
+// The calls array has only ever been read. Nothing wrote to it, so the
+// outreach log counted "calls booked" while nothing anywhere recorded a call
+// having happened — the two halves of the same funnel, and only one of them
+// tracked.
+export function addCall(d, call) {
+  if (!Array.isArray(d.calls)) d.calls = [];
+  d.calls.push({
+    id: uid(), clientId: null, direction: "inbound", date: today(), notes: "",
+    ...call,
+  });
+  return d;
+}
+
+/**
+ * A recorded Fathom meeting, filed as a call.
+ *
+ * Idempotent on the recording id: opening the tab again, or a second person
+ * pressing the button, must not produce two calls for one conversation. That
+ * id is Fathom's own and survives a re-sync, which a date-and-title match
+ * would not — the same weekly call has the same title every week.
+ */
+export function logMeetingAsCall(d, meeting, { clientId = null, notes = "" } = {}) {
+  const fathomId = meeting?.recording_id || meeting?.url || meeting?.share_url;
+  if (!fathomId) return d;
+  if (!Array.isArray(d.calls)) d.calls = [];
+  if (d.calls.some((c) => c.fathomId === fathomId)) return d;
+
+  const when = String(meeting.scheduled_start_time || meeting.created_at || "").slice(0, 10) || today();
+  addCall(d, {
+    clientId,
+    date: when,
+    // Everyone on the invite except him, which is the only part worth reading
+    // back later.
+    direction: "inbound",
+    notes: notes || meeting.title || meeting.meeting_title || "Recorded meeting",
+    fathomId,
+    fathomUrl: meeting.share_url || meeting.url || "",
+    // Fathom returns the summary as an object, not a string —
+    // { template_name, markdown_formatted } — and calling .slice on it throws.
+    summary: String(
+      typeof meeting.default_summary === "string"
+        ? meeting.default_summary
+        : meeting.default_summary?.markdown_formatted || ""
+    ).slice(0, 4000),
+    actionItems: Array.isArray(meeting.action_items)
+      ? meeting.action_items.map((a) => (typeof a === "string" ? a : a?.description || a?.text || "")).filter(Boolean).slice(0, 30)
+      : [],
+    attendees: (meeting.calendar_invitees || []).map((i) => i.email).filter(Boolean),
+  });
+  return d;
+}
+
+export function deleteCall(d, id) {
+  d.calls = (d.calls || []).filter((c) => c.id !== id);
+  return d;
+}
+
 // ---- clients ----
 export function addClient(d, client) {
   d.clients.push(client);

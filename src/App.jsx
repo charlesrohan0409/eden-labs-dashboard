@@ -386,7 +386,13 @@ export default function App() {
         {view === "performance" && <PerformancePage data={data} />}
         {view === "analysis" && <AnalysisPage token={ownerAuth.token} setView={setView} />}
 
-        {view === "calendar" && <CalendarPage />}
+        {view === "calendar" && (
+          <CalendarPage
+            data={data}
+            onLogMeeting={actions.logMeetingAsCall}
+            onAddContact={actions.addContact}
+          />
+        )}
 
         {view === "integrations" && (
           <IntegrationsPage

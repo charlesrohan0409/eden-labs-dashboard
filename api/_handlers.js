@@ -149,12 +149,18 @@ export async function handleFathom(headers, body) {
   (params.calendarInviteesDomains || []).forEach((d) => qs.append("calendar_invitees_domains[]", d));
 
   try {
+    // X-Api-Key, NOT Authorization: Bearer.
+    //
+    // Fathom rejects a bearer token with a bare 401 and no message, which
+    // reads exactly like an expired key — so the error said "check your key
+    // is current" and Charles replaced it twice for nothing. Every key would
+    // have failed. Confirmed against the live API: Bearer 401, X-Api-Key 200.
     const upstream = await fetch(`${FATHOM_ENDPOINT}?${qs.toString()}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: { "X-Api-Key": apiKey },
     });
     const json = await upstream.json().catch(() => ({}));
     if (!upstream.ok) {
-      const hint = upstream.status === 401 ? " — check FATHOM_API_KEY is a current, unexpired key from developers.fathom.ai" : "";
+      const hint = upstream.status === 401 ? " — FATHOM_API_KEY was rejected. Check it is current at developers.fathom.ai; note Fathom authenticates on the X-Api-Key header, not a bearer token." : "";
       return { status: upstream.status, body: { error: (json?.message || json?.error || `Fathom rejected the request (${upstream.status}).`) + hint } };
     }
     return { status: 200, body: json };

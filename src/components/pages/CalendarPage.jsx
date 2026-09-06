@@ -4,6 +4,7 @@ import Card from "../ui/Card";
 import PillTabs from "../ui/PillTabs";
 import PrimaryButton from "../ui/PrimaryButton";
 import MeetingRow from "../ui/MeetingRow";
+import RecordedMeetings from "../ui/RecordedMeetings";
 import { useGoogleCalendar } from "../../hooks/useGoogleCalendar";
 
 const RANGES = [
@@ -13,7 +14,7 @@ const RANGES = [
   { value: "all",    label: "All upcoming", days: null },
 ];
 
-export default function CalendarPage() {
+export default function CalendarPage({ data, onLogMeeting, onAddContact }) {
   const [range, setRange] = useState("recent");
   const { loading, error, byDay, byDayPast, upcoming, past, fetchedAt, refresh } = useGoogleCalendar();
 
@@ -119,6 +120,19 @@ export default function CalendarPage() {
           </div>
         </>
       )}
+
+      {/* What actually happened, next to what is coming up. The calendar shows
+          meetings scheduled; Fathom shows the ones that took place, with the
+          summary — and until now those only ever appeared in a client's own
+          portal, never on his side. */}
+      <RecordedMeetings
+        clients={data?.clients || []}
+        contacts={data?.contacts || []}
+        calls={data?.calls || []}
+        profile={data?.profile || {}}
+        onLogMeeting={onLogMeeting}
+        onAddContact={onAddContact}
+      />
     </div>
   );
 }

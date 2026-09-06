@@ -162,6 +162,11 @@ export function useAppData(token, onUnauthorized) {
     deleteTask: (id) => update((d) => M.deleteTask(d, id)),
     reorderTasks: (orderedIds) => update((d) => M.reorderTasks(d, orderedIds)),
 
+    // ---- calls ----
+    addCall: (c) => update((d) => M.addCall(d, c)),
+    logMeetingAsCall: (meeting, opts) => update((d) => M.logMeetingAsCall(d, meeting, opts)),
+    deleteCall: (id) => update((d) => M.deleteCall(d, id)),
+
     // ---- clients ----
     addClient: (client) => {
       update((d) => M.addClient(d, client));

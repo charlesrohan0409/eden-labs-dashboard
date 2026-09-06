@@ -73,6 +73,13 @@ const TXN_WORDS = ["debited", "credited", "Sent Rs", "spent", "received", "withd
 // and nothing from the network ever reaches this string.
 const quote = (v) => `'${String(v).replace(/'/g, "''")}'`;
 
+// Apple stores message.date as an offset from 2001-01-01, but the UNIT changed:
+// older rows are seconds, newer ones nanoseconds. Dividing everything by a
+// billion sends every old row back to 2001, and a 30-day window then matches
+// nothing — which is exactly what happened: 2,396 messages found with no date
+// filter, zero with one.
+const EPOCH = "(CASE WHEN m.date > 1000000000000 THEN m.date/1000000000 ELSE m.date END + 978307200)";
+
 function buildQuery(sinceRowId) {
   const senders = BANK_SENDERS.map((b) => `upper(h.id) LIKE ${quote("%" + b + "%")}`).join(" OR ");
   const words = TXN_WORDS.map((w) => `m.text LIKE ${quote("%" + w + "%")}`).join(" OR ");
@@ -80,11 +87,11 @@ function buildQuery(sinceRowId) {
     SELECT m.ROWID,
            COALESCE(h.id,'?'),
            m.text,
-           strftime('%Y-%m-%d', m.date/1000000000 + 978307200, 'unixepoch', 'localtime')
+           strftime('%Y-%m-%d', ${EPOCH}, 'unixepoch', 'localtime')
       FROM message m
       LEFT JOIN handle h ON m.handle_id = h.ROWID
      WHERE m.ROWID > ${Number(sinceRowId) || 0}
-       ${sinceRowId || ALL ? "" : `AND m.date/1000000000 + 978307200 > strftime('%s','now','-${Math.max(1, Math.round(DAYS))} days')`}
+       ${sinceRowId || ALL ? "" : `AND ${EPOCH} > strftime('%s','now','-${Math.max(1, Math.round(DAYS))} days')`}
        AND m.is_from_me = 0
        AND m.text IS NOT NULL
        AND (${senders})
@@ -181,6 +188,32 @@ function readMessages(sinceRowId) {
   } finally {
     for (const ext of ["", "-wal", "-shm"]) { try { fs.unlinkSync(tmp + ext); } catch { /* fine */ } }
   }
+}
+
+// --- what's actually in the database ---------------------------------------
+//
+// When nothing comes back the question is always the same: is it the filter,
+// the dates, or is forwarding simply off? This answers all three without
+// sending anything or printing a single personal message.
+if (process.argv.includes("--debug")) {
+  const tmp = path.join(os.tmpdir(), `edenlabs-debug-${process.pid}.db`);
+  try { fs.copyFileSync(DB, tmp); } catch (e) { console.error("Cannot read Messages: " + e.message); process.exit(1); }
+  const q = (sql) => execFileSync("sqlite3", ["-separator", " | ", tmp, sql], { encoding: "utf8" }).trim();
+  const senders = BANK_SENDERS.map((b) => `upper(h.id) LIKE ${quote("%" + b + "%")}`).join(" OR ");
+  const words = TXN_WORDS.map((w) => `m.text LIKE ${quote("%" + w + "%")}`).join(" OR ");
+  const D = (expr) => `strftime('%Y-%m-%d', ${expr}, 'unixepoch', 'localtime')`;
+
+  console.log("every message on this Mac:      " + q("select count(*) from message;"));
+  console.log("  newest / oldest:              " + q(`select ${D(EPOCH)}, min(${D(EPOCH)}) from message m order by m.ROWID desc limit 1;`));
+  console.log("from a bank sender:             " + q(`select count(*) from message m left join handle h on m.handle_id=h.ROWID where ${senders};`));
+  console.log("  ...and transaction wording:   " + q(`select count(*) from message m left join handle h on m.handle_id=h.ROWID where (${senders}) and (${words});`));
+  console.log("  ...in the last 30 days:       " + q(`select count(*) from message m left join handle h on m.handle_id=h.ROWID where (${senders}) and (${words}) and ${EPOCH} > strftime('%s','now','-30 days');`));
+  console.log("\nmost recent bank senders (name and date only, no message text):");
+  console.log(q(`select ${D(EPOCH)}, coalesce(h.id,'?') from message m left join handle h on m.handle_id=h.ROWID where ${senders} order by m.ROWID desc limit 12;`).split("\n").map((l) => "  " + l).join("\n"));
+  console.log("\nsenders the filter does NOT recognise, that look like shortcodes:");
+  console.log(q(`select coalesce(h.id,'?'), count(*) from message m left join handle h on m.handle_id=h.ROWID where NOT (${senders}) and length(coalesce(h.id,'')) between 6 and 14 and h.id not like '+%' group by 1 order by 2 desc limit 12;`).split("\n").map((l) => "  " + l).join("\n"));
+  try { fs.unlinkSync(tmp); } catch { /* fine */ }
+  process.exit(0);
 }
 
 // --- run ------------------------------------------------------------------

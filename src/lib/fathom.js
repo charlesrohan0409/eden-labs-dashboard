@@ -1,3 +1,4 @@
+import { apiToken } from "./apiToken.js";
 // Client-side Fathom helper. Same shape as buffer.js — the browser only ever
 // calls our own same-origin /api/fathom; the key lives server-side in
 // api/_handlers.js and never reaches the client.
@@ -5,7 +6,7 @@
 async function fathomRequest(params) {
   const res = await fetch("/api/fathom", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(apiToken() ? { Authorization: `Bearer ${apiToken()}` } : {}) },
     body: JSON.stringify({ params }),
   });
   const json = await res.json().catch(() => ({}));

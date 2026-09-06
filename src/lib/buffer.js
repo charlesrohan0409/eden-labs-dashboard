@@ -1,3 +1,4 @@
+import { apiToken } from "./apiToken.js";
 // Client-side Buffer helper. Every call goes to our own same-origin
 // /api/buffer, never to api.buffer.com directly — see api/buffer.js and the
 // bufferDevProxy plugin in vite.config.js for why (CORS + secret handling).
@@ -5,7 +6,7 @@
 async function bufferGraphQL(query, variables) {
   const res = await fetch("/api/buffer", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(apiToken() ? { Authorization: `Bearer ${apiToken()}` } : {}) },
     body: JSON.stringify({ query, variables }),
   });
   const json = await res.json().catch(() => ({}));

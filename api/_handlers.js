@@ -1,3 +1,23 @@
+import { verifyToken, bearerFrom } from "./_crypto.js";
+
+// WHO IS ALLOWED TO USE THESE PROXIES.
+//
+// Every handler in this file forwards a request to a third party using
+// Charles's own API key, and until now not one of them checked who was
+// asking. /api/send-email would send mail from his domain for anybody who
+// found the URL; /api/buffer would post to his social accounts; /api/fathom
+// would hand over the summary and full transcript of every client call.
+//
+// The key living server-side protects the KEY. It does nothing to protect
+// what the key can do.
+const secret = () => process.env.SESSION_SECRET || "";
+const roleOf = (headers) => verifyToken(bearerFrom(headers), secret())?.role || null;
+const DENY = { status: 401, body: { error: "Not authorised." } };
+/** Owner only — anything that spends money, sends mail, or publishes. */
+const owner = (headers) => roleOf(headers) === "owner";
+/** Owner or a signed-in client — read-only things a portal legitimately shows. */
+const ownerOrClient = (headers) => ["owner", "client"].includes(roleOf(headers));
+
 // The actual logic behind every /api/* route.
 //
 // Each handler takes a parsed request body and returns { status, body }. The
@@ -16,7 +36,8 @@ const missingKey = (name, what) => ({
 });
 
 // ---------------------------------------------------------------- Buffer ---
-export async function handleBuffer(body) {
+export async function handleBuffer(headers, body) {
+  if (!owner(headers)) return DENY;
   const apiKey = process.env.BUFFER_API_KEY;
   if (!apiKey) return missingKey("BUFFER_API_KEY", "use Buffer");
 
@@ -36,7 +57,8 @@ export async function handleBuffer(body) {
 }
 
 // -------------------------------------------------------------- Calendar ---
-export async function handleCalendar(body) {
+export async function handleCalendar(headers, body) {
+  if (!ownerOrClient(headers)) return DENY;
   const url = process.env.GOOGLE_CALENDAR_ICAL_URL;
   if (!url) return missingKey("GOOGLE_CALENDAR_ICAL_URL", "show your calendar");
 
@@ -68,7 +90,8 @@ export async function handleCalendar(body) {
 }
 
 // ------------------------------------------------------------ Send email ---
-export async function handleSendEmail(body) {
+export async function handleSendEmail(headers, body) {
+  if (!owner(headers)) return DENY;
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return missingKey("RESEND_API_KEY", "send email");
 
@@ -108,7 +131,8 @@ export async function handleSendEmail(body) {
 // ------------------------------------------------------------- Fathom -----
 const FATHOM_ENDPOINT = "https://api.fathom.ai/external/v1/meetings";
 
-export async function handleFathom(body) {
+export async function handleFathom(headers, body) {
+  if (!ownerOrClient(headers)) return DENY;
   const apiKey = process.env.FATHOM_API_KEY;
   if (!apiKey) return missingKey("FATHOM_API_KEY", "pull meeting transcripts");
 

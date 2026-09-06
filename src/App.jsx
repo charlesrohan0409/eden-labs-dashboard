@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { AlertTriangle, X } from "lucide-react";
 import { useAppData } from "./hooks/useAppData";
+import { setApiToken } from "./lib/apiToken";
 import { useFinanceLedgerSync } from "./hooks/useFinanceLedgerSync";
 import { useOwnerAuth } from "./hooks/useOwnerAuth";
 import { usePortalData } from "./hooks/usePortalData";
@@ -96,6 +97,15 @@ export default function App() {
   const [portalSession, setPortalSession] = useState(() => {
     try {
       const raw = localStorage.getItem(PORTAL_SESSION_KEY);
+
+  // Our own /api proxies now check who is asking — see api/_handlers.js. This
+  // is where the browser learns which session it is speaking for.
+  //
+  // Placed AFTER portalSession is declared: referencing a const before its
+  // declaration is a temporal dead zone error, which the build does not catch
+  // and which crashes the page on first render.
+  useEffect(() => { setApiToken(ownerAuth.token || portalSession?.token || null); },
+    [ownerAuth.token, portalSession?.token]);
       return raw ? JSON.parse(raw) : null;
     } catch { return null; }
   }); // { token, clientId }

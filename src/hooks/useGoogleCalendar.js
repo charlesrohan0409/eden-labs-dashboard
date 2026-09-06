@@ -1,3 +1,4 @@
+import { apiToken } from "../lib/apiToken.js";
 import { useEffect, useMemo, useState } from "react";
 
 // Same module-level cache pattern as useBufferPerformance: the Overview card
@@ -21,7 +22,7 @@ async function loadOnce(force) {
   if (!inflight) {
     inflight = fetch("/api/calendar", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(apiToken() ? { Authorization: `Bearer ${apiToken()}` } : {}) },
       body: JSON.stringify(FETCH_PARAMS),
     })
       .then(async (res) => {

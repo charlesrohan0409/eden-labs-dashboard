@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { pendingLedgerEntries, isUnified } from "../lib/financeSync";
+import { pendingLedgerEntries, ledgerCorrections, isUnified } from "../lib/financeSync";
 
 // Pushes anything the Finance tab has recorded but the ledger hasn't seen.
 //
@@ -49,17 +49,38 @@ export function useFinanceLedgerSync(data, token, { enabled = true } = {}) {
     if (!isUnified(data)) { setState((s) => ({ ...s, pending: 0 })); return; }
 
     const todo = pendingLedgerEntries(data, ledgerRef.current);
-    setState((s) => ({ ...s, pending: todo.length }));
-    if (!todo.length) return;
+    // Edits, not just additions. An append-only sync leaves a re-categorised
+    // expense reading its old category in every budget for ever.
+    const fixes = ledgerCorrections(data, ledgerRef.current);
+    setState((s) => ({ ...s, pending: todo.length + fixes.length }));
+    if (!todo.length && !fixes.length) return;
 
     // Serialised: two saves close together would otherwise both read the same
     // ledger snapshot and race, and the loser's 409 would drop its entries.
     chain.current = chain.current.then(async () => {
       setState((s) => ({ ...s, syncing: true }));
       try {
-        const res = await append(token, todo);
-        ledgerRef.current = [...(ledgerRef.current || []), ...todo];
-        setState((s) => ({ pending: 0, added: s.added + (res.added || 0), error: "", syncing: false }));
+        let added = 0;
+        if (todo.length) {
+          const res = await append(token, todo);
+          ledgerRef.current = [...(ledgerRef.current || []), ...todo];
+          added = res.added || 0;
+        }
+        if (fixes.length) {
+          // A correction replaces an entry, which append cannot express — so
+          // this path re-reads the ledger and PUTs it whole, under the
+          // server's optimistic lock.
+          const cur = await (await fetch("/api/ledger", { headers: { Authorization: `Bearer ${token}` } })).json();
+          const byOrigin = new Map(fixes.map((f) => [f.origin, f.replacement]));
+          const next = (cur.entries || []).map((t) => byOrigin.get(t?.ref?.origin) || t);
+          const put = await fetch("/api/ledger", {
+            method: "PUT",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ entries: next, version: cur.version }),
+          });
+          if (put.ok) ledgerRef.current = next;
+        }
+        setState((s) => ({ pending: 0, added: s.added + added, error: "", syncing: false }));
       } catch (e) {
         // Left pending on purpose. The next data change retries, and the
         // origin guard means a partial success can't double-book.

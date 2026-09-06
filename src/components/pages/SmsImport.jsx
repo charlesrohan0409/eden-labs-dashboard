@@ -3,7 +3,7 @@ import { MessageSquare, Upload, Check, AlertTriangle, Plus, ArrowUpRight, ArrowD
 import Card, { CardTitle } from "../ui/Card";
 import { parseSmsBatch } from "../../lib/smsParse";
 import { routeAlert, advanceRenewal } from "../../lib/alertRouter";
-import { suggestCategory, matchAccount, toExpense } from "../../lib/alertToExpense";
+import { suggestCategory, matchAccount, toExpense, alreadyRecorded } from "../../lib/alertToExpense";
 import { recallCategory } from "../../lib/categoryMemory";
 
 // Bank SMS, pasted in.
@@ -225,6 +225,9 @@ export default function SmsImport({
                       const acct = matchAccount(a, accounts);
                       // His own past choice first — it beats any keyword
                       // guess, and it is his decision rather than mine.
+                      // Same amount, same day, already on the books — most
+                      // likely this transaction arriving by a second route.
+                      const twin = alreadyRecorded(a, expenses);
                       const memory = recallCategory(data, a.payee, categories);
                       const guess = memory?.category || suggestCategory(a, categories);
                       const cat = picked[a.messageId] ?? "";
@@ -238,6 +241,11 @@ export default function SmsImport({
                                 : <ArrowDownLeft size={13} className="text-emerald-600 shrink-0" />}
                               <span className="truncate" title={a.text}>{a.payee || "(no name in the message)"}</span>
                             </span>
+                            {twin && (
+                              <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5 mt-1 inline-block">
+                                Already recorded? &ldquo;{String(twin.vendor || twin.category)}&rdquo; on {twin.date}, same amount
+                              </div>
+                            )}
                             <div className="text-[11px] text-stone-400 mt-0.5">
                               {acct ? acct.name : a.accountTail ? `account ••${a.accountTail}` : "account unknown"}
                             </div>

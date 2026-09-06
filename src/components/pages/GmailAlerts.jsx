@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Mail, RefreshCw, Check, AlertTriangle, Unplug, ArrowDownLeft, ArrowUpRight, Plus } from "lucide-react";
 import Card, { CardTitle } from "../ui/Card";
-import { suggestCategory, matchAccount, toExpense } from "../../lib/alertToExpense";
+import { suggestCategory, matchAccount, toExpense, alreadyRecorded } from "../../lib/alertToExpense";
 import { recallCategory } from "../../lib/categoryMemory";
 import { routeAlert, advanceRenewal } from "../../lib/alertRouter";
 
@@ -277,6 +277,9 @@ export default function GmailAlerts({
                       const done = logged.has(p.messageId) || alreadyLogged.has(p.messageId);
                       // His own past choice first — it beats any keyword
                       // guess, and it is his decision rather than mine.
+                      // Same amount, same day, already on the books — most
+                      // likely this transaction arriving by a second route.
+                      const twin = alreadyRecorded(p, expenses);
                       const memory = recallCategory(data, p.payee, categories);
                       const guess = memory?.category || suggestCategory(p, categories);
                       // The suggestion is NOT pre-selected. A pre-filled
@@ -302,6 +305,11 @@ export default function GmailAlerts({
                                 </span>
                               )}
                             </span>
+                            {twin && (
+                              <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5 mt-1 inline-block">
+                                Already recorded? &ldquo;{String(twin.vendor || twin.category)}&rdquo; on {twin.date}, same amount
+                              </div>
+                            )}
                             <div className="text-[11px] text-stone-400 mt-0.5">
                               {acct ? acct.name : p.accountTail ? `account ••${p.accountTail}` : "account unknown"}
                             </div>

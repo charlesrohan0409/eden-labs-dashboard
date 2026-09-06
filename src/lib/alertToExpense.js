@@ -98,3 +98,33 @@ export function toExpense(alert, { accounts = [], category = null, rate = 1, boo
     gmailMessageId: alert.messageId,
   };
 }
+
+/**
+ * Does an expense that looks exactly like this one already exist?
+ *
+ * THE MESSAGE ID IS NOT ENOUGH. One transaction reaches the dashboard by
+ * several roads — the bank's email, the bank's SMS, and sometimes the
+ * merchant's own receipt — and each carries a different id, so the
+ * already-logged guard sees three unrelated messages. It happened: a ₹34
+ * Rapido ride recorded twice, once from the receipt and once from the SMS,
+ * and a ₹120 payment recorded three times.
+ *
+ * Matched on amount and date rather than payee, because the same shop is
+ * written differently by every source — "Rapido" against "Rapido QR Pay".
+ *
+ * Deliberately reports rather than hides: two ₹120 payments to the same
+ * person in a day is an ordinary Tuesday, not proof of a mistake. The caller
+ * warns and asks.
+ */
+export function alreadyRecorded(alert, expenses = [], { days = 1 } = {}) {
+  const want = Math.round((Number(alert?.amount) || 0) * 100);
+  if (!want) return null;
+  const when = new Date(alert.date);
+  if (isNaN(when)) return null;
+  return (expenses || []).find((e) => {
+    const got = Math.round((Number(e.nativeAmount ?? e.amount) || 0) * 100);
+    if (got !== want) return false;
+    const d = new Date(e.date);
+    return !isNaN(d) && Math.abs((d - when) / 86400000) <= days;
+  }) || null;
+}

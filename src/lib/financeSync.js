@@ -182,7 +182,52 @@ export function ledgerAsExpenses(entries, categories = [], budgets = []) {
 export function budgetExpenses(data, ledgerEntries, categories = []) {
   const fromLedger = ledgerAsExpenses(ledgerEntries, categories, data?.budgets);
   if (!Array.isArray(ledgerEntries) || !ledgerEntries.length) return data?.expenses || [];
-  const skip = excluded(data);
-  const unsynced = (data?.expenses || []).filter((e) => skip.has(e.id));
+
+  // Everything the ledger DOESN'T already account for — not just the rows
+  // that predate unification.
+  //
+  // A merchant receipt names no bank account, so expenseEntry cannot double
+  // enter it and it never reaches the ledger at all. Three real expenses were
+  // sitting in the Expenses tab counting towards nothing: a ₹265 Zomato
+  // order, a ₹142 Google One renewal, a ₹34 Rapido ride. Keying off the
+  // ledger's own origins instead of the exclusion list picks those up too,
+  // and still cannot double count — a row in the ledger is never added twice.
+  const inLedger = new Set((ledgerEntries || []).map((t) => t?.ref?.origin).filter(Boolean));
+  const unsynced = (data?.expenses || []).filter((e) => !inLedger.has(`expense:${e.id}`));
   return [...fromLedger, ...unsynced];
+}
+
+/**
+ * Ledger entries that no longer match the record they were derived from.
+ *
+ * The sync only ever ADDS, which is right for new activity and wrong for an
+ * edit: re-categorising a ₹350 expense from Groceries to Church Food changed
+ * the Expenses tab and left the ledger — and therefore every budget — reading
+ * the category he had just rejected.
+ *
+ * Returns replacements rather than applying them, so the caller decides when
+ * to write.
+ */
+export function ledgerCorrections(data, ledgerEntries = []) {
+  if (!data) return [];
+  const accounts = data.accounts || [];
+  const out = [];
+  for (const e of data.expenses || []) {
+    const origin = `expense:${e.id}`;
+    const existing = (ledgerEntries || []).find((t) => t?.ref?.origin === origin);
+    if (!existing) continue;
+    const fresh = expenseEntry(e, accounts);
+    if (!fresh) continue;
+    // Compare what actually matters: the accounts hit, the amounts, the date
+    // and the category. Ignore ids and anything cosmetic.
+    const shape = (t) => JSON.stringify({
+      date: t.date,
+      category: t.ref?.category || null,
+      legs: (t.legs || []).map((l) => [l.account, l.base]).sort(),
+    });
+    if (shape(existing) !== shape(fresh)) {
+      out.push({ origin, replacement: { ...fresh, id: existing.id } });
+    }
+  }
+  return out;
 }

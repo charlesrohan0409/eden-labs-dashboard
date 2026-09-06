@@ -86,8 +86,10 @@ export function pendingLedgerEntries(data, ledgerEntries = []) {
   }
 
   // Card bills leave no expense row behind, so they are read from the log.
+  // A reversed one is skipped — see undoOutgoingPayment. Without this the
+  // sync resurrects every payment that was ever undone, because it only adds.
   for (const l of data.financeLog || []) {
-    if (l?.type !== "card_payment") continue;
+    if (l?.type !== "card_payment" || l.reversed) continue;
     take(cardPaymentEntry(l, accounts));
   }
 

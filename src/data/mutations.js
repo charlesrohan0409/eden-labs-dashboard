@@ -772,6 +772,22 @@ export function undoOutgoingPayment(d, id) {
   o.lastPaidDate = p.prevLastPaidDate || "";
   o.lastPaidAmount = p.prevLastPaidAmount ?? null;
   if (p.prevNextRenewal) o.nextRenewal = p.prevNextRenewal;
+
+  // MARK THE ORIGINAL LOG ENTRY REVERSED.
+  //
+  // A card payment books no expense, so the ledger sync derives it from this
+  // log row instead. The row stays as history — but the sync only ever ADDS,
+  // so an unmarked reversed payment is re-derived on the very next pass and
+  // silently comes back. Two wrongly-applied card payments were removed by
+  // hand and had reappeared within the hour.
+  const originalLog = (d.financeLog || []).filter(
+    (l) => (l.type === "card_payment" || l.type === "outgoing_paid")
+      && !l.reversed
+      && l.title === o.name
+      && Math.abs(Math.abs(Number(l.amount) || 0) - Math.abs(Number(p.amount) || 0)) < 0.01
+  ).pop();
+  if (originalLog) originalLog.reversed = true;
+
   delete o.lastPayment;
 
   return logFinance(d, {

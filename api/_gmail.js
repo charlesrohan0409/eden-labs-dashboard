@@ -174,6 +174,16 @@ const stripHtml = (h) =>
 // Amounts appear as "Rs.1,234.50", "Rs 1234", "INR 1,234.50" and "₹1,234".
 const AMOUNT = String.raw`(?:Rs\.?|INR|₹)\s?([\d,]+(?:\.\d{1,2})?)`;
 
+// What banks put between the amount and the verb that describes it.
+//
+// HDFC's UPI credit reads "Rs.4000.00 has been SUCCESSFULLY credited" — a
+// bare \s+ could not step over the adverb, so three real credits in the last
+// week (₹4,000, ₹6,300 and a ₹249 Apple refund) were read as nothing at all.
+// Each optional word carries its own leading space, so a run of them —
+// "has been successfully" — matches as a sequence. Without the space inside
+// the repeat, the group could only ever match "hasbeensuccessfully".
+const AUX = String.raw`(?:\s+(?:has|have|had|is|was|been|successfully|now))*\s*`;
+
 // Ordered most specific first: a "debited ... credited" reversal mail matches
 // several of these, and the first pattern that fits should be the one that
 // describes the actual movement rather than the one mentioned in passing.
@@ -187,9 +197,10 @@ const PATTERNS = [
   // between the amount and the verb could not step over "has been" — so
   // every Yes Bank card alert parsed to null and none of them were ever
   // recorded, despite yes.bank.in being in the fetch list all along.
-  { dir: "DR", re: new RegExp(`${AMOUNT}\\s*(?:has|have|had)?\\s*(?:been)?\\s*(?:is|was)?\\s*(?:spent|paid|withdrawn|sent|used)`, "i") },
-  // Same shape, incoming: "₹250.00 received in your Kotak A/c".
-  { dir: "CR", re: new RegExp(`${AMOUNT}\\s*(?:has|have|had)?\\s*(?:been)?\\s*(?:is|was)?\\s*(?:received|credited|deposited)`, "i") },
+  { dir: "DR", re: new RegExp(`${AMOUNT}${AUX}(?:spent|paid|withdrawn|sent|used|debited)`, "i") },
+  // Same shape, incoming: "₹250.00 received in your Kotak A/c", and HDFC's
+  // "Rs.4000.00 has been successfully credited to your HDFC Bank account".
+  { dir: "CR", re: new RegExp(`${AMOUNT}${AUX}(?:received|credited|deposited)`, "i") },
   // "Payment of INR 100000.00 successful" — no verb either side of the amount,
   // the word "Payment" carries it.
   { dir: "DR", re: new RegExp(String.raw`payment\s+of\s+${AMOUNT}`, "i") },
@@ -209,9 +220,19 @@ const PAYEE = [
   // handle left every one of these payees as an unreadable string, or null.
   /\bVPA\s+\S+\s*\(([^)]{2,40})\)/i,
   /\b(?:to|towards)\s+VPA\s+([^\s]+?)(?:\s+on|\s+ref|\s*\(|\.|,|$)/i,
+  // "b. Sender: CHARLES ROHAN FERNANDO (VPA: rohanantony29-4@okicici)" — on a
+  // credit the counterparty is the SENDER, and HDFC labels it rather than
+  // writing "from X". Stops before the bracket, which holds the machine
+  // handle rather than a name anyone would recognise.
+  /\bsender\s*[:\-]\s*([A-Za-z][A-Za-z0-9 &.'*_-]{2,40}?)\s*(?:\(|$)/i,
+  /\b(?:beneficiary|recipient|merchant)\s*[:\-]\s*([A-Za-z][A-Za-z0-9 &.'*_-]{2,40}?)\s*(?:\(|$)/i,
   // A bare VPA with no "VPA" label — Kotak writes "To snitch@icici".
   /\b(?:to|from)\s+([a-z0-9][a-z0-9._-]*@[a-z][a-z0-9]*)\b/i,
-  /\b(?:at|to)\s+([A-Z0-9][A-Za-z0-9 &.'*_-]{2,40}?)\s+on\s+\d/i,
+  // "towards" as well as "to": HDFC's card alert writes "debited from your
+  // HDFC Bank Credit Card ending 5902 towards ZOMATO LIMITED on 03 Sep", and
+  // \b(?:at|to)\s+ cannot match inside the word "towards" — which is why
+  // these arrived unnamed and fell back to the subject line.
+  /\b(?:at|to|towards)\s+([A-Z0-9][A-Za-z0-9 &.'*_-]{2,40}?)\s+on\s+\d/i,
   /\bfrom\s+([A-Za-z0-9][A-Za-z0-9 &.'*_-]{2,40}?)\s+on\s+\d/i,
   /\binfo[:\s]+([A-Za-z0-9][A-Za-z0-9 &.'*_-]{2,40})/i,
   // LABELLED FIELDS.
@@ -229,14 +250,20 @@ const PAYEE = [
 // "ending WITH 1427" — Yes Bank puts a word between "ending" and the number,
 // which the old pattern could not step over, so the alert arrived with no
 // account attached and could not be matched to the card it came off.
-const ACCOUNT_TAIL = /(?:a\/?c|account|card)\s*(?:no\.?|number|ending(?:\s+with)?|xx+|\*+)?\s*[xX*]*(\d{4})\b/i;
+const ACCOUNT_TAIL = /(?:a\/?c|account|card)\s*(?:no\.?|number|ending(?:\s+(?:with|in))?|xx+|\*+)?\s*[xX*]*(\d{4})\b/i;
 
 // A merchant mail is only a receipt if it says so. Amazon alone sends far more
 // marketing than invoices, and "₹499 off your next order" is not spending.
-const RECEIPT_SIGNAL = /\b(?:invoice|receipt|payment summary|order (?:total|summary|confirm)|bill details|your (?:order|ride|trip)|has been delivered|thanks? for (?:riding|ordering))\b/i;
+const RECEIPT_SIGNAL = /\b(?:invoice|receipt|payment summary|order\s*(?:id|total|summary|confirm)|bill details|your\s+\w*\s*(?:order|ride|trip)|has been delivered|thanks? for (?:riding|ordering|order)|thank you for ordering)\b/i;
 const RECEIPT_TOTAL = [
-  /\b(?:grand\s+)?total\s*(?:amount)?\s*[:\-]?\s*(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d{1,2})?)/i,
+  // "Total paid - ₹265.08" — Zomato puts the verb between the word and the
+  // figure, which the plain "total: ₹" shape could not read.
+  /\b(?:grand\s+)?total\s*(?:amount|paid|payable)?\s*[:\-–]?\s*(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d{1,2})?)/i,
   /\bamount\s+(?:paid|payable|charged)\s*[:\-]?\s*(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d{1,2})?)/i,
+  // "Paid Via Bank ₹244" — Swiggy names the method between the word and the
+  // figure. Listed before the bare "paid ₹" shape so the method doesn't stop
+  // it matching.
+  /\bpaid\s+via\s+[\w ]{0,24}?(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d{1,2})?)/i,
   /\b(?:you\s+paid|paid)\s*[:\-]?\s*(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d{1,2})?)/i,
 ];
 // Domain → the name Charles would recognise.
@@ -329,7 +356,29 @@ export function mergeReceipts(alerts, receipts, { dayWindow = 2 } = {}) {
  * shorter list of things that are, because every wrong row costs attention
  * to dismiss and trains you to approve without reading.
  */
+/** Is this mail from a bank, or from a shop? The domain is the only part of
+ *  an email that can't be phrased three different ways. */
+export const isBankMail = (msg) => {
+  const f = String(msg?.from || "").toLowerCase();
+  return BANK_DOMAINS.some((d) => f.includes(d));
+};
+export const isMerchantMail = (msg) => {
+  const f = String(msg?.from || "").toLowerCase();
+  return MERCHANT_DOMAINS.some((d) => f.includes(d));
+};
+
 export function parseAlert(msg) {
+  // A SHOP'S RECEIPT IS NOT A BANK ALERT.
+  //
+  // Swiggy's delivery mail itemises the bill — "Taxes ₹10.75 Paid Via Bank
+  // ₹244" — and "₹10.75 Paid" satisfies the debit pattern perfectly. The
+  // order came through as a ₹10.75 expense: the tax line, read as the whole
+  // transaction. Trying the alert parser on merchant mail and falling back to
+  // the receipt parser meant the wrong one always won.
+  //
+  // The sender decides. A bank alert comes from a bank.
+  if (msg?.from && !isBankMail(msg)) return null;
+
   // Subject FIRST, then body. Real alerts turned out to carry the whole
   // transaction in the subject — "UPI Credit Alert: ₹250.00 received in your
   // Kotak A/c" — while the body is an HTML wrapper that strips to noise.
@@ -342,6 +391,17 @@ export function parseAlert(msg) {
   // moved, and recording it would invent an expense on the day it was billed.
   if (/bill (?:generated|is due|reminder)|due date|e-?statement|statement for/i.test(t) &&
       !/debited|credited|received|spent|successful/i.test(t)) return null;
+  // AN E-MANDATE IS A PERMISSION, NOT A PAYMENT.
+  //
+  // "Your payment for ADOBE SYS SOFTWARE IRELAND LTD is registered for
+  // E-mandate ... Current transaction amount: INR 1.00, Maximum transaction
+  // amount: INR 20000.00". Nothing moved; setting one up authorises future
+  // charges. Recording it would book a ₹1 expense, and a cancellation would
+  // book another. Charles's inbox has six of these in the last week.
+  if (/e-?mandate|auto\s?pay\s*\(|standing instruction/i.test(t) &&
+      !/has been (?:successfully )?(?:debited|credited)/i.test(t)) return null;
+  // A failed payment moved nothing either.
+  if (/payment (?:unsuccessful|failed|declined)|incorrect cvv/i.test(t)) return null;
 
   let hit = null;
   for (const p of PATTERNS) { const m = t.match(p.re); if (m) { hit = { dir: p.dir, amount: Number(m[1].replace(/,/g, "")) }; break; } }
